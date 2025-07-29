@@ -24,6 +24,22 @@ Control your Desky standing desk via Bluetooth Low Energy (BLE) in Home Assistan
 - `desky_desk.move_to_preset`: Move to preset position (1-4)
 - `desky_desk.set_position_limit`: Set min/max height limits
 
+## ⚠️ IMPORTANT SAFETY WARNING
+
+**USE AT YOUR OWN RISK**: Standing desks are motorized furniture with inherent safety hazards including:
+- **Crushing hazards** - Keep hands, feet, children, and pets away from moving parts
+- **Collision risks** - Ensure clear space above and below desk before movement
+- **Electrical hazards** - Risk of injury from unexpected movement or malfunction
+- **Pinch points** - Be aware of potential pinch points in the desk mechanism
+
+**This is an UNOFFICIAL integration** with no affiliation, endorsement, or support from Desky. The integration author(s) assume no responsibility for:
+- Damage to property or equipment
+- Personal injury resulting from desk operation
+- Loss of desk warranty due to third-party control
+- Any malfunction or unexpected behavior
+
+Always follow manufacturer safety guidelines and maintain physical access to manual controls.
+
 ## Installation
 
 ### HACS (Recommended)
@@ -144,6 +160,14 @@ Contributions are welcome! Please:
 3. Commit your changes
 4. Push to the branch
 5. Create a Pull Request
+
+## Disclaimer
+
+This integration is **NOT** affiliated with, endorsed by, or supported by Desky or any of its subsidiaries. "Desky" is a trademark of its respective owner(s). This is an independent, community-driven project.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+Use of this integration is entirely at your own risk. The authors accept no responsibility for any damage to your desk, property, or person that may occur from using this software.
 
 ## License
 
