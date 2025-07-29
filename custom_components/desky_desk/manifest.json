@@ -1,0 +1,17 @@
+{
+  "domain": "desky_desk",
+  "name": "Desky Standing Desk",
+  "codeowners": ["@your-github-username"],
+  "config_flow": true,
+  "dependencies": ["bluetooth_adapters"],
+  "documentation": "https://github.com/your-github-username/ha-desky",
+  "integration_type": "device",
+  "iot_class": "local_push",
+  "requirements": ["bleak-retry-connector>=3.1.0"],
+  "bluetooth": [
+    {
+      "local_name": "Desky*"
+    }
+  ],
+  "version": "1.0.0"
+}

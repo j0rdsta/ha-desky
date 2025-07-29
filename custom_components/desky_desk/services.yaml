@@ -1,0 +1,71 @@
+move_to_height:
+  name: Move to Height
+  description: Move the desk to a specific height in centimeters
+  target:
+    entity:
+      integration: desky_desk
+      domain: cover
+  fields:
+    height:
+      name: Height
+      description: Target height in centimeters
+      required: true
+      example: 75.5
+      selector:
+        number:
+          min: 60
+          max: 130
+          step: 0.1
+          unit_of_measurement: cm
+          mode: box
+
+move_to_preset:
+  name: Move to Preset
+  description: Move the desk to a saved preset position
+  target:
+    entity:
+      integration: desky_desk
+      domain: cover
+  fields:
+    preset:
+      name: Preset
+      description: Preset number (1-4)
+      required: true
+      example: 1
+      selector:
+        number:
+          min: 1
+          max: 4
+          step: 1
+          mode: box
+
+set_position_limit:
+  name: Set Position Limit
+  description: Set the minimum or maximum height limit for the desk
+  target:
+    entity:
+      integration: desky_desk
+      domain: cover
+  fields:
+    limit_type:
+      name: Limit Type
+      description: Whether to set the minimum or maximum limit
+      required: true
+      example: min
+      selector:
+        select:
+          options:
+            - min
+            - max
+    height:
+      name: Height
+      description: Limit height in centimeters
+      required: true
+      example: 65
+      selector:
+        number:
+          min: 60
+          max: 130
+          step: 0.1
+          unit_of_measurement: cm
+          mode: box

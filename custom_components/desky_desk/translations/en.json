@@ -1,0 +1,64 @@
+{
+  "config": {
+    "flow_title": "Desky Desk",
+    "step": {
+      "user": {
+        "title": "Set up Desky Desk",
+        "description": "Enter the Bluetooth address of your Desky desk, or leave empty to scan for devices.",
+        "data": {
+          "address": "Bluetooth Address"
+        }
+      },
+      "confirm": {
+        "title": "Confirm Device",
+        "description": "Do you want to set up {name} at address {address}?"
+      },
+      "pick_device": {
+        "title": "Choose Device",
+        "description": "Select your Desky desk from the list of discovered devices.",
+        "data": {
+          "address": "Device"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect to device",
+      "unknown": "Unexpected error"
+    },
+    "abort": {
+      "already_configured": "Device is already configured",
+      "no_devices_found": "No Desky desks found"
+    }
+  },
+  "entity": {
+    "cover": {
+      "desky_desk": {
+        "name": "Desk"
+      }
+    },
+    "number": {
+      "height": {
+        "name": "Height"
+      }
+    },
+    "button": {
+      "preset_1": {
+        "name": "Preset 1"
+      },
+      "preset_2": {
+        "name": "Preset 2"
+      },
+      "preset_3": {
+        "name": "Preset 3"
+      },
+      "preset_4": {
+        "name": "Preset 4"
+      }
+    },
+    "binary_sensor": {
+      "collision": {
+        "name": "Collision Detected"
+      }
+    }
+  }
+}
