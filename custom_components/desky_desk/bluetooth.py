@@ -178,7 +178,7 @@ class DeskBLEDevice:
             
             # Discover services to verify characteristics
             _LOGGER.debug("Connected, discovering services...")
-            services = await self._client.get_services()
+            services = self._client.services
             for service in services:
                 _LOGGER.debug("Service: %s", service.uuid)
                 for char in service.characteristics:
