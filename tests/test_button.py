@@ -19,6 +19,15 @@ async def test_button_setup(hass: HomeAssistant, init_integration):
         state = hass.states.get(f"button.desky_desk_preset_{i}")
         assert state is not None
         assert state.state == "unknown"  # Buttons don't have a real state
+    
+    # Check movement buttons are created
+    state = hass.states.get("button.desky_desk_move_up")
+    assert state is not None
+    assert state.state == "unknown"
+    
+    state = hass.states.get("button.desky_desk_move_down")
+    assert state is not None
+    assert state.state == "unknown"
 
 
 @pytest.mark.asyncio
@@ -121,6 +130,42 @@ async def test_button_press_preset_4(hass: HomeAssistant, init_integration):
     )
     
     mock_device.move_to_preset.assert_called_once_with(4)
+
+
+@pytest.mark.asyncio
+async def test_button_press_move_up(hass: HomeAssistant, init_integration):
+    """Test pressing move up button."""
+    coordinator = hass.data[DOMAIN][init_integration.entry_id]
+    mock_device = MagicMock()
+    mock_device.move_up = AsyncMock()
+    coordinator._device = mock_device
+    
+    await hass.services.async_call(
+        BUTTON_DOMAIN,
+        SERVICE_PRESS,
+        {ATTR_ENTITY_ID: "button.desky_desk_move_up"},
+        blocking=True,
+    )
+    
+    mock_device.move_up.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_button_press_move_down(hass: HomeAssistant, init_integration):
+    """Test pressing move down button."""
+    coordinator = hass.data[DOMAIN][init_integration.entry_id]
+    mock_device = MagicMock()
+    mock_device.move_down = AsyncMock()
+    coordinator._device = mock_device
+    
+    await hass.services.async_call(
+        BUTTON_DOMAIN,
+        SERVICE_PRESS,
+        {ATTR_ENTITY_ID: "button.desky_desk_move_down"},
+        blocking=True,
+    )
+    
+    mock_device.move_down.assert_called_once()
 
 
 @pytest.mark.asyncio

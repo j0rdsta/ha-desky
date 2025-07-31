@@ -34,6 +34,7 @@ def test_desk_device_init(mock_ble_device):
     assert device.height_cm == 0.0
     assert device.collision_detected is False
     assert device.is_moving is False
+    assert device.movement_direction is None
     assert device.is_connected is False
 
 
@@ -252,6 +253,7 @@ async def test_movement_commands(mock_ble_device, mock_bleak_client):
     # Test move up
     await device.move_up()
     assert device._is_moving is True
+    assert device._movement_direction == "up"
     mock_bleak_client.write_gatt_char.assert_called_with(
         WRITE_CHARACTERISTIC_UUID, COMMAND_MOVE_UP
     )
@@ -259,6 +261,7 @@ async def test_movement_commands(mock_ble_device, mock_bleak_client):
     # Test move down
     await device.move_down()
     assert device._is_moving is True
+    assert device._movement_direction == "down"
     mock_bleak_client.write_gatt_char.assert_called_with(
         WRITE_CHARACTERISTIC_UUID, COMMAND_MOVE_DOWN
     )
@@ -266,6 +269,7 @@ async def test_movement_commands(mock_ble_device, mock_bleak_client):
     # Test stop
     await device.stop()
     assert device._is_moving is False
+    assert device._movement_direction is None
     mock_bleak_client.write_gatt_char.assert_called_with(
         WRITE_CHARACTERISTIC_UUID, COMMAND_STOP
     )
@@ -465,12 +469,14 @@ async def test_move_to_height_success(mock_ble_device, mock_bleak_client):
     """Test move_to_height command."""
     device = DeskBLEDevice(mock_ble_device)
     device._client = mock_bleak_client
+    device._height_cm = 70.0  # Current height
     
-    # Test moving to 85.0 cm (850 mm)
+    # Test moving to 85.0 cm (850 mm) - up direction
     result = await device.move_to_height(85.0)
     
     assert result is True
     assert device._is_moving is True
+    assert device._movement_direction == "up"
     
     # Calculate expected command
     # 850 mm = 0x0352, so high=0x03, low=0x52
@@ -523,3 +529,80 @@ async def test_move_to_height_edge_cases(mock_ble_device, mock_bleak_client):
         call(WRITE_CHARACTERISTIC_UUID, expected_max),
     ]
     mock_bleak_client.write_gatt_char.assert_has_calls(expected_calls)
+
+
+def test_auto_stop_detection(mock_ble_device):
+    """Test auto-stop detection when height stops changing."""
+    device = DeskBLEDevice(mock_ble_device)
+    device._is_moving = True
+    device._movement_direction = "up"
+    device._height_cm = 85.0
+    device._last_height_cm = 84.9
+    
+    callback = MagicMock()
+    device.register_notification_callback(callback)
+    
+    # First notification with same height
+    data = bytearray([0x98, 0x98, 0x00, 0x00, 0x52, 0x03])  # 85.0 cm
+    device._handle_notification(0, data)
+    assert device._is_moving is True  # Still moving
+    assert device._height_unchanged_count == 1
+    
+    # Second notification with same height
+    device._handle_notification(0, data)
+    assert device._is_moving is True  # Still moving
+    assert device._height_unchanged_count == 2
+    
+    # Third notification with same height - should trigger auto-stop
+    device._handle_notification(0, data)
+    assert device._is_moving is False  # Stopped
+    assert device._movement_direction is None
+    assert device._height_unchanged_count == 0  # Reset
+    
+    # Verify callbacks were called
+    assert callback.call_count == 3
+
+
+def test_auto_stop_detection_reset_on_movement(mock_ble_device):
+    """Test auto-stop detection resets when height changes."""
+    device = DeskBLEDevice(mock_ble_device)
+    device._is_moving = True
+    device._movement_direction = "up"
+    device._height_cm = 85.0
+    device._last_height_cm = 85.0
+    device._height_unchanged_count = 2  # Almost at stop threshold
+    
+    callback = MagicMock()
+    device.register_notification_callback(callback)
+    
+    # Notification with different height - should reset counter
+    data = bytearray([0x98, 0x98, 0x00, 0x00, 0x5C, 0x03])  # 86.0 cm
+    device._handle_notification(0, data)
+    
+    assert device._is_moving is True  # Still moving
+    assert device._height_unchanged_count == 0  # Reset
+    assert device._last_height_cm == 86.0  # Updated
+
+
+@pytest.mark.asyncio
+async def test_move_to_height_direction_detection(mock_ble_device, mock_bleak_client):
+    """Test move_to_height sets correct movement direction."""
+    device = DeskBLEDevice(mock_ble_device)
+    device._client = mock_bleak_client
+    device._height_cm = 85.0  # Current height
+    
+    # Test moving down
+    await device.move_to_height(70.0)
+    assert device._movement_direction == "down"
+    
+    # Test moving up
+    device._height_cm = 70.0
+    await device.move_to_height(90.0)
+    assert device._movement_direction == "up"
+    
+    # Test same height (no movement)
+    device._height_cm = 80.0
+    result = await device.move_to_height(80.0)
+    assert result is True
+    assert device._movement_direction is None
+    assert device._is_moving is False

@@ -44,6 +44,7 @@ This is a Home Assistant custom integration that follows the standard component 
    - Periodic status polling (30-second intervals)
    - Automatic reconnection attempts
    - Data distribution to all entities
+   - Movement direction tracking for proper cover state
 
 2. **Bluetooth Communication**:
    - Uses characteristic UUIDs for write (0xfe61) and notify (0xfe62)
@@ -53,9 +54,9 @@ This is a Home Assistant custom integration that follows the standard component 
    - Height calculation: `(byte4 | (byte5 << 8)) / 10.0` cm
 
 3. **Entity Implementation**:
-   - Cover entity: Main control interface (0-100% position mapping)
+   - Cover entity: Main control interface (0-100% position mapping) with proper direction tracking
    - Number entity: Direct height control (60-130cm range)
-   - Button entities: Four preset positions
+   - Button entities: Four preset positions + manual Move Up/Down controls
    - Binary sensor: Collision detection
 
 ### BLE Protocol Commands
@@ -134,3 +135,5 @@ The integration provides three custom services:
 3. **Error Handling**: Connection errors trigger reconnection; command errors are logged but don't crash
 4. **Bluetooth Proxies**: Fully supported through Home Assistant's bluetooth component
 5. **Multi-desk Support**: Each desk gets its own coordinator instance
+6. **Movement Tracking**: Direction tracking prevents cover UI issues; auto-stop detection when desk reaches target
+7. **Manual Controls**: Move Up/Down buttons bypass any cover entity restrictions

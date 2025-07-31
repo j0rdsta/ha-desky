@@ -14,9 +14,9 @@ Control your Desky standing desk via Bluetooth Low Energy (BLE) in Home Assistan
 - **Cover Entity**: Control desk as a cover (0% = minimum height, 100% = maximum height)
 
 ### Supported Entities
-- **Cover**: Main control entity for desk movement
+- **Cover**: Main control entity for desk movement with proper direction tracking
 - **Number**: Current height in cm (60-130cm range)
-- **Buttons**: Four preset position buttons
+- **Buttons**: Four preset position buttons + Move Up/Down manual controls
 - **Binary Sensor**: Collision detection
 
 ### Services
@@ -107,6 +107,12 @@ entities:
   - entity: number.desky_desk_height
     name: Current Height
   - type: section
+    label: Manual Controls
+  - entity: button.desky_desk_move_up
+    name: Move Up
+  - entity: button.desky_desk_move_down
+    name: Move Down
+  - type: section
     label: Presets
   - entity: button.desky_desk_preset_1
     name: Sitting
@@ -154,6 +160,12 @@ This integration fully supports ESPHome Bluetooth proxies. To use:
 2. The desk will be discovered through the proxy automatically
 
 ## Technical Details
+
+### Cover Entity Improvements
+The cover entity now properly tracks movement direction, preventing Home Assistant from incorrectly disabling up/down buttons. The integration includes:
+- Accurate `is_opening` and `is_closing` state tracking
+- Automatic stop detection when the desk reaches its target position
+- Manual Move Up/Down buttons that bypass any cover restrictions
 
 ### BLE Protocol
 The integration uses the following BLE commands:

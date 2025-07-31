@@ -95,9 +95,11 @@ class DeskyCover(CoordinatorEntity[DeskUpdateCoordinator], CoverEntity):
         if not self.coordinator.data:
             return False
         
-        # We track general movement, not direction specifically
-        # This could be enhanced by tracking last command
-        return self.coordinator.data.get("is_moving", False)
+        # Check if desk is moving up
+        return (
+            self.coordinator.data.get("is_moving", False) and 
+            self.coordinator.data.get("movement_direction") == "up"
+        )
 
     @property
     def is_closing(self) -> bool:
@@ -105,9 +107,11 @@ class DeskyCover(CoordinatorEntity[DeskUpdateCoordinator], CoverEntity):
         if not self.coordinator.data:
             return False
         
-        # We track general movement, not direction specifically  
-        # This could be enhanced by tracking last command
-        return False  # We don't track direction separately
+        # Check if desk is moving down
+        return (
+            self.coordinator.data.get("is_moving", False) and 
+            self.coordinator.data.get("movement_direction") == "down"
+        )
 
     @property
     def available(self) -> bool:

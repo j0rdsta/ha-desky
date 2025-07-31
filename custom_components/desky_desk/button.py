@@ -28,6 +28,8 @@ async def async_setup_entry(
         DeskyPresetButton(coordinator, 2),
         DeskyPresetButton(coordinator, 3),
         DeskyPresetButton(coordinator, 4),
+        DeskyMoveUpButton(coordinator),
+        DeskyMoveDownButton(coordinator),
     ]
     
     async_add_entities(buttons)
@@ -61,3 +63,61 @@ class DeskyPresetButton(CoordinatorEntity[DeskUpdateCoordinator], ButtonEntity):
         if self.coordinator.device:
             _LOGGER.debug("Moving desk to preset %d", self._preset_number)
             await self.coordinator.device.move_to_preset(self._preset_number)
+
+
+class DeskyMoveUpButton(CoordinatorEntity[DeskUpdateCoordinator], ButtonEntity):
+    """Representation of a desk move up button."""
+
+    _attr_has_entity_name = True
+    _attr_name = "Move Up"
+
+    def __init__(self, coordinator: DeskUpdateCoordinator) -> None:
+        """Initialize the move up button."""
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{coordinator.entry.unique_id}_move_up"
+        self._attr_device_info = {
+            "identifiers": {(DOMAIN, coordinator.entry.unique_id)},
+            "name": coordinator.device.name if coordinator.device else "Desky Desk",
+            "manufacturer": "Desky",
+            "model": "Standing Desk",
+        }
+
+    @property
+    def available(self) -> bool:
+        """Return True if entity is available."""
+        return self.coordinator.data.get("is_connected", False) if self.coordinator.data else False
+
+    async def async_press(self) -> None:
+        """Handle the button press."""
+        if self.coordinator.device:
+            _LOGGER.debug("Moving desk up")
+            await self.coordinator.device.move_up()
+
+
+class DeskyMoveDownButton(CoordinatorEntity[DeskUpdateCoordinator], ButtonEntity):
+    """Representation of a desk move down button."""
+
+    _attr_has_entity_name = True
+    _attr_name = "Move Down"
+
+    def __init__(self, coordinator: DeskUpdateCoordinator) -> None:
+        """Initialize the move down button."""
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{coordinator.entry.unique_id}_move_down"
+        self._attr_device_info = {
+            "identifiers": {(DOMAIN, coordinator.entry.unique_id)},
+            "name": coordinator.device.name if coordinator.device else "Desky Desk",
+            "manufacturer": "Desky",
+            "model": "Standing Desk",
+        }
+
+    @property
+    def available(self) -> bool:
+        """Return True if entity is available."""
+        return self.coordinator.data.get("is_connected", False) if self.coordinator.data else False
+
+    async def async_press(self) -> None:
+        """Handle the button press."""
+        if self.coordinator.device:
+            _LOGGER.debug("Moving desk down")
+            await self.coordinator.device.move_down()

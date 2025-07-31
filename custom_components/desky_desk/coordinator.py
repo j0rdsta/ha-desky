@@ -54,6 +54,7 @@ class DeskUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "height_cm": self._device.height_cm,
             "collision_detected": self._device.collision_detected,
             "is_moving": self._device.is_moving,
+            "movement_direction": self._device.movement_direction,
             "is_connected": self._device.is_connected,
         }
 
@@ -84,6 +85,7 @@ class DeskUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "height_cm": 0,
             "collision_detected": False,
             "is_moving": False,
+            "movement_direction": None,
             "is_connected": False,
         })
 
@@ -119,6 +121,7 @@ class DeskUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "height_cm": height,
             "collision_detected": collision,
             "is_moving": moving,
+            "movement_direction": self._device.movement_direction if self._device else None,
             "is_connected": True,
         })
 
@@ -128,6 +131,7 @@ class DeskUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "height_cm": self._device.height_cm if self._device else 0,
             "collision_detected": False,
             "is_moving": False,
+            "movement_direction": None,
             "is_connected": False,
         })
 

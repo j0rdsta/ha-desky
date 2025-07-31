@@ -208,15 +208,41 @@ async def test_cover_movement_state(hass: HomeAssistant, init_integration):
     """Test cover movement state."""
     coordinator = hass.data[DOMAIN][init_integration.entry_id]
     
-    # Test moving state
+    # Test moving up state
     coordinator.async_set_updated_data({
         "height_cm": 80.0,
         "collision_detected": False,
         "is_moving": True,
+        "movement_direction": "up",
         "is_connected": True,
     })
     await hass.async_block_till_done()
     
     state = hass.states.get("cover.desky_desk")
-    # State should be "opening" when is_moving is True
     assert state.state == "opening"
+    
+    # Test moving down state
+    coordinator.async_set_updated_data({
+        "height_cm": 80.0,
+        "collision_detected": False,
+        "is_moving": True,
+        "movement_direction": "down",
+        "is_connected": True,
+    })
+    await hass.async_block_till_done()
+    
+    state = hass.states.get("cover.desky_desk")
+    assert state.state == "closing"
+    
+    # Test stopped state
+    coordinator.async_set_updated_data({
+        "height_cm": 80.0,
+        "collision_detected": False,
+        "is_moving": False,
+        "movement_direction": None,
+        "is_connected": True,
+    })
+    await hass.async_block_till_done()
+    
+    state = hass.states.get("cover.desky_desk")
+    assert state.state == "open"  # Position is 28% which is > 0

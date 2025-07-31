@@ -43,6 +43,9 @@ class DeskBLEDevice:
         self._height_cm: float = 0.0
         self._collision_detected: bool = False
         self._is_moving: bool = False
+        self._movement_direction: str | None = None  # "up", "down", or None
+        self._last_height_cm: float = 0.0  # Track last height for auto-stop detection
+        self._height_unchanged_count: int = 0  # Count notifications with unchanged height
         self._notification_callbacks: list[Callable[[float, bool, bool], None]] = []
         self._disconnect_callbacks: list[Callable[[], None]] = []
 
@@ -70,6 +73,11 @@ class DeskBLEDevice:
     def is_moving(self) -> bool:
         """Return if desk is currently moving."""
         return self._is_moving
+    
+    @property
+    def movement_direction(self) -> str | None:
+        """Return the current movement direction ('up', 'down', or None)."""
+        return self._movement_direction
 
     @property
     def is_connected(self) -> bool:
@@ -230,16 +238,22 @@ class DeskBLEDevice:
     async def move_up(self) -> bool:
         """Start moving the desk up."""
         self._is_moving = True
+        self._movement_direction = "up"
+        self._height_unchanged_count = 0  # Reset auto-stop counter
         return await self._send_command(COMMAND_MOVE_UP)
 
     async def move_down(self) -> bool:
         """Start moving the desk down."""
         self._is_moving = True
+        self._movement_direction = "down"
+        self._height_unchanged_count = 0  # Reset auto-stop counter
         return await self._send_command(COMMAND_MOVE_DOWN)
 
     async def stop(self) -> bool:
         """Stop desk movement."""
         self._is_moving = False
+        self._movement_direction = None
+        self._height_unchanged_count = 0
         return await self._send_command(COMMAND_STOP)
 
     async def get_status(self) -> bool:
@@ -261,6 +275,9 @@ class DeskBLEDevice:
             return False
         
         self._is_moving = True
+        # We don't know the preset height, so can't set direction
+        self._movement_direction = None
+        self._height_unchanged_count = 0  # Reset auto-stop counter
         return await self._send_command(command)
 
     async def move_to_height(self, height_cm: float) -> bool:
@@ -277,6 +294,17 @@ class DeskBLEDevice:
             )
             return False
         
+        # Determine movement direction based on current height
+        if height_cm > self._height_cm:
+            self._movement_direction = "up"
+        elif height_cm < self._height_cm:
+            self._movement_direction = "down"
+        else:
+            # Already at target height
+            self._movement_direction = None
+            self._is_moving = False
+            return True
+        
         # Build move-to-height command
         # Command structure: [0xF1, 0xF1, 0x1B, 0x02, height_high, height_low, checksum, 0x7E]
         height_high = (height_mm >> 8) & 0xFF
@@ -291,6 +319,7 @@ class DeskBLEDevice:
         )
         
         self._is_moving = True
+        self._height_unchanged_count = 0  # Reset auto-stop counter
         return await self._send_command(command)
 
     def _handle_notification(self, sender: int, data: bytearray) -> None:
@@ -309,6 +338,19 @@ class DeskBLEDevice:
             
             _LOGGER.debug("Height notification (0x98 0x98): %.1f cm", self._height_cm)
             
+            # Auto-stop detection: check if height hasn't changed
+            if self._is_moving:
+                if abs(self._height_cm - self._last_height_cm) < 0.1:  # Less than 1mm change
+                    self._height_unchanged_count += 1
+                    if self._height_unchanged_count >= 3:  # 3 notifications without change
+                        _LOGGER.debug("Auto-stop detected: height unchanged for 3 notifications")
+                        self._is_moving = False
+                        self._movement_direction = None
+                        self._height_unchanged_count = 0
+                else:
+                    self._height_unchanged_count = 0
+                    self._last_height_cm = self._height_cm
+            
             # Notify callbacks
             for callback in self._notification_callbacks:
                 callback(self._height_cm, self._collision_detected, self._is_moving)
@@ -325,6 +367,19 @@ class DeskBLEDevice:
             
             _LOGGER.debug("Status notification (0xF2 0xF2 0x01 0x03): %.1f cm", self._height_cm)
             
+            # Auto-stop detection for status notifications too
+            if self._is_moving:
+                if abs(self._height_cm - self._last_height_cm) < 0.1:  # Less than 1mm change
+                    self._height_unchanged_count += 1
+                    if self._height_unchanged_count >= 3:  # 3 notifications without change
+                        _LOGGER.debug("Auto-stop detected: height unchanged for 3 notifications")
+                        self._is_moving = False
+                        self._movement_direction = None
+                        self._height_unchanged_count = 0
+                else:
+                    self._height_unchanged_count = 0
+                    self._last_height_cm = self._height_cm
+            
             # Notify callbacks
             for callback in self._notification_callbacks:
                 callback(self._height_cm, self._collision_detected, self._is_moving)
@@ -336,6 +391,7 @@ class DeskBLEDevice:
         _LOGGER.warning("Disconnected from Desky desk")
         self._client = None
         self._is_moving = False
+        self._movement_direction = None
         
         # Notify callbacks
         for callback in self._disconnect_callbacks:
