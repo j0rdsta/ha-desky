@@ -4,8 +4,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Common Development Commands
 
+**IMPORTANT**: All Python commands should be run within an activated virtual environment (see Virtual Environment Setup below).
+
 ### Testing the Integration
 ```bash
+# Activate virtual environment first (see Virtual Environment Setup)
+source venv/bin/activate  # On Unix/macOS
+# OR
+venv\Scripts\activate     # On Windows
+
 # Run Home Assistant in development mode with this integration
 hass -c config --debug
 
@@ -18,12 +25,34 @@ python -m pytest tests/
 
 ### Development Setup
 1. Clone this repository into `custom_components/desky_desk` in your Home Assistant config directory
-2. Enable debug logging by adding to `configuration.yaml`:
+2. Set up a virtual environment (see Virtual Environment Setup below)
+3. Enable debug logging by adding to `configuration.yaml`:
 ```yaml
 logger:
   default: info
   logs:
     custom_components.desky_desk: debug
+```
+
+### Virtual Environment Setup
+Always use a virtual environment when working with this project to avoid dependency conflicts:
+
+```bash
+# Create virtual environment
+python -m venv venv
+
+# Activate virtual environment
+# On Unix/macOS:
+source venv/bin/activate
+
+# On Windows:
+venv\Scripts\activate
+
+# Install test dependencies
+pip install -r requirements_test.txt
+
+# When done working, deactivate virtual environment
+deactivate
 ```
 
 ## Codebase Architecture
