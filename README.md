@@ -136,6 +136,18 @@ entities:
 - Ensure no other device is connected to the desk
 - Try restarting the desk by unplugging it for 10 seconds
 
+### Height sensor not updating?
+- The integration supports multiple desk firmware versions with different notification formats
+- Enable debug logging in Home Assistant to see which format your desk uses:
+  ```yaml
+  logger:
+    default: info
+    logs:
+      custom_components.desky_desk: debug
+  ```
+- Look for "Received notification:" entries in the logs
+- If issues persist, please include the notification format from your logs when reporting issues
+
 ### ESPHome Bluetooth Proxy
 This integration fully supports ESPHome Bluetooth proxies. To use:
 1. Set up an ESPHome device with `esp32_ble_tracker` and `bluetooth_proxy`
@@ -152,7 +164,7 @@ The integration uses the following BLE commands:
 - Move to Height: `0xF1 0xF1 0x1B 0x02 [height_high] [height_low] [checksum] 0x7E`
 - Preset 1-4: Various command codes
 
-Height notifications use header `0x98 0x98` with height data at bytes 4-5. The desk requires a handshake command after connection to enable movement controls.
+The desk sends height notifications with height data at bytes 4-5 (little-endian format). Different firmware versions may use different notification headers. The desk requires a handshake command after connection to enable movement controls.
 
 ## Contributing
 

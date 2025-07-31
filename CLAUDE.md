@@ -49,7 +49,7 @@ This is a Home Assistant custom integration that follows the standard component 
    - Uses characteristic UUIDs for write (0xfe61) and notify (0xfe62)
    - Commands are typically 6-8 byte arrays with checksum
    - Handshake command (0xFE) must be sent after connection to enable movement
-   - Height notifications have header `0x98 0x98` with height at bytes 4-5
+   - Height notifications can have different headers depending on firmware version
    - Height calculation: `(byte4 | (byte5 << 8)) / 10.0` cm
 
 3. **Entity Implementation**:
@@ -75,13 +75,52 @@ COMMAND_MEMORY_4 = bytes([0xF1, 0xF1, 0x28, 0x00, 0x28, 0x7E])
 # checksum = (0x1B + 0x02 + height_high + height_low) & 0xFF
 ```
 
+### BLE Notification Formats
+
+The desk can send height updates in two different formats depending on firmware version:
+
+1. **Movement Notification** (0x98 0x98):
+   - Header: `0x98 0x98` (bytes 0-1)
+   - Height data: bytes 4-5 (little-endian)
+   - Typically sent during desk movement
+   - Example: `98 98 00 00 52 03` = 85.0 cm (0x0352 = 850 / 10.0)
+   - Calculation: `(byte4 | (byte5 << 8)) / 10.0` cm
+
+2. **Status Response Notification** (0xF2 0xF2 0x01 0x03):
+   - Header: `0xF2 0xF2 0x01 0x03` (bytes 0-3)
+   - Height data: bytes 4-5 (big-endian)
+   - Sent in response to GET_STATUS command
+   - Example: `F2 F2 01 03 02 D0` = 72.0 cm (0x02D0 = 720 / 10.0)
+   - Calculation: `((byte4 << 8) | byte5) / 10.0` cm
+
+Note: The two formats use different byte orders for height data - movement notifications use little-endian while status notifications use big-endian.
+
+### Troubleshooting Height Updates
+
+If height updates aren't working:
+
+1. Enable debug logging to see notification format:
+   ```yaml
+   logger:
+     default: info
+     logs:
+       custom_components.desky_desk: debug
+   ```
+
+2. Check logs for "Received notification:" entries
+3. Look for either "Height notification (0x98 0x98):" or "Status notification (0xF2 0xF2 0x01 0x03):"
+4. Verify which format your desk uses
+5. Report the notification format in issues for debugging
+
 ### Service Implementations
+
 The integration provides three custom services:
 - `move_to_height`: Sends direct height command to desk using the 0x1B command
 - `move_to_preset`: Sends preset command via Bluetooth
 - `set_position_limit`: Would require desk firmware support (placeholder)
 
 ### Connection Management
+
 - Handshake command sent after connection to enable movement controls
 - Automatic reconnection every 30 seconds when disconnected
 - Connection state tracked in coordinator data

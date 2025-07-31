@@ -25,6 +25,7 @@ from .const import (
     NOTIFY_CHARACTERISTIC_UUID,
     PROXY_CONNECTION_TIMEOUT,
     PROXY_MAX_ATTEMPTS,
+    STATUS_NOTIFICATION_HEADER,
     WRITE_CHARACTERISTIC_UUID,
 )
 
@@ -294,6 +295,9 @@ class DeskBLEDevice:
 
     def _handle_notification(self, sender: int, data: bytearray) -> None:
         """Handle notification from the desk."""
+        _LOGGER.debug("Received notification: %s", data.hex())
+        
+        # Check for height notification (0x98 0x98 header)
         if len(data) >= 6 and bytes(data[:2]) == HEIGHT_NOTIFICATION_HEADER:
             # Extract height from bytes 4-5 (little-endian)
             height_raw = data[4] | (data[5] << 8)
@@ -303,11 +307,29 @@ class DeskBLEDevice:
             # For now, we'll assume no collision detection in basic notifications
             self._collision_detected = False
             
+            _LOGGER.debug("Height notification (0x98 0x98): %.1f cm", self._height_cm)
+            
             # Notify callbacks
             for callback in self._notification_callbacks:
                 callback(self._height_cm, self._collision_detected, self._is_moving)
+        
+        # Check for status notification (0xF2 0xF2 0x01 0x03 header)
+        elif len(data) >= 6 and bytes(data[:4]) == STATUS_NOTIFICATION_HEADER:
+            # Extract height from bytes 4-5 (big-endian for status notifications)
+            height_raw = (data[4] << 8) | data[5]
+            self._height_cm = height_raw / 10.0
             
-            _LOGGER.debug("Height update: %.1f cm", self._height_cm)
+            # Check for collision flag (this needs to be determined from actual data)
+            # For now, we'll assume no collision detection in basic notifications
+            self._collision_detected = False
+            
+            _LOGGER.debug("Status notification (0xF2 0xF2 0x01 0x03): %.1f cm", self._height_cm)
+            
+            # Notify callbacks
+            for callback in self._notification_callbacks:
+                callback(self._height_cm, self._collision_detected, self._is_moving)
+        else:
+            _LOGGER.debug("Unknown notification format: %s", data.hex())
 
     def _handle_disconnect(self, client: BleakClient) -> None:
         """Handle disconnection from the desk."""

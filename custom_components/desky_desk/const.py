@@ -24,8 +24,9 @@ COMMAND_MEMORY_4: Final = bytes([0xF1, 0xF1, 0x28, 0x00, 0x28, 0x7E])
 # where height is in mm (e.g., 850mm = 0x0352, so high=0x03, low=0x52)
 # checksum = (0x1B + 0x02 + height_high + height_low) & 0xFF
 
-# Height notification header
-HEIGHT_NOTIFICATION_HEADER: Final = bytes([0x98, 0x98])
+# Height notification headers
+HEIGHT_NOTIFICATION_HEADER: Final = bytes([0x98, 0x98])  # Movement/real-time notifications
+STATUS_NOTIFICATION_HEADER: Final = bytes([0xF2, 0xF2, 0x01, 0x03])  # Status response notifications
 
 # Desk height limits (in cm)
 MIN_HEIGHT: Final = 60.0

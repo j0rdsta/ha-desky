@@ -20,6 +20,7 @@ from custom_components.desky_desk.const import (
     MAX_HEIGHT,
     MIN_HEIGHT,
     NOTIFY_CHARACTERISTIC_UUID,
+    STATUS_NOTIFICATION_HEADER,
     WRITE_CHARACTERISTIC_UUID,
 )
 
@@ -335,6 +336,112 @@ def test_handle_notification_invalid_data(mock_ble_device):
     # Wrong header
     device._handle_notification(0, bytearray([0x00, 0x00, 0x00, 0x00, 0x00, 0x00]))
     callback.assert_not_called()
+
+
+def test_handle_status_notification(mock_ble_device):
+    """Test status notification handling (0xF2 0xF2 0x01 0x03 format)."""
+    device = DeskBLEDevice(mock_ble_device)
+    
+    callback = MagicMock()
+    device.register_notification_callback(callback)
+    
+    # Create status notification data with height 85.0 cm (850 in raw)
+    # Header is at bytes 0-3, height is at bytes 4-5, big-endian
+    data = bytearray([0xF2, 0xF2, 0x01, 0x03, 0x03, 0x52])  # 850 = 0x0352 (big-endian)
+    
+    device._handle_notification(0, data)
+    
+    assert device.height_cm == 85.0
+    callback.assert_called_once_with(85.0, False, False)
+
+
+def test_handle_both_notification_types(mock_ble_device):
+    """Test that both notification formats work correctly."""
+    device = DeskBLEDevice(mock_ble_device)
+    
+    callback = MagicMock()
+    device.register_notification_callback(callback)
+    
+    # Test movement notification (0x98 0x98)
+    data1 = bytearray([0x98, 0x98, 0x00, 0x00, 0x52, 0x03])  # 85.0 cm
+    device._handle_notification(0, data1)
+    assert device.height_cm == 85.0
+    
+    # Test status notification (0xF2 0xF2 0x01 0x03) with different height
+    data2 = bytearray([0xF2, 0xF2, 0x01, 0x03, 0x03, 0xF4])  # 101.2 cm (1012 = 0x03F4 big-endian)
+    device._handle_notification(0, data2)
+    assert device.height_cm == 101.2
+    
+    # Verify callbacks were called for both
+    assert callback.call_count == 2
+    callback.assert_has_calls([
+        call(85.0, False, False),
+        call(101.2, False, False)
+    ])
+
+
+def test_handle_notification_edge_cases(mock_ble_device):
+    """Test notification handling with edge case heights."""
+    device = DeskBLEDevice(mock_ble_device)
+    
+    callback = MagicMock()
+    device.register_notification_callback(callback)
+    
+    # Test minimum height (60.0 cm = 600 = 0x0258) with movement notification
+    data_min_movement = bytearray([0x98, 0x98, 0x00, 0x00, 0x58, 0x02])
+    device._handle_notification(0, data_min_movement)
+    assert device.height_cm == 60.0
+    
+    # Test maximum height (130.0 cm = 1300 = 0x0514) with status notification
+    data_max_status = bytearray([0xF2, 0xF2, 0x01, 0x03, 0x05, 0x14])  # big-endian
+    device._handle_notification(0, data_max_status)
+    assert device.height_cm == 130.0
+    
+    assert callback.call_count == 2
+
+
+def test_handle_unknown_notification(mock_ble_device):
+    """Test handling of unknown notification formats."""
+    device = DeskBLEDevice(mock_ble_device)
+    
+    callback = MagicMock()
+    device.register_notification_callback(callback)
+    
+    # Unknown header format
+    data = bytearray([0xFF, 0xFF, 0x00, 0x00, 0x52, 0x03])
+    device._handle_notification(0, data)
+    
+    # Height should not be updated, callback should not be called
+    assert device.height_cm == 0.0  # Initial value
+    callback.assert_not_called()
+
+
+def test_handle_notification_various_lengths(mock_ble_device):
+    """Test notification handling with different data lengths."""
+    device = DeskBLEDevice(mock_ble_device)
+    
+    callback = MagicMock()
+    device.register_notification_callback(callback)
+    
+    # Too short for any format (less than 6 bytes)
+    device._handle_notification(0, bytearray([0xF2, 0xF2, 0x01]))
+    callback.assert_not_called()
+    
+    # Exactly 6 bytes - valid for both formats
+    data_movement = bytearray([0x98, 0x98, 0x00, 0x00, 0x52, 0x03])
+    device._handle_notification(0, data_movement)
+    assert device.height_cm == 85.0
+    
+    data_status = bytearray([0xF2, 0xF2, 0x01, 0x03, 0x03, 0xE8])  # 100.0 cm (1000 = 0x03E8 big-endian)
+    device._handle_notification(0, data_status)
+    assert device.height_cm == 100.0
+    
+    # Longer data should still work
+    data_long = bytearray([0x98, 0x98, 0x00, 0x00, 0x84, 0x03, 0xFF, 0xFF])  # 90.0 cm
+    device._handle_notification(0, data_long)
+    assert device.height_cm == 90.0
+    
+    assert callback.call_count == 3
 
 
 def test_handle_disconnect(mock_ble_device, mock_bleak_client):
