@@ -147,23 +147,15 @@ async def test_cover_stop_service(hass: HomeAssistant, init_integration):
 
 @pytest.mark.asyncio
 async def test_cover_set_position_service(hass: HomeAssistant, init_integration):
-    """Test setting cover position."""
+    """Test setting cover position uses move_to_height."""
     coordinator = hass.data[DOMAIN][init_integration.entry_id]
     mock_device = MagicMock()
-    mock_device.move_up = AsyncMock()
-    mock_device.move_down = AsyncMock()
+    mock_device.move_to_height = AsyncMock()
     coordinator._device = mock_device
+    coordinator.async_request_refresh = AsyncMock()
     
-    # Set current height to 80cm (28% position)
-    coordinator.async_set_updated_data({
-        "height_cm": 80.0,
-        "collision_detected": False,
-        "is_moving": False,
-        "is_connected": True,
-    })
-    await hass.async_block_till_done()
-    
-    # Test moving up (to 75% position)
+    # Test moving to 75% position
+    # 75% = MIN_HEIGHT + 0.75 * (MAX_HEIGHT - MIN_HEIGHT) = 60 + 0.75 * 70 = 112.5
     await hass.services.async_call(
         COVER_DOMAIN,
         SERVICE_SET_COVER_POSITION,
@@ -174,26 +166,41 @@ async def test_cover_set_position_service(hass: HomeAssistant, init_integration)
         blocking=True,
     )
     
-    mock_device.move_up.assert_called_once()
-    mock_device.move_down.assert_not_called()
+    mock_device.move_to_height.assert_called_once_with(112.5)
+    coordinator.async_request_refresh.assert_called_once()
     
     # Reset mocks
-    mock_device.move_up.reset_mock()
-    mock_device.move_down.reset_mock()
+    mock_device.move_to_height.reset_mock()
+    coordinator.async_request_refresh.reset_mock()
     
-    # Test moving down (to 10% position)
+    # Test moving to 0% position (minimum height)
     await hass.services.async_call(
         COVER_DOMAIN,
         SERVICE_SET_COVER_POSITION,
         {
             ATTR_ENTITY_ID: "cover.desky_desk",
-            ATTR_POSITION: 10,
+            ATTR_POSITION: 0,
         },
         blocking=True,
     )
     
-    mock_device.move_down.assert_called_once()
-    mock_device.move_up.assert_not_called()
+    mock_device.move_to_height.assert_called_once_with(MIN_HEIGHT)
+    
+    # Reset mocks
+    mock_device.move_to_height.reset_mock()
+    
+    # Test moving to 100% position (maximum height)
+    await hass.services.async_call(
+        COVER_DOMAIN,
+        SERVICE_SET_COVER_POSITION,
+        {
+            ATTR_ENTITY_ID: "cover.desky_desk",
+            ATTR_POSITION: 100,
+        },
+        blocking=True,
+    )
+    
+    mock_device.move_to_height.assert_called_once_with(MAX_HEIGHT)
 
 
 @pytest.mark.asyncio

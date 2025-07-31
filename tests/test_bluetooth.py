@@ -8,6 +8,7 @@ import pytest
 from custom_components.desky_desk.bluetooth import DeskBLEDevice
 from custom_components.desky_desk.const import (
     COMMAND_GET_STATUS,
+    COMMAND_HANDSHAKE,
     COMMAND_MEMORY_1,
     COMMAND_MEMORY_2,
     COMMAND_MEMORY_3,
@@ -16,6 +17,8 @@ from custom_components.desky_desk.const import (
     COMMAND_MOVE_UP,
     COMMAND_STOP,
     HEIGHT_NOTIFICATION_HEADER,
+    MAX_HEIGHT,
+    MIN_HEIGHT,
     NOTIFY_CHARACTERISTIC_UUID,
     WRITE_CHARACTERISTIC_UUID,
 )
@@ -82,6 +85,13 @@ async def test_connect_success(mock_ble_device, mock_establish_connection, mock_
         NOTIFY_CHARACTERISTIC_UUID, device._handle_notification
     )
     mock_bleak_client.get_services.assert_called_once()
+    
+    # Verify handshake command was sent
+    expected_calls = [
+        call(WRITE_CHARACTERISTIC_UUID, COMMAND_HANDSHAKE),
+        call(WRITE_CHARACTERISTIC_UUID, COMMAND_GET_STATUS),
+    ]
+    mock_bleak_client.write_gatt_char.assert_has_calls(expected_calls)
 
 
 @pytest.mark.asyncio
@@ -341,3 +351,68 @@ def test_handle_disconnect(mock_ble_device, mock_bleak_client):
     assert device._client is None
     assert device._is_moving is False
     callback.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_move_to_height_success(mock_ble_device, mock_bleak_client):
+    """Test move_to_height command."""
+    device = DeskBLEDevice(mock_ble_device)
+    device._client = mock_bleak_client
+    
+    # Test moving to 85.0 cm (850 mm)
+    result = await device.move_to_height(85.0)
+    
+    assert result is True
+    assert device._is_moving is True
+    
+    # Calculate expected command
+    # 850 mm = 0x0352, so high=0x03, low=0x52
+    # checksum = (0x1B + 0x02 + 0x03 + 0x52) & 0xFF = 0x72
+    expected_command = bytes([0xF1, 0xF1, 0x1B, 0x02, 0x03, 0x52, 0x72, 0x7E])
+    
+    mock_bleak_client.write_gatt_char.assert_called_once_with(
+        WRITE_CHARACTERISTIC_UUID, expected_command
+    )
+
+
+@pytest.mark.asyncio
+async def test_move_to_height_out_of_range(mock_ble_device, mock_bleak_client):
+    """Test move_to_height with out of range values."""
+    device = DeskBLEDevice(mock_ble_device)
+    device._client = mock_bleak_client
+    
+    # Test below minimum
+    result = await device.move_to_height(MIN_HEIGHT - 10)
+    assert result is False
+    assert not device._is_moving
+    
+    # Test above maximum
+    result = await device.move_to_height(MAX_HEIGHT + 10)
+    assert result is False
+    assert not device._is_moving
+    
+    # Verify no commands were sent
+    mock_bleak_client.write_gatt_char.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_move_to_height_edge_cases(mock_ble_device, mock_bleak_client):
+    """Test move_to_height with edge case values."""
+    device = DeskBLEDevice(mock_ble_device)
+    device._client = mock_bleak_client
+    
+    # Test minimum height (60.0 cm = 600 mm = 0x0258)
+    await device.move_to_height(MIN_HEIGHT)
+    # checksum = (0x1B + 0x02 + 0x02 + 0x58) & 0xFF = 0x77
+    expected_min = bytes([0xF1, 0xF1, 0x1B, 0x02, 0x02, 0x58, 0x77, 0x7E])
+    
+    # Test maximum height (130.0 cm = 1300 mm = 0x0514)
+    await device.move_to_height(MAX_HEIGHT)
+    # checksum = (0x1B + 0x02 + 0x05 + 0x14) & 0xFF = 0x36
+    expected_max = bytes([0xF1, 0xF1, 0x1B, 0x02, 0x05, 0x14, 0x36, 0x7E])
+    
+    expected_calls = [
+        call(WRITE_CHARACTERISTIC_UUID, expected_min),
+        call(WRITE_CHARACTERISTIC_UUID, expected_max),
+    ]
+    mock_bleak_client.write_gatt_char.assert_has_calls(expected_calls)

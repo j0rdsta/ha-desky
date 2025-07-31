@@ -46,10 +46,11 @@ This is a Home Assistant custom integration that follows the standard component 
    - Data distribution to all entities
 
 2. **Bluetooth Communication**:
-   - Uses characteristic UUIDs for write (0xfff2) and notify (0xfff1)
-   - Commands are 6-byte arrays with checksum
+   - Uses characteristic UUIDs for write (0xfe61) and notify (0xfe62)
+   - Commands are typically 6-8 byte arrays with checksum
+   - Handshake command (0xFE) must be sent after connection to enable movement
    - Height notifications have header `0x98 0x98` with height at bytes 4-5
-   - Height calculation: `(byte4 * 256 + byte5) / 10.0` cm
+   - Height calculation: `(byte4 | (byte5 << 8)) / 10.0` cm
 
 3. **Entity Implementation**:
    - Cover entity: Main control interface (0-100% position mapping)
@@ -59,6 +60,7 @@ This is a Home Assistant custom integration that follows the standard component 
 
 ### BLE Protocol Commands
 ```python
+COMMAND_HANDSHAKE = bytes([0xF1, 0xF1, 0xFE, 0x00, 0xFE, 0x7E])  # Required initialization
 COMMAND_MOVE_UP = bytes([0xF1, 0xF1, 0x01, 0x00, 0x01, 0x7E])
 COMMAND_MOVE_DOWN = bytes([0xF1, 0xF1, 0x02, 0x00, 0x02, 0x7E])
 COMMAND_STOP = bytes([0xF1, 0xF1, 0x2B, 0x00, 0x2B, 0x7E])
@@ -66,15 +68,21 @@ COMMAND_MEMORY_1 = bytes([0xF1, 0xF1, 0x05, 0x00, 0x05, 0x7E])
 COMMAND_MEMORY_2 = bytes([0xF1, 0xF1, 0x06, 0x00, 0x06, 0x7E])
 COMMAND_MEMORY_3 = bytes([0xF1, 0xF1, 0x27, 0x00, 0x27, 0x7E])
 COMMAND_MEMORY_4 = bytes([0xF1, 0xF1, 0x28, 0x00, 0x28, 0x7E])
+
+# Move to specific height command structure:
+# bytes([0xF1, 0xF1, 0x1B, 0x02, height_high_byte, height_low_byte, checksum, 0x7E])
+# where height is in mm (e.g., 850mm = 0x0352, so high=0x03, low=0x52)
+# checksum = (0x1B + 0x02 + height_high + height_low) & 0xFF
 ```
 
 ### Service Implementations
 The integration provides three custom services:
-- `move_to_height`: Calculates position percentage and uses cover.set_position
+- `move_to_height`: Sends direct height command to desk using the 0x1B command
 - `move_to_preset`: Sends preset command via Bluetooth
 - `set_position_limit`: Would require desk firmware support (placeholder)
 
 ### Connection Management
+- Handshake command sent after connection to enable movement controls
 - Automatic reconnection every 30 seconds when disconnected
 - Connection state tracked in coordinator data
 - All entities become unavailable when disconnected

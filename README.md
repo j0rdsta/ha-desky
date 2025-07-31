@@ -145,12 +145,14 @@ This integration fully supports ESPHome Bluetooth proxies. To use:
 
 ### BLE Protocol
 The integration uses the following BLE commands:
+- Handshake: `0xF1 0xF1 0xFE 0x00 0xFE 0x7E` (required for movement control)
 - Move Up: `0xF1 0xF1 0x01 0x00 0x01 0x7E`
 - Move Down: `0xF1 0xF1 0x02 0x00 0x02 0x7E`
 - Stop: `0xF1 0xF1 0x2B 0x00 0x2B 0x7E`
+- Move to Height: `0xF1 0xF1 0x1B 0x02 [height_high] [height_low] [checksum] 0x7E`
 - Preset 1-4: Various command codes
 
-Height notifications use header `0x98 0x98` with height data at bytes 4-5.
+Height notifications use header `0x98 0x98` with height data at bytes 4-5. The desk requires a handshake command after connection to enable movement controls.
 
 ## Contributing
 

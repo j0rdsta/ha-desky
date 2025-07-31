@@ -61,22 +61,12 @@ class DeskyHeightNumber(CoordinatorEntity[DeskUpdateCoordinator], NumberEntity):
         return self.coordinator.data.get("is_connected", False) if self.coordinator.data else False
 
     async def async_set_native_value(self, value: float) -> None:
-        """Set the desk height.
-        
-        This starts movement towards the target height.
-        The actual movement control is handled by monitoring height updates.
-        """
+        """Set the desk height to a specific value in cm."""
         if not self.coordinator.device:
             return
         
-        current_height = self.native_value or DEFAULT_HEIGHT
+        # Use the move_to_height method for precise positioning
+        await self.coordinator.device.move_to_height(value)
         
-        # Determine direction and start movement
-        if value > current_height + 0.5:  # Add small tolerance
-            await self.coordinator.device.move_up()
-        elif value < current_height - 0.5:
-            await self.coordinator.device.move_down()
-        
-        # Note: Stopping at the exact position would require monitoring
-        # height updates and stopping when target is reached.
-        # This could be implemented as a service in the future.
+        # Request coordinator update to track movement
+        await self.coordinator.async_request_refresh()

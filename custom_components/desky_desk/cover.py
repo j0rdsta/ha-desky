@@ -137,14 +137,9 @@ class DeskyCover(CoordinatorEntity[DeskUpdateCoordinator], CoverEntity):
         
         # Convert position (0-100) to height (MIN_HEIGHT-MAX_HEIGHT)
         target_height = MIN_HEIGHT + (position / 100) * (MAX_HEIGHT - MIN_HEIGHT)
-        current_height = self.coordinator.data.get("height_cm", MIN_HEIGHT)
         
-        # Determine direction and start movement
-        if target_height > current_height + 0.5:  # Add small tolerance
-            await self.coordinator.device.move_up()
-        elif target_height < current_height - 0.5:
-            await self.coordinator.device.move_down()
+        # Use the move_to_height method for precise positioning
+        await self.coordinator.device.move_to_height(target_height)
         
-        # Note: Stopping at the exact position would require monitoring
-        # height updates and stopping when target is reached.
-        # This could be implemented in a future enhancement.
+        # Request coordinator update to track movement
+        await self.coordinator.async_request_refresh()

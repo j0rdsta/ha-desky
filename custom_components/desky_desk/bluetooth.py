@@ -11,6 +11,7 @@ from bleak_retry_connector import establish_connection
 
 from .const import (
     COMMAND_GET_STATUS,
+    COMMAND_HANDSHAKE,
     COMMAND_MEMORY_1,
     COMMAND_MEMORY_2,
     COMMAND_MEMORY_3,
@@ -165,6 +166,14 @@ class DeskBLEDevice:
                 self._handle_notification
             )
             
+            # Send handshake command to enable movement controls
+            _LOGGER.debug("Sending handshake command...")
+            handshake_result = await self._send_command(COMMAND_HANDSHAKE)
+            if not handshake_result:
+                _LOGGER.warning("Handshake command failed, movement controls may not work")
+            else:
+                _LOGGER.debug("Handshake command sent successfully")
+            
             # Get initial status
             await self.get_status()
             
@@ -249,6 +258,36 @@ class DeskBLEDevice:
         else:
             _LOGGER.error("Invalid preset number: %s", preset)
             return False
+        
+        self._is_moving = True
+        return await self._send_command(command)
+
+    async def move_to_height(self, height_cm: float) -> bool:
+        """Move desk to a specific height in cm."""
+        # Convert cm to mm
+        height_mm = int(height_cm * 10)
+        
+        # Ensure height is within valid range
+        from .const import MIN_HEIGHT, MAX_HEIGHT
+        if height_cm < MIN_HEIGHT or height_cm > MAX_HEIGHT:
+            _LOGGER.error(
+                "Height %.1f cm is out of range (%.1f-%.1f cm)",
+                height_cm, MIN_HEIGHT, MAX_HEIGHT
+            )
+            return False
+        
+        # Build move-to-height command
+        # Command structure: [0xF1, 0xF1, 0x1B, 0x02, height_high, height_low, checksum, 0x7E]
+        height_high = (height_mm >> 8) & 0xFF
+        height_low = height_mm & 0xFF
+        checksum = (0x1B + 0x02 + height_high + height_low) & 0xFF
+        
+        command = bytes([0xF1, 0xF1, 0x1B, 0x02, height_high, height_low, checksum, 0x7E])
+        
+        _LOGGER.debug(
+            "Moving to height %.1f cm (command: %s)",
+            height_cm, command.hex()
+        )
         
         self._is_moving = True
         return await self._send_command(command)
