@@ -49,4 +49,4 @@ automation:
 - Bluetooth adapter or ESPHome proxy
 - Desky desk with Bluetooth
 
-For detailed documentation, visit the [GitHub repository](https://github.com/your-github-username/ha-desky).
+For detailed documentation, visit the [GitHub repository](https://github.com/j0rdsta/ha-desky).

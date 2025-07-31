@@ -4,9 +4,9 @@ from typing import Final
 DOMAIN: Final = "desky_desk"
 
 # BLE Service and Characteristic UUIDs
-SERVICE_UUID: Final = "00001800-0000-1000-8000-00805f9b34fb"  # Generic Access
-WRITE_CHARACTERISTIC_UUID: Final = "00002a00-0000-1000-8000-00805f9b34fb"
-NOTIFY_CHARACTERISTIC_UUID: Final = "00002a01-0000-1000-8000-00805f9b34fb"
+SERVICE_UUID: Final = "0000fe60-0000-1000-8000-00805f9b34fb"  # Desky Service
+WRITE_CHARACTERISTIC_UUID: Final = "0000fe61-0000-1000-8000-00805f9b34fb"
+NOTIFY_CHARACTERISTIC_UUID: Final = "0000fe62-0000-1000-8000-00805f9b34fb"
 
 # BLE Commands (converted from Java byte arrays to Python bytes)
 COMMAND_MOVE_UP: Final = bytes([0xF1, 0xF1, 0x01, 0x00, 0x01, 0x7E])
@@ -27,8 +27,14 @@ MAX_HEIGHT: Final = 130.0
 DEFAULT_HEIGHT: Final = 75.0
 
 # Update intervals
-UPDATE_INTERVAL_SECONDS: Final = 1
+UPDATE_INTERVAL_SECONDS: Final = 30
 RECONNECT_INTERVAL_SECONDS: Final = 30
+
+# Connection timeouts
+DIRECT_CONNECTION_TIMEOUT: Final = 20.0  # Direct Bluetooth connection
+PROXY_CONNECTION_TIMEOUT: Final = 30.0   # ESPHome proxy connection
+PROXY_MAX_ATTEMPTS: Final = 5            # Retry attempts for proxy
+DIRECT_MAX_ATTEMPTS: Final = 3           # Retry attempts for direct
 
 # Entity attributes
 ATTR_HEIGHT_CM: Final = "height_cm"

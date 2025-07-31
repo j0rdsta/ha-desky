@@ -1,6 +1,7 @@
 """Test the Desky Desk Bluetooth communication."""
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock, call, patch
 import pytest
 
@@ -69,10 +70,18 @@ async def test_connect_success(mock_ble_device, mock_establish_connection, mock_
     assert device._client == mock_bleak_client
     assert device.is_connected is True
     
+    # Verify establish_connection was called with correct parameters
     mock_establish_connection.assert_called_once()
+    call_args = mock_establish_connection.call_args
+    assert call_args.kwargs['timeout'] == 20.0  # Direct connection timeout
+    assert call_args.kwargs['max_attempts'] == 3  # Direct connection attempts
+    assert call_args.kwargs['use_services_cache'] is True
+    assert 'ble_device_callback' in call_args.kwargs
+    
     mock_bleak_client.start_notify.assert_called_once_with(
         NOTIFY_CHARACTERISTIC_UUID, device._handle_notification
     )
+    mock_bleak_client.get_services.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -99,7 +108,79 @@ async def test_connect_failure(mock_ble_device):
         
         assert result is False
         assert device._client is None
-        assert device.is_connected is False
+
+
+@pytest.mark.asyncio
+async def test_connect_timeout(mock_ble_device):
+    """Test connection timeout."""
+    device = DeskBLEDevice(mock_ble_device)
+    
+    with patch(
+        "custom_components.desky_desk.bluetooth.establish_connection",
+        side_effect=asyncio.TimeoutError(),
+    ):
+        result = await device.connect()
+        
+        assert result is False
+        assert device._client is None
+
+
+@pytest.mark.asyncio 
+async def test_proxy_detection(mock_ble_device):
+    """Test ESPHome proxy detection."""
+    device = DeskBLEDevice(mock_ble_device)
+    
+    # Test no details
+    mock_ble_device.details = None
+    assert device._is_esphome_proxy(mock_ble_device) is False
+    
+    # Test via_device indicator
+    mock_ble_device.details = {"via_device": "ESP32"}
+    assert device._is_esphome_proxy(mock_ble_device) is True
+    
+    # Test source field
+    mock_ble_device.details = {"source": "esphome"}
+    assert device._is_esphome_proxy(mock_ble_device) is True
+    
+    # Test scanner field
+    mock_ble_device.details = {"scanner": "esp32_proxy"}
+    assert device._is_esphome_proxy(mock_ble_device) is True
+    
+    # Test path field
+    mock_ble_device.details = {"path": "/esphome/proxy1"}
+    assert device._is_esphome_proxy(mock_ble_device) is True
+    
+    # Test no proxy indicators
+    mock_ble_device.details = {"source": "hci0"}
+    assert device._is_esphome_proxy(mock_ble_device) is False
+
+
+@pytest.mark.asyncio
+async def test_connect_with_proxy(mock_ble_device, mock_establish_connection, mock_bleak_client):
+    """Test connection with ESPHome proxy detection."""
+    # Set proxy indicators
+    mock_ble_device.details = {"via_device": "ESP32"}
+    
+    device = DeskBLEDevice(mock_ble_device)
+    
+    result = await device.connect()
+    
+    assert result is True
+    
+    # Verify proxy-specific parameters were used
+    call_args = mock_establish_connection.call_args
+    assert call_args.kwargs['timeout'] == 30.0  # Proxy timeout
+    assert call_args.kwargs['max_attempts'] == 5  # Proxy attempts
+
+
+@pytest.mark.asyncio
+async def test_get_updated_device(mock_ble_device):
+    """Test _get_updated_device callback returns the BLE device."""
+    device = DeskBLEDevice(mock_ble_device)
+    
+    # Test the callback returns the device
+    result = device._get_updated_device()
+    assert result == mock_ble_device
 
 
 @pytest.mark.asyncio

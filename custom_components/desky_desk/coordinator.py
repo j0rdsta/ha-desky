@@ -76,12 +76,16 @@ class DeskUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._device.register_notification_callback(self._handle_notification)
         self._device.register_disconnect_callback(self._handle_disconnect)
         
-        # Connect to the device
-        if not await self._device.connect():
-            raise ConfigEntryNotReady("Failed to connect to desk")
+        # Start connection in background - don't block setup
+        self._reconnect_task = asyncio.create_task(self._reconnect())
         
-        # Do the first update
-        await super().async_config_entry_first_refresh()
+        # Set initial data to indicate disconnected state
+        self.async_set_updated_data({
+            "height_cm": 0,
+            "collision_detected": False,
+            "is_moving": False,
+            "is_connected": False,
+        })
 
     async def _reconnect(self) -> None:
         """Try to reconnect to the desk."""
@@ -99,6 +103,10 @@ class DeskUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         _LOGGER.info("Reconnected to desk")
                         self.async_set_updated_data(await self._async_update_data())
                         break
+                    else:
+                        _LOGGER.debug("Connection attempt failed")
+                else:
+                    _LOGGER.debug("BLE device not found at address %s", self.entry.data["address"])
             except Exception as err:
                 _LOGGER.debug("Reconnection failed: %s", err)
             

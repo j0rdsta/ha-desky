@@ -79,6 +79,19 @@ def mock_bleak_client() -> MagicMock:
     client.start_notify = AsyncMock()
     client.stop_notify = AsyncMock()
     client.write_gatt_char = AsyncMock()
+    
+    # Mock get_services for service discovery
+    mock_service = MagicMock()
+    mock_service.uuid = "0000fe60-0000-1000-8000-00805f9b34fb"
+    mock_char1 = MagicMock()
+    mock_char1.uuid = "0000fe61-0000-1000-8000-00805f9b34fb"
+    mock_char1.properties = ["write"]
+    mock_char2 = MagicMock()
+    mock_char2.uuid = "0000fe62-0000-1000-8000-00805f9b34fb"
+    mock_char2.properties = ["notify"]
+    mock_service.characteristics = [mock_char1, mock_char2]
+    client.get_services = AsyncMock(return_value=[mock_service])
+    
     return client
 
 

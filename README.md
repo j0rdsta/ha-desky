@@ -45,7 +45,7 @@ Always follow manufacturer safety guidelines and maintain physical access to man
 ### HACS (Recommended)
 1. Open HACS in Home Assistant
 2. Click the three dots menu and select "Custom repositories"
-3. Add this repository URL: `https://github.com/your-github-username/ha-desky`
+3. Add this repository URL: `https://github.com/j0rdsta/ha-desky`
 4. Select "Integration" as the category
 5. Click "Add"
 6. Search for "Desky Desk" and install

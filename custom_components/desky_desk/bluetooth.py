@@ -1,6 +1,7 @@
 """Bluetooth communication for Desky Desk."""
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any, Callable
 
@@ -17,8 +18,12 @@ from .const import (
     COMMAND_MOVE_DOWN,
     COMMAND_MOVE_UP,
     COMMAND_STOP,
+    DIRECT_CONNECTION_TIMEOUT,
+    DIRECT_MAX_ATTEMPTS,
     HEIGHT_NOTIFICATION_HEADER,
     NOTIFY_CHARACTERISTIC_UUID,
+    PROXY_CONNECTION_TIMEOUT,
+    PROXY_MAX_ATTEMPTS,
     WRITE_CHARACTERISTIC_UUID,
 )
 
@@ -77,19 +82,82 @@ class DeskBLEDevice:
         """Register a callback for disconnection events."""
         self._disconnect_callbacks.append(callback)
 
+    def _is_esphome_proxy(self, ble_device: BLEDevice) -> bool:
+        """Detect if connection will use ESPHome proxy."""
+        if not ble_device.details:
+            _LOGGER.debug("No device details available for proxy detection")
+            return False
+        
+        # Log details for debugging
+        _LOGGER.debug("BLE device details: %s", ble_device.details)
+        
+        # Check for proxy indicators in details
+        details_str = str(ble_device.details).lower()
+        
+        # Primary indicators
+        if 'via_device' in ble_device.details:
+            _LOGGER.debug("Detected ESPHome proxy via 'via_device' indicator")
+            return True
+        
+        # Check source field
+        source = ble_device.details.get('source', '').lower()
+        if any(indicator in source for indicator in ['esphome', 'proxy', 'esp32']):
+            _LOGGER.debug("Detected ESPHome proxy via source: %s", source)
+            return True
+        
+        # Check for ESPHome specific keys
+        esphome_keys = ['esp_platform', 'esphome_version', 'scanner']
+        if any(key in ble_device.details for key in esphome_keys):
+            scanner = str(ble_device.details.get('scanner', '')).lower()
+            if 'esp' in scanner:
+                _LOGGER.debug("Detected ESPHome proxy via scanner: %s", scanner)
+                return True
+        
+        # Check adapter/path information
+        if 'path' in ble_device.details:
+            path = str(ble_device.details.get('path', '')).lower()
+            if 'esphome' in path or 'proxy' in path:
+                _LOGGER.debug("Detected ESPHome proxy via path: %s", path)
+                return True
+        
+        _LOGGER.debug("No ESPHome proxy indicators found")
+        return False
+
     async def connect(self) -> bool:
         """Connect to the desk."""
         if self.is_connected:
             return True
 
+        # Detect if using ESPHome proxy
+        is_proxy = self._is_esphome_proxy(self._ble_device)
+        timeout = PROXY_CONNECTION_TIMEOUT if is_proxy else DIRECT_CONNECTION_TIMEOUT
+        max_attempts = PROXY_MAX_ATTEMPTS if is_proxy else DIRECT_MAX_ATTEMPTS
+        
+        _LOGGER.debug(
+            "Connecting to Desky desk at %s (proxy: %s, timeout: %s)",
+            self.address, is_proxy, timeout
+        )
+
         try:
-            _LOGGER.debug("Connecting to Desky desk at %s", self.address)
             self._client = await establish_connection(
                 BleakClient,
                 self._ble_device,
                 self.name,
                 disconnected_callback=self._handle_disconnect,
+                timeout=timeout,
+                max_attempts=max_attempts,
+                use_services_cache=True,  # Improves proxy performance
+                # Callback for device updates during connection
+                ble_device_callback=lambda: self._get_updated_device()
             )
+            
+            # Discover services to verify characteristics
+            _LOGGER.debug("Connected, discovering services...")
+            services = await self._client.get_services()
+            for service in services:
+                _LOGGER.debug("Service: %s", service.uuid)
+                for char in service.characteristics:
+                    _LOGGER.debug("  Characteristic: %s, properties: %s", char.uuid, char.properties)
             
             # Start notifications
             await self._client.start_notify(
@@ -100,13 +168,30 @@ class DeskBLEDevice:
             # Get initial status
             await self.get_status()
             
-            _LOGGER.info("Connected to Desky desk at %s", self.address)
+            _LOGGER.info(
+                "Connected to Desky desk at %s via %s", 
+                self.address,
+                "ESPHome proxy" if is_proxy else "direct Bluetooth"
+            )
             return True
             
+        except asyncio.TimeoutError:
+            _LOGGER.error(
+                "Connection timeout after %ss to desk at %s",
+                timeout, self.address
+            )
+            self._client = None
+            return False
         except Exception as err:
             _LOGGER.error("Failed to connect to desk: %s", err)
             self._client = None
             return False
+
+    def _get_updated_device(self) -> BLEDevice | None:
+        """Get updated device during connection attempts."""
+        # This callback is used by bleak_retry_connector to get
+        # fresh device information during reconnection attempts
+        return self._ble_device
 
     async def disconnect(self) -> None:
         """Disconnect from the desk."""
