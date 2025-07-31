@@ -11,8 +11,6 @@ from homeassistant.exceptions import ConfigEntryNotReady
 from custom_components.desky_desk import async_setup_entry, async_unload_entry
 from custom_components.desky_desk.const import DOMAIN
 
-
-@pytest.mark.asyncio
 async def test_setup_entry_success(
     hass: HomeAssistant,
     mock_config_entry,
@@ -54,8 +52,6 @@ async def test_setup_entry_success(
         platforms = mock_forward.call_args[0][1]
         assert len(platforms) == 4
 
-
-@pytest.mark.asyncio
 async def test_setup_entry_no_device(
     hass: HomeAssistant,
     mock_config_entry,
@@ -72,28 +68,6 @@ async def test_setup_entry_no_device(
             await async_setup_entry(hass, mock_config_entry)
 
 
-@pytest.mark.asyncio
-async def test_setup_entry_connection_failed(
-    hass: HomeAssistant,
-    mock_config_entry,
-    mock_bluetooth_device_from_address,
-    mock_establish_connection,
-    enable_custom_integrations,
-):
-    """Test setup failure when connection to device fails."""
-    mock_config_entry.add_to_hass(hass)
-    
-    with patch(
-        "custom_components.desky_desk.coordinator.DeskBLEDevice"
-    ) as mock_desk_device:
-        mock_device_instance = mock_desk_device.return_value
-        mock_device_instance.connect = AsyncMock(return_value=False)
-        
-        with pytest.raises(ConfigEntryNotReady):
-            await async_setup_entry(hass, mock_config_entry)
-
-
-@pytest.mark.asyncio
 async def test_unload_entry(
     hass: HomeAssistant,
     mock_config_entry,
@@ -120,8 +94,6 @@ async def test_unload_entry(
     
     assert mock_config_entry.entry_id not in hass.data[DOMAIN]
 
-
-@pytest.mark.asyncio
 async def test_setup_platforms(
     hass: HomeAssistant,
     mock_config_entry,

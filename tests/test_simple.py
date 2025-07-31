@@ -2,7 +2,6 @@
 import pytest
 
 
-@pytest.mark.asyncio
 async def test_simple_async():
     """Test simple async function."""
     assert True

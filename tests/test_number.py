@@ -1,6 +1,8 @@
 """Test the Desky Desk number platform."""
 from __future__ import annotations
 
+from custom_components.desky_desk.const import DOMAIN
+
 from unittest.mock import AsyncMock, MagicMock
 import pytest
 
@@ -19,10 +21,18 @@ from custom_components.desky_desk.const import (
     MIN_HEIGHT,
 )
 
-
-@pytest.mark.asyncio
 async def test_number_setup(hass: HomeAssistant, init_integration):
     """Test number entity setup."""
+    # First, trigger an update to set entities as available
+    coordinator = hass.data[DOMAIN][init_integration.entry_id]
+    coordinator.async_set_updated_data({
+        "height_cm": 80.0,
+        "collision_detected": False,
+        "is_moving": False,
+        "is_connected": True,
+    })
+    await hass.async_block_till_done()
+    
     state = hass.states.get("number.desky_desk_height")
     
     assert state is not None
@@ -32,8 +42,6 @@ async def test_number_setup(hass: HomeAssistant, init_integration):
     assert state.attributes.get("step") == 0.1
     assert state.attributes.get("unit_of_measurement") == UnitOfLength.CENTIMETERS
 
-
-@pytest.mark.asyncio
 async def test_number_value_updates(hass: HomeAssistant, init_integration):
     """Test number value updates from coordinator."""
     coordinator = hass.data[DOMAIN][init_integration.entry_id]
@@ -50,8 +58,6 @@ async def test_number_value_updates(hass: HomeAssistant, init_integration):
     state = hass.states.get("number.desky_desk_height")
     assert state.state == "95.5"
 
-
-@pytest.mark.asyncio
 async def test_number_availability(hass: HomeAssistant, init_integration):
     """Test number availability based on connection."""
     coordinator = hass.data[DOMAIN][init_integration.entry_id]
@@ -68,11 +74,20 @@ async def test_number_availability(hass: HomeAssistant, init_integration):
     state = hass.states.get("number.desky_desk_height")
     assert state.state == STATE_UNAVAILABLE
 
-
-@pytest.mark.asyncio
 async def test_number_set_value_direct_height(hass: HomeAssistant, init_integration):
     """Test setting number value uses move_to_height."""
     coordinator = hass.data[DOMAIN][init_integration.entry_id]
+    
+    # First make sure the entity is available
+    coordinator.async_set_updated_data({
+        "height_cm": 80.0,
+        "collision_detected": False,
+        "is_moving": False,
+        "is_connected": True,
+    })
+    await hass.async_block_till_done()
+    
+    # Now replace the device with a fresh mock for testing
     mock_device = MagicMock()
     mock_device.move_to_height = AsyncMock()
     coordinator._device = mock_device
@@ -125,11 +140,20 @@ async def test_number_set_value_direct_height(hass: HomeAssistant, init_integrat
     
     mock_device.move_to_height.assert_called_once_with(MAX_HEIGHT)
 
-
-@pytest.mark.asyncio
 async def test_number_set_value_edge_cases(hass: HomeAssistant, init_integration):
     """Test setting number value with edge cases."""
     coordinator = hass.data[DOMAIN][init_integration.entry_id]
+    
+    # First make sure the entity is available
+    coordinator.async_set_updated_data({
+        "height_cm": 80.0,
+        "collision_detected": False,
+        "is_moving": False,
+        "is_connected": True,
+    })
+    await hass.async_block_till_done()
+    
+    # Now replace the device with a fresh mock for testing
     mock_device = MagicMock()
     mock_device.move_to_height = AsyncMock()
     coordinator._device = mock_device
@@ -148,8 +172,6 @@ async def test_number_set_value_edge_cases(hass: HomeAssistant, init_integration
     
     mock_device.move_to_height.assert_called_once_with(85.7)
 
-
-@pytest.mark.asyncio
 async def test_number_no_data(hass: HomeAssistant, init_integration):
     """Test number when no data available."""
     coordinator = hass.data[DOMAIN][init_integration.entry_id]

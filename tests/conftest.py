@@ -13,10 +13,8 @@ from homeassistant.core import HomeAssistant
 
 from custom_components.desky_desk.const import DOMAIN
 
-pytest_plugins = ["pytest_homeassistant_custom_component", "pytest_asyncio"]
+pytest_plugins = ["pytest_homeassistant_custom_component"]
 
-# Mark all tests as async by default
-pytestmark = pytest.mark.asyncio
 
 
 @pytest.fixture
@@ -26,7 +24,6 @@ def mock_setup_entry() -> Generator[AsyncMock, None, None]:
         "custom_components.desky_desk.async_setup_entry", return_value=True
     ) as mock_setup_entry:
         yield mock_setup_entry
-
 
 @pytest.fixture
 def mock_config_entry() -> MockConfigEntry:
@@ -40,7 +37,6 @@ def mock_config_entry() -> MockConfigEntry:
         title="Desky Desk",
     )
 
-
 @pytest.fixture
 def mock_ble_device() -> MagicMock:
     """Return a mock BLE device."""
@@ -48,7 +44,6 @@ def mock_ble_device() -> MagicMock:
     device.address = "AA:BB:CC:DD:EE:FF"
     device.name = "Desky"
     return device
-
 
 @pytest.fixture
 def mock_service_info() -> BluetoothServiceInfoBleak:
@@ -67,7 +62,6 @@ def mock_service_info() -> BluetoothServiceInfoBleak:
         time=0,
         tx_power=None,
     )
-
 
 @pytest.fixture
 def mock_bleak_client() -> MagicMock:
@@ -94,7 +88,6 @@ def mock_bleak_client() -> MagicMock:
     
     return client
 
-
 @pytest.fixture
 def mock_establish_connection(mock_bleak_client):
     """Mock the establish_connection function."""
@@ -103,7 +96,6 @@ def mock_establish_connection(mock_bleak_client):
         return_value=mock_bleak_client,
     ) as mock:
         yield mock
-
 
 @pytest.fixture
 def mock_bluetooth_device_from_address(mock_ble_device):
@@ -114,7 +106,6 @@ def mock_bluetooth_device_from_address(mock_ble_device):
     ) as mock:
         yield mock
 
-
 @pytest.fixture
 def mock_discovered_service_info(mock_service_info):
     """Mock the async_discovered_service_info function."""
@@ -123,7 +114,6 @@ def mock_discovered_service_info(mock_service_info):
         return_value=[mock_service_info],
     ) as mock:
         yield mock
-
 
 @pytest.fixture
 def mock_coordinator_data():
@@ -134,7 +124,6 @@ def mock_coordinator_data():
         "is_moving": False,
         "is_connected": True,
     }
-
 
 @pytest.fixture
 async def init_integration(
@@ -201,13 +190,17 @@ async def init_integration(
             )
             mock_coordinator.async_refresh = AsyncMock()
             mock_coordinator.async_shutdown = AsyncMock()
+            mock_coordinator._device = mock_device_instance
+            mock_coordinator.device = mock_device_instance
+            
+            # Store the mocked coordinator before setup
+            mock_coordinator_class.return_value = mock_coordinator
             
             # Setup the integration using the proper setup flow
             await hass.config_entries.async_setup(mock_config_entry.entry_id)
             await hass.async_block_till_done()
     
     return mock_config_entry
-
 
 @pytest.fixture
 def auto_enable_custom_integrations(enable_custom_integrations):

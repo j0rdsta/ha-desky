@@ -12,8 +12,6 @@ from homeassistant.data_entry_flow import FlowResultType
 
 from custom_components.desky_desk.const import DOMAIN
 
-
-@pytest.mark.asyncio
 async def test_bluetooth_discovery(hass: HomeAssistant, mock_service_info, enable_custom_integrations):
     """Test discovery via bluetooth."""
     # Mock bluetooth setup to prevent failures
@@ -39,8 +37,6 @@ async def test_bluetooth_discovery(hass: HomeAssistant, mock_service_info, enabl
         assert result["title"] == "Desky"
         assert result["data"] == {CONF_ADDRESS: "AA:BB:CC:DD:EE:FF"}
 
-
-@pytest.mark.asyncio
 async def test_bluetooth_discovery_already_configured(
     hass: HomeAssistant, mock_service_info, mock_config_entry, enable_custom_integrations
 ):
@@ -62,8 +58,6 @@ async def test_bluetooth_discovery_already_configured(
         assert result["type"] == FlowResultType.ABORT
         assert result["reason"] == "already_configured"
 
-
-@pytest.mark.asyncio
 async def test_user_flow_pick_device(
     hass: HomeAssistant, mock_discovered_service_info, enable_custom_integrations
 ):
@@ -89,8 +83,6 @@ async def test_user_flow_pick_device(
         assert result["title"] == "Desky"
         assert result["data"] == {CONF_ADDRESS: "AA:BB:CC:DD:EE:FF"}
 
-
-@pytest.mark.asyncio
 async def test_user_flow_manual_entry_no_devices(hass: HomeAssistant, enable_custom_integrations):
     """Test user flow with manual entry when no devices discovered."""
     # Mock bluetooth setup to prevent failures
@@ -149,8 +141,6 @@ async def test_user_flow_manual_entry_no_devices(hass: HomeAssistant, enable_cus
             assert result["title"] == "Desky"
             assert result["data"] == {CONF_ADDRESS: "FF:EE:DD:CC:BB:AA"}
 
-
-@pytest.mark.asyncio
 async def test_user_flow_already_configured(
     hass: HomeAssistant, mock_config_entry, mock_discovered_service_info, enable_custom_integrations
 ):

@@ -23,8 +23,6 @@ from custom_components.desky_desk.const import (
     STATUS_NOTIFICATION_HEADER,
     WRITE_CHARACTERISTIC_UUID,
 )
-
-
 def test_desk_device_init(mock_ble_device):
     """Test DeskBLEDevice initialization."""
     device = DeskBLEDevice(mock_ble_device)
@@ -36,8 +34,6 @@ def test_desk_device_init(mock_ble_device):
     assert device.is_moving is False
     assert device.movement_direction is None
     assert device.is_connected is False
-
-
 def test_desk_device_properties(mock_ble_device):
     """Test DeskBLEDevice properties."""
     device = DeskBLEDevice(mock_ble_device)
@@ -48,8 +44,6 @@ def test_desk_device_properties(mock_ble_device):
     assert device.height_cm == 85.0
     assert device.collision_detected is True
     assert device.is_moving is True
-
-
 def test_register_callbacks(mock_ble_device):
     """Test callback registration."""
     device = DeskBLEDevice(mock_ble_device)
@@ -63,8 +57,6 @@ def test_register_callbacks(mock_ble_device):
     assert notification_callback in device._notification_callbacks
     assert disconnect_callback in device._disconnect_callbacks
 
-
-@pytest.mark.asyncio
 async def test_connect_success(mock_ble_device, mock_establish_connection, mock_bleak_client):
     """Test successful connection."""
     device = DeskBLEDevice(mock_ble_device)
@@ -97,8 +89,6 @@ async def test_connect_success(mock_ble_device, mock_establish_connection, mock_
     ]
     mock_bleak_client.write_gatt_char.assert_has_calls(expected_calls)
 
-
-@pytest.mark.asyncio
 async def test_connect_already_connected(mock_ble_device, mock_bleak_client):
     """Test connect when already connected."""
     device = DeskBLEDevice(mock_ble_device)
@@ -108,8 +98,6 @@ async def test_connect_already_connected(mock_ble_device, mock_bleak_client):
     
     assert result is True
 
-
-@pytest.mark.asyncio
 async def test_connect_failure(mock_ble_device):
     """Test connection failure."""
     device = DeskBLEDevice(mock_ble_device)
@@ -123,8 +111,6 @@ async def test_connect_failure(mock_ble_device):
         assert result is False
         assert device._client is None
 
-
-@pytest.mark.asyncio
 async def test_connect_timeout(mock_ble_device):
     """Test connection timeout."""
     device = DeskBLEDevice(mock_ble_device)
@@ -137,9 +123,7 @@ async def test_connect_timeout(mock_ble_device):
         
         assert result is False
         assert device._client is None
-
-
-@pytest.mark.asyncio 
+ 
 async def test_proxy_detection(mock_ble_device):
     """Test ESPHome proxy detection."""
     device = DeskBLEDevice(mock_ble_device)
@@ -168,8 +152,6 @@ async def test_proxy_detection(mock_ble_device):
     mock_ble_device.details = {"source": "hci0"}
     assert device._is_esphome_proxy(mock_ble_device) is False
 
-
-@pytest.mark.asyncio
 async def test_connect_with_proxy(mock_ble_device, mock_establish_connection, mock_bleak_client):
     """Test connection with ESPHome proxy detection."""
     # Set proxy indicators
@@ -186,8 +168,6 @@ async def test_connect_with_proxy(mock_ble_device, mock_establish_connection, mo
     assert call_args.kwargs['timeout'] == 30.0  # Proxy timeout
     assert call_args.kwargs['max_attempts'] == 5  # Proxy attempts
 
-
-@pytest.mark.asyncio
 async def test_get_updated_device(mock_ble_device):
     """Test _get_updated_device callback returns the BLE device."""
     device = DeskBLEDevice(mock_ble_device)
@@ -196,8 +176,6 @@ async def test_get_updated_device(mock_ble_device):
     result = device._get_updated_device()
     assert result == mock_ble_device
 
-
-@pytest.mark.asyncio
 async def test_disconnect(mock_ble_device, mock_bleak_client):
     """Test disconnection."""
     device = DeskBLEDevice(mock_ble_device)
@@ -209,8 +187,6 @@ async def test_disconnect(mock_ble_device, mock_bleak_client):
     mock_bleak_client.disconnect.assert_called_once()
     assert device._client is None
 
-
-@pytest.mark.asyncio
 async def test_send_command_success(mock_ble_device, mock_bleak_client):
     """Test successful command sending."""
     device = DeskBLEDevice(mock_ble_device)
@@ -223,8 +199,6 @@ async def test_send_command_success(mock_ble_device, mock_bleak_client):
         WRITE_CHARACTERISTIC_UUID, COMMAND_GET_STATUS
     )
 
-
-@pytest.mark.asyncio
 async def test_send_command_not_connected(mock_ble_device):
     """Test command sending when not connected."""
     device = DeskBLEDevice(mock_ble_device)
@@ -233,8 +207,6 @@ async def test_send_command_not_connected(mock_ble_device):
     
     assert result is False
 
-
-@pytest.mark.asyncio
 async def test_send_command_failure(mock_ble_device, mock_bleak_client):
     """Test command sending failure."""
     device = DeskBLEDevice(mock_ble_device)
@@ -245,8 +217,6 @@ async def test_send_command_failure(mock_ble_device, mock_bleak_client):
     
     assert result is False
 
-
-@pytest.mark.asyncio
 async def test_movement_commands(mock_ble_device, mock_bleak_client):
     """Test movement commands."""
     device = DeskBLEDevice(mock_ble_device)
@@ -278,8 +248,6 @@ async def test_movement_commands(mock_ble_device, mock_bleak_client):
         WRITE_CHARACTERISTIC_UUID, COMMAND_STOP
     )
 
-
-@pytest.mark.asyncio
 async def test_preset_commands(mock_ble_device, mock_bleak_client):
     """Test preset commands."""
     device = DeskBLEDevice(mock_ble_device)
@@ -301,8 +269,6 @@ async def test_preset_commands(mock_ble_device, mock_bleak_client):
             WRITE_CHARACTERISTIC_UUID, command
         )
 
-
-@pytest.mark.asyncio
 async def test_invalid_preset(mock_ble_device, mock_bleak_client):
     """Test invalid preset number."""
     device = DeskBLEDevice(mock_ble_device)
@@ -312,8 +278,6 @@ async def test_invalid_preset(mock_ble_device, mock_bleak_client):
     
     assert result is False
     mock_bleak_client.write_gatt_char.assert_not_called()
-
-
 def test_handle_notification(mock_ble_device):
     """Test notification handling."""
     device = DeskBLEDevice(mock_ble_device)
@@ -329,8 +293,6 @@ def test_handle_notification(mock_ble_device):
     
     assert device.height_cm == 85.0
     callback.assert_called_once_with(85.0, False, False)
-
-
 def test_handle_notification_invalid_data(mock_ble_device):
     """Test notification handling with invalid data."""
     device = DeskBLEDevice(mock_ble_device)
@@ -345,8 +307,6 @@ def test_handle_notification_invalid_data(mock_ble_device):
     # Wrong header
     device._handle_notification(0, bytearray([0x00, 0x00, 0x00, 0x00, 0x00, 0x00]))
     callback.assert_not_called()
-
-
 def test_handle_status_notification(mock_ble_device):
     """Test status notification handling (0xF2 0xF2 0x01 0x03 format)."""
     device = DeskBLEDevice(mock_ble_device)
@@ -362,8 +322,6 @@ def test_handle_status_notification(mock_ble_device):
     
     assert device.height_cm == 85.0
     callback.assert_called_once_with(85.0, False, False)
-
-
 def test_handle_both_notification_types(mock_ble_device):
     """Test that both notification formats work correctly."""
     device = DeskBLEDevice(mock_ble_device)
@@ -387,8 +345,6 @@ def test_handle_both_notification_types(mock_ble_device):
         call(85.0, False, False),
         call(101.2, False, False)
     ])
-
-
 def test_handle_notification_edge_cases(mock_ble_device):
     """Test notification handling with edge case heights."""
     device = DeskBLEDevice(mock_ble_device)
@@ -407,8 +363,6 @@ def test_handle_notification_edge_cases(mock_ble_device):
     assert device.height_cm == 130.0
     
     assert callback.call_count == 2
-
-
 def test_handle_unknown_notification(mock_ble_device):
     """Test handling of unknown notification formats."""
     device = DeskBLEDevice(mock_ble_device)
@@ -423,8 +377,6 @@ def test_handle_unknown_notification(mock_ble_device):
     # Height should not be updated, callback should not be called
     assert device.height_cm == 0.0  # Initial value
     callback.assert_not_called()
-
-
 def test_handle_notification_various_lengths(mock_ble_device):
     """Test notification handling with different data lengths."""
     device = DeskBLEDevice(mock_ble_device)
@@ -451,8 +403,6 @@ def test_handle_notification_various_lengths(mock_ble_device):
     assert device.height_cm == 90.0
     
     assert callback.call_count == 3
-
-
 def test_handle_disconnect(mock_ble_device, mock_bleak_client):
     """Test disconnect handling."""
     device = DeskBLEDevice(mock_ble_device)
@@ -468,8 +418,6 @@ def test_handle_disconnect(mock_ble_device, mock_bleak_client):
     assert device._is_moving is False
     callback.assert_called_once()
 
-
-@pytest.mark.asyncio
 async def test_move_to_height_success(mock_ble_device, mock_bleak_client):
     """Test move_to_height command."""
     device = DeskBLEDevice(mock_ble_device)
@@ -494,8 +442,6 @@ async def test_move_to_height_success(mock_ble_device, mock_bleak_client):
         WRITE_CHARACTERISTIC_UUID, expected_command
     )
 
-
-@pytest.mark.asyncio
 async def test_move_to_height_out_of_range(mock_ble_device, mock_bleak_client):
     """Test move_to_height with out of range values."""
     device = DeskBLEDevice(mock_ble_device)
@@ -514,8 +460,6 @@ async def test_move_to_height_out_of_range(mock_ble_device, mock_bleak_client):
     # Verify no commands were sent
     mock_bleak_client.write_gatt_char.assert_not_called()
 
-
-@pytest.mark.asyncio
 async def test_move_to_height_edge_cases(mock_ble_device, mock_bleak_client):
     """Test move_to_height with edge case values."""
     device = DeskBLEDevice(mock_ble_device)
@@ -536,8 +480,6 @@ async def test_move_to_height_edge_cases(mock_ble_device, mock_bleak_client):
         call(WRITE_CHARACTERISTIC_UUID, expected_max),
     ]
     mock_bleak_client.write_gatt_char.assert_has_calls(expected_calls)
-
-
 @patch('time.time')
 def test_auto_stop_detection(mock_time, mock_ble_device):
     """Test auto-stop detection when height stops changing."""
@@ -578,8 +520,6 @@ def test_auto_stop_detection(mock_time, mock_ble_device):
     assert callback.call_count == 3
     # Verify last callback includes collision state
     callback.assert_called_with(85.0, True, False)
-
-
 def test_auto_stop_detection_reset_on_movement(mock_ble_device):
     """Test auto-stop detection resets when height changes."""
     device = DeskBLEDevice(mock_ble_device)
@@ -600,8 +540,6 @@ def test_auto_stop_detection_reset_on_movement(mock_ble_device):
     assert device._height_unchanged_count == 0  # Reset
     assert device._last_height_cm == 86.0  # Updated
 
-
-@pytest.mark.asyncio
 async def test_move_to_height_direction_detection(mock_ble_device, mock_bleak_client):
     """Test move_to_height sets correct movement direction."""
     device = DeskBLEDevice(mock_ble_device)
@@ -623,8 +561,6 @@ async def test_move_to_height_direction_detection(mock_ble_device, mock_bleak_cl
     assert result is True
     assert device._movement_direction is None
 
-
-@pytest.mark.asyncio
 async def test_collision_state_persists(mock_ble_device, mock_bleak_client):
     """Test collision state persists through new movement commands."""
     device = DeskBLEDevice(mock_ble_device)
@@ -660,8 +596,6 @@ async def test_collision_state_persists(mock_ble_device, mock_bleak_client):
             await device._auto_clear_task
         except asyncio.CancelledError:
             pass
-
-
 @patch('time.time')
 def test_no_collision_for_short_movement(mock_time, mock_ble_device):
     """Test no collision detected for movements shorter than 1 second."""
@@ -692,8 +626,6 @@ def test_no_collision_for_short_movement(mock_time, mock_ble_device):
     
     # Verify last callback shows no collision
     callback.assert_called_with(85.0, False, False)
-
-
 @patch('time.time')
 def test_bounce_back_detection_down(mock_time, mock_ble_device):
     """Test bounce-back detection when desk moves down then bounces up."""
@@ -740,8 +672,6 @@ def test_bounce_back_detection_down(mock_time, mock_ble_device):
     # Verify collision was detected
     assert device._collision_detected is True
     assert device._bounce_detected is True
-
-
 @patch('time.time')
 def test_bounce_back_detection_up(mock_time, mock_ble_device):
     """Test bounce-back detection when desk moves up then bounces down."""
@@ -789,8 +719,6 @@ def test_bounce_back_detection_up(mock_time, mock_ble_device):
     assert device._collision_detected is True
     assert device._bounce_detected is True
 
-
-@pytest.mark.asyncio
 async def test_bounce_back_resets_on_new_movement(mock_ble_device, mock_bleak_client):
     """Test bounce detection state resets on new movement."""
     device = DeskBLEDevice(mock_ble_device)
@@ -809,8 +737,6 @@ async def test_bounce_back_resets_on_new_movement(mock_ble_device, mock_bleak_cl
     assert device._collision_detected is True  # Collision persists through new movement
     assert device._recent_heights == []
     assert device._commanded_direction == "up"
-
-
 @patch('time.time')
 def test_no_bounce_for_normal_stop(mock_time, mock_ble_device):
     """Test no bounce detected for normal stop (no direction reversal)."""
@@ -846,8 +772,6 @@ def test_no_bounce_for_normal_stop(mock_time, mock_ble_device):
     assert device._is_moving is False  # Stopped due to no change
     assert device._bounce_detected is False  # No bounce
     assert device._collision_detected is True  # Regular collision from stop
-
-
 def test_detect_movement_direction(mock_ble_device):
     """Test movement direction detection from recent heights."""
     device = DeskBLEDevice(mock_ble_device)
@@ -885,8 +809,6 @@ def test_detect_movement_direction(mock_ble_device):
         (3.3, 85.0)
     ]
     assert device._detect_movement_direction() is None
-
-
 @patch('time.time')
 def test_bounce_back_with_status_notification(mock_time, mock_ble_device):
     """Test bounce-back detection works with status notifications too."""
@@ -917,8 +839,6 @@ def test_bounce_back_with_status_notification(mock_time, mock_ble_device):
             assert device._collision_detected is True
             break
 
-
-@pytest.mark.asyncio
 async def test_movement_with_preset_no_direction(mock_ble_device, mock_bleak_client):
     """Test that preset movements don't set commanded direction initially."""
     device = DeskBLEDevice(mock_ble_device)
@@ -936,8 +856,6 @@ async def test_movement_with_preset_no_direction(mock_ble_device, mock_bleak_cli
     assert device._recent_heights == []
     assert device._movement_type == "preset"  # Movement type should be set
 
-
-@pytest.mark.asyncio
 async def test_collision_auto_clear(mock_ble_device):
     """Test collision state auto-clears after timeout."""
     device = DeskBLEDevice(mock_ble_device)
@@ -958,8 +876,6 @@ async def test_collision_auto_clear(mock_ble_device):
     assert device._collision_detected is False
     assert device._collision_time is None
 
-
-@pytest.mark.asyncio
 async def test_collision_persists_on_new_movement(mock_ble_device, mock_bleak_client):
     """Test collision state persists when new movement starts."""
     device = DeskBLEDevice(mock_ble_device)
@@ -999,8 +915,6 @@ async def test_collision_persists_on_new_movement(mock_ble_device, mock_bleak_cl
             await device._auto_clear_task
         except asyncio.CancelledError:
             pass
-
-
 @patch('time.time')
 def test_collision_clears_after_successful_movement_from_collision_time(mock_time, mock_ble_device):
     """Test collision clears after 2 seconds of movement from collision detection time."""
@@ -1044,10 +958,6 @@ def test_collision_clears_after_successful_movement_from_collision_time(mock_tim
     device._handle_notification(0, data)
     assert device._collision_detected is False  # Cleared after 2+ seconds
 
-
-
-
-@pytest.mark.asyncio
 async def test_collision_auto_clear_on_disconnect(mock_ble_device, mock_bleak_client):
     """Test collision auto-clear task is cancelled on disconnect."""
     device = DeskBLEDevice(mock_ble_device)
@@ -1072,8 +982,6 @@ async def test_collision_auto_clear_on_disconnect(mock_ble_device, mock_bleak_cl
     
     assert initial_task.cancelled()
 
-
-@pytest.mark.asyncio
 async def test_set_collision_detected_manages_state(mock_ble_device):
     """Test _set_collision_detected properly manages state and tasks."""
     device = DeskBLEDevice(mock_ble_device)
@@ -1112,8 +1020,6 @@ async def test_set_collision_detected_manages_state(mock_ble_device):
         pass
     assert task2.cancelled()  # Task cancelled
 
-
-@pytest.mark.asyncio
 async def test_auto_clear_notifies_callbacks(mock_ble_device):
     """Test auto-clear notifies callbacks when collision is cleared."""
     device = DeskBLEDevice(mock_ble_device)
@@ -1134,8 +1040,6 @@ async def test_auto_clear_notifies_callbacks(mock_ble_device):
         # Get the last call
         last_call = callback.call_args
         assert last_call[0] == (85.0, False, False)  # height, collision=False, moving=False
-
-
 @patch('time.time')
 def test_no_collision_when_reaching_target_height(mock_time, mock_ble_device):
     """Test that reaching target height does not trigger collision detection."""
@@ -1160,8 +1064,6 @@ def test_no_collision_when_reaching_target_height(mock_time, mock_ble_device):
     # Should NOT detect collision - reached target
     assert device._is_moving is False
     assert device.collision_detected is False
-
-
 @patch('time.time')
 def test_collision_when_stopping_away_from_target(mock_time, mock_ble_device):
     """Test that stopping away from target height triggers collision detection."""
@@ -1186,8 +1088,6 @@ def test_collision_when_stopping_away_from_target(mock_time, mock_ble_device):
     # Should detect collision - stopped away from target
     assert device._is_moving is False
     assert device.collision_detected is True
-
-
 @patch('time.time')
 def test_continuous_movement_collision_minimal_movement(mock_time, mock_ble_device):
     """Test that continuous movement detects collision for minimal distance moved."""
@@ -1212,8 +1112,6 @@ def test_continuous_movement_collision_minimal_movement(mock_time, mock_ble_devi
     # Should detect collision due to minimal movement (< 0.5cm)
     assert device._is_moving is False
     assert device.collision_detected is True
-
-
 @patch('time.time')
 def test_continuous_movement_no_collision_normal_movement(mock_time, mock_ble_device):
     """Test that continuous movement doesn't detect collision for normal distance and speed."""
@@ -1238,8 +1136,6 @@ def test_continuous_movement_no_collision_normal_movement(mock_time, mock_ble_de
     # Should NOT detect collision - reasonable distance and speed
     assert device._is_moving is False
     assert device.collision_detected is False
-
-
 @patch('time.time')
 def test_continuous_movement_no_collision_short_duration(mock_time, mock_ble_device):
     """Test that very short continuous movements don't trigger collision (user releasing button)."""
@@ -1264,8 +1160,6 @@ def test_continuous_movement_no_collision_short_duration(mock_time, mock_ble_dev
     # Should NOT detect collision - too short duration (user released button)
     assert device._is_moving is False
     assert device.collision_detected is False
-
-
 @patch('time.time')
 def test_continuous_movement_collision_slow_speed(mock_time, mock_ble_device):
     """Test that continuous movement detects collision for abnormally slow speed."""
@@ -1290,8 +1184,6 @@ def test_continuous_movement_collision_slow_speed(mock_time, mock_ble_device):
     # Should detect collision due to abnormally slow speed (< 0.5 cm/s)
     assert device._is_moving is False
     assert device.collision_detected is True
-
-
 @patch('time.time')
 def test_preset_clears_previous_commanded_direction(mock_time, mock_ble_device):
     """Test that preset movements clear previous commanded direction to prevent false bounce detection."""
@@ -1326,8 +1218,6 @@ def test_preset_clears_previous_commanded_direction(mock_time, mock_ble_device):
     # Should NOT detect collision - normal preset completion with no bounce detection
     assert device._is_moving is False
     assert device.collision_detected is False
-
-
 @patch('time.time')
 def test_preset_movement_no_collision_normal_movement(mock_time, mock_ble_device):
     """Test that preset movement doesn't trigger collision for normal distance and speed."""
@@ -1351,8 +1241,6 @@ def test_preset_movement_no_collision_normal_movement(mock_time, mock_ble_device
     # Should NOT detect collision - normal distance and speed
     assert device._is_moving is False
     assert device.collision_detected is False
-
-
 @patch('time.time')
 def test_preset_movement_collision_minimal_distance(mock_time, mock_ble_device):
     """Test that preset movement triggers collision for minimal movement distance."""
@@ -1376,8 +1264,6 @@ def test_preset_movement_collision_minimal_distance(mock_time, mock_ble_device):
     # Should detect collision - minimal movement distance
     assert device._is_moving is False
     assert device.collision_detected is True
-
-
 @patch('time.time')
 def test_preset_movement_collision_slow_overall_speed(mock_time, mock_ble_device):
     """Test that preset movement triggers collision for abnormally slow overall speed."""
@@ -1401,9 +1287,7 @@ def test_preset_movement_collision_slow_overall_speed(mock_time, mock_ble_device
     # Should detect collision - very slow overall speed
     assert device._is_moving is False
     assert device.collision_detected is True
-
-
-@pytest.mark.asyncio 
+ 
 async def test_velocity_tracking_reset_on_new_movement(mock_ble_device, mock_bleak_client):
     """Test that velocity tracking is reset when new movement starts.""" 
     device = DeskBLEDevice(mock_ble_device)
@@ -1419,8 +1303,6 @@ async def test_velocity_tracking_reset_on_new_movement(mock_ble_device, mock_ble
     # Velocity data should be cleared for new movement
     assert device._recent_velocities == []
     assert device._movement_start_height is None
-
-
 def test_average_velocity_calculation(mock_ble_device):
     """Test average velocity calculation."""
     device = DeskBLEDevice(mock_ble_device)
@@ -1436,8 +1318,6 @@ def test_average_velocity_calculation(mock_ble_device):
     device._recent_velocities = [-1.0, 1.0, 2.0]
     assert abs(device._get_average_velocity() - 0.667) < 0.001  # Close enough
 
-
-@pytest.mark.asyncio
 async def test_move_commands_set_movement_type(mock_ble_device, mock_bleak_client):
     """Test that movement commands set the correct movement type."""
     device = DeskBLEDevice(mock_ble_device)
@@ -1467,8 +1347,6 @@ async def test_move_commands_set_movement_type(mock_ble_device, mock_bleak_clien
     await device.stop()
     assert device._movement_type is None
     assert device._target_height is None
-
-
 @patch('time.time')
 def test_no_collision_at_height_limits(mock_time, mock_ble_device):
     """Test that stopping near height limits doesn't trigger collision detection."""
@@ -1526,8 +1404,6 @@ def test_no_collision_at_height_limits(mock_time, mock_ble_device):
     # Should not detect collision - hit minimum height limit
     assert device._is_moving is False  # Movement stopped
     assert device._collision_detected is False  # No collision detected
-
-
 @patch('time.time')
 def test_collision_detection_away_from_limits(mock_time, mock_ble_device):
     """Test that collision is still detected when stopping away from height limits."""

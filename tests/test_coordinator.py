@@ -12,8 +12,6 @@ from homeassistant.helpers.update_coordinator import UpdateFailed
 from custom_components.desky_desk.coordinator import DeskUpdateCoordinator
 from custom_components.desky_desk.const import RECONNECT_INTERVAL_SECONDS, UPDATE_INTERVAL_SECONDS
 
-
-@pytest.mark.asyncio
 async def test_coordinator_init(hass: HomeAssistant, mock_config_entry, enable_custom_integrations):
     """Test coordinator initialization."""
     coordinator = DeskUpdateCoordinator(hass, mock_config_entry)
@@ -23,8 +21,6 @@ async def test_coordinator_init(hass: HomeAssistant, mock_config_entry, enable_c
     assert coordinator.update_interval.total_seconds() == UPDATE_INTERVAL_SECONDS
     assert coordinator._shutdown is False
 
-
-@pytest.mark.asyncio
 async def test_coordinator_first_refresh_success(
     hass: HomeAssistant,
     mock_config_entry,
@@ -48,18 +44,23 @@ async def test_coordinator_first_refresh_success(
         mock_device_instance.register_notification_callback = MagicMock()
         mock_device_instance.register_disconnect_callback = MagicMock()
         
-        await coordinator.async_config_entry_first_refresh()
+        # Patch asyncio.create_task to prevent the reconnect task from running
+        with patch("asyncio.create_task") as mock_create_task:
+            mock_task = MagicMock()
+            mock_create_task.return_value = mock_task
+            
+            await coordinator.async_config_entry_first_refresh()
         
-        assert coordinator._device == mock_device_instance
-        assert coordinator.data == {
-            "height_cm": 80.0,
-            "collision_detected": False,
-            "is_moving": False,
-            "is_connected": True,
-        }
+            assert coordinator._device == mock_device_instance
+            # Initial data should show disconnected state (set by async_config_entry_first_refresh)
+            assert coordinator.data == {
+                "height_cm": 0,
+                "collision_detected": False,
+                "is_moving": False,
+                "movement_direction": None,
+                "is_connected": False,
+            }
 
-
-@pytest.mark.asyncio
 async def test_coordinator_first_refresh_no_device(
     hass: HomeAssistant,
     mock_config_entry,
@@ -75,15 +76,13 @@ async def test_coordinator_first_refresh_no_device(
         with pytest.raises(ConfigEntryNotReady):
             await coordinator.async_config_entry_first_refresh()
 
-
-@pytest.mark.asyncio
 async def test_coordinator_first_refresh_connection_failed(
     hass: HomeAssistant,
     mock_config_entry,
     mock_bluetooth_device_from_address,
     enable_custom_integrations,
 ):
-    """Test first refresh when connection fails."""
+    """Test first refresh when connection fails - starts reconnect task."""
     coordinator = DeskUpdateCoordinator(hass, mock_config_entry)
     
     with patch(
@@ -91,12 +90,34 @@ async def test_coordinator_first_refresh_connection_failed(
     ) as mock_desk_device:
         mock_device_instance = mock_desk_device.return_value
         mock_device_instance.connect = AsyncMock(return_value=False)
+        mock_device_instance.register_notification_callback = MagicMock()
+        mock_device_instance.register_disconnect_callback = MagicMock()
         
-        with pytest.raises(ConfigEntryNotReady):
+        # Patch asyncio.create_task to prevent the reconnect task from running
+        with patch("asyncio.create_task") as mock_create_task:
+            mock_task = MagicMock()
+            mock_create_task.return_value = mock_task
+            
+            # Should not raise - starts reconnect in background
             await coordinator.async_config_entry_first_refresh()
+            
+            # Verify device was created and callbacks registered
+            assert coordinator._device == mock_device_instance
+            mock_device_instance.register_notification_callback.assert_called_once()
+            mock_device_instance.register_disconnect_callback.assert_called_once()
+            
+            # Verify reconnect task was created
+            mock_create_task.assert_called_once()
+            
+            # Initial data should show disconnected state
+            assert coordinator.data == {
+                "height_cm": 0,
+                "collision_detected": False,
+                "is_moving": False,
+                "movement_direction": None,
+                "is_connected": False,
+            }
 
-
-@pytest.mark.asyncio
 async def test_coordinator_update_data_connected(
     hass: HomeAssistant,
     mock_config_entry,
@@ -110,6 +131,7 @@ async def test_coordinator_update_data_connected(
     mock_device.height_cm = 90.0
     mock_device.collision_detected = True
     mock_device.is_moving = True
+    mock_device.movement_direction = "up"
     mock_device.get_status = AsyncMock()
     coordinator._device = mock_device
     
@@ -119,12 +141,11 @@ async def test_coordinator_update_data_connected(
         "height_cm": 90.0,
         "collision_detected": True,
         "is_moving": True,
+        "movement_direction": "up",
         "is_connected": True,
     }
     mock_device.get_status.assert_called_once()
 
-
-@pytest.mark.asyncio
 async def test_coordinator_update_data_not_connected(
     hass: HomeAssistant,
     mock_config_entry,
@@ -148,8 +169,6 @@ async def test_coordinator_update_data_not_connected(
         # Verify reconnect task was created
         mock_create_task.assert_called_once()
 
-
-@pytest.mark.asyncio
 async def test_coordinator_notification_callback(
     hass: HomeAssistant,
     mock_config_entry,
@@ -158,6 +177,11 @@ async def test_coordinator_notification_callback(
     """Test notification callback updates data."""
     coordinator = DeskUpdateCoordinator(hass, mock_config_entry)
     
+    # Set up a mock device to provide movement_direction
+    mock_device = MagicMock()
+    mock_device.movement_direction = "down"
+    coordinator._device = mock_device
+    
     with patch.object(coordinator, "async_set_updated_data") as mock_set_data:
         coordinator._handle_notification(85.5, True, False)
         
@@ -165,11 +189,10 @@ async def test_coordinator_notification_callback(
             "height_cm": 85.5,
             "collision_detected": True,
             "is_moving": False,
+            "movement_direction": "down",
             "is_connected": True,
         })
 
-
-@pytest.mark.asyncio
 async def test_coordinator_disconnect_callback(
     hass: HomeAssistant,
     mock_config_entry,
@@ -189,11 +212,10 @@ async def test_coordinator_disconnect_callback(
             "height_cm": 75.0,
             "collision_detected": False,
             "is_moving": False,
+            "movement_direction": None,
             "is_connected": False,
         })
 
-
-@pytest.mark.asyncio
 async def test_coordinator_reconnect(
     hass: HomeAssistant,
     mock_config_entry,
@@ -234,8 +256,6 @@ async def test_coordinator_reconnect(
                 mock_set_data.assert_called_once_with({"test": "data"})
                 mock_sleep.assert_called_once_with(RECONNECT_INTERVAL_SECONDS)
 
-
-@pytest.mark.asyncio
 async def test_coordinator_shutdown(
     hass: HomeAssistant,
     mock_config_entry,
