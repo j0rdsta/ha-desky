@@ -138,8 +138,8 @@ class DeskUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Request current status
         await self._device.get_status()
         
-        # Return current data
-        return {
+        # Build data dictionary
+        data = {
             "height_cm": self._device.height_cm,
             "collision_detected": self._device.collision_detected,
             "is_moving": self._device.is_moving,

@@ -43,6 +43,13 @@ async def test_coordinator_first_refresh_success(
         mock_device_instance.get_status = AsyncMock()
         mock_device_instance.register_notification_callback = MagicMock()
         mock_device_instance.register_disconnect_callback = MagicMock()
+        # Add device info attributes
+        mock_device_instance.manufacturer_name = None
+        mock_device_instance.model_number = None
+        mock_device_instance.serial_number = None
+        mock_device_instance.hardware_revision = None
+        mock_device_instance.firmware_revision = None
+        mock_device_instance.software_revision = None
         
         # Patch asyncio.create_task to prevent the reconnect task from running
         with patch("asyncio.create_task") as mock_create_task:
@@ -72,6 +79,13 @@ async def test_coordinator_first_refresh_success(
                 "limits_enabled": False,
                 "touch_mode": None,
                 "unit_preference": None,
+                # Device information
+                "manufacturer_name": None,
+                "model_number": None,
+                "serial_number": None,
+                "hardware_revision": None,
+                "firmware_revision": None,
+                "software_revision": None,
             }
 
 async def test_coordinator_first_refresh_no_device(
@@ -142,6 +156,13 @@ async def test_coordinator_first_refresh_connection_failed(
                 "limits_enabled": False,
                 "touch_mode": None,
                 "unit_preference": None,
+                # Device information
+                "manufacturer_name": None,
+                "model_number": None,
+                "serial_number": None,
+                "hardware_revision": None,
+                "firmware_revision": None,
+                "software_revision": None,
             }
 
 async def test_coordinator_update_data_connected(
@@ -172,6 +193,13 @@ async def test_coordinator_update_data_connected(
     mock_device.limits_enabled = False
     mock_device.touch_mode = 1
     mock_device.unit_preference = "inch"
+    # Add device info attributes
+    mock_device.manufacturer_name = None
+    mock_device.model_number = None
+    mock_device.serial_number = None
+    mock_device.hardware_revision = None
+    mock_device.firmware_revision = None
+    mock_device.software_revision = None
     coordinator._device = mock_device
     
     data = await coordinator._async_update_data()
@@ -195,6 +223,13 @@ async def test_coordinator_update_data_connected(
         "limits_enabled": False,
         "touch_mode": 1,
         "unit_preference": "inch",
+        # Device information
+        "manufacturer_name": None,
+        "model_number": None,
+        "serial_number": None,
+        "hardware_revision": None,
+        "firmware_revision": None,
+        "software_revision": None,
     }
     mock_device.get_status.assert_called_once()
 
@@ -244,6 +279,13 @@ async def test_coordinator_notification_callback(
     mock_device.limits_enabled = True
     mock_device.touch_mode = 0
     mock_device.unit_preference = "cm"
+    # Add device info attributes
+    mock_device.manufacturer_name = None
+    mock_device.model_number = None
+    mock_device.serial_number = None
+    mock_device.hardware_revision = None
+    mock_device.firmware_revision = None
+    mock_device.software_revision = None
     coordinator._device = mock_device
     
     with patch.object(coordinator, "async_set_updated_data") as mock_set_data:
@@ -268,6 +310,13 @@ async def test_coordinator_notification_callback(
             "limits_enabled": True,
             "touch_mode": 0,
             "unit_preference": "cm",
+            # Device information
+            "manufacturer_name": None,
+            "model_number": None,
+            "serial_number": None,
+            "hardware_revision": None,
+            "firmware_revision": None,
+            "software_revision": None,
         })
 
 async def test_coordinator_disconnect_callback(
@@ -293,6 +342,13 @@ async def test_coordinator_disconnect_callback(
     mock_device.limits_enabled = True
     mock_device.touch_mode = 0
     mock_device.unit_preference = "cm"
+    # Add device info attributes
+    mock_device.manufacturer_name = None
+    mock_device.model_number = None
+    mock_device.serial_number = None
+    mock_device.hardware_revision = None
+    mock_device.firmware_revision = None
+    mock_device.software_revision = None
     coordinator._device = mock_device
     
     with patch.object(coordinator, "async_set_updated_data") as mock_set_data:
@@ -317,6 +373,13 @@ async def test_coordinator_disconnect_callback(
             "limits_enabled": True,
             "touch_mode": 0,
             "unit_preference": "cm",
+            # Device information preserved during disconnect
+            "manufacturer_name": None,
+            "model_number": None,
+            "serial_number": None,
+            "hardware_revision": None,
+            "firmware_revision": None,
+            "software_revision": None,
         })
 
 async def test_coordinator_reconnect(
