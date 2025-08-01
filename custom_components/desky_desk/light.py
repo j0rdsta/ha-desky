@@ -31,7 +31,26 @@ COLOR_MAP = {
     7: None,         # Off
 }
 
+# Effects list
 EFFECT_PARTY = "Party mode"
+EFFECT_WHITE = "White"
+EFFECT_RED = "Red"
+EFFECT_GREEN = "Green"
+EFFECT_BLUE = "Blue"
+EFFECT_YELLOW = "Yellow"
+
+# Map effect names to color codes
+EFFECT_TO_COLOR = {
+    EFFECT_WHITE: 1,
+    EFFECT_RED: 2,
+    EFFECT_GREEN: 3,
+    EFFECT_BLUE: 4,
+    EFFECT_YELLOW: 5,
+    EFFECT_PARTY: 6,
+}
+
+# Map color codes to effect names
+COLOR_TO_EFFECT = {v: k for k, v in EFFECT_TO_COLOR.items()}
 
 
 async def async_setup_entry(
@@ -58,7 +77,14 @@ class DeskLight(DeskEntity, LightEntity):
         super().__init__(coordinator, config_entry)
         self._attr_unique_id = f"{config_entry.unique_id}_led_strip"
         self._attr_name = "LED Strip"
-        self._attr_effect_list = [EFFECT_PARTY]
+        self._attr_effect_list = [
+            EFFECT_WHITE,
+            EFFECT_RED,
+            EFFECT_GREEN,
+            EFFECT_BLUE,
+            EFFECT_YELLOW,
+            EFFECT_PARTY,
+        ]
 
     @property
     def is_on(self) -> bool:
@@ -92,8 +118,8 @@ class DeskLight(DeskEntity, LightEntity):
             return None
         
         light_color = self.coordinator.data.get("light_color")
-        if light_color == 6:  # Party mode
-            return EFFECT_PARTY
+        if light_color in COLOR_TO_EFFECT:
+            return COLOR_TO_EFFECT[light_color]
         
         return None
 
@@ -108,15 +134,23 @@ class DeskLight(DeskEntity, LightEntity):
             brightness_percent = int((kwargs[ATTR_BRIGHTNESS] / 255) * 100)
             await self._device.set_brightness(brightness_percent)
         
-        # Handle effect
+        # Handle effect (color selection)
         if ATTR_EFFECT in kwargs:
-            if kwargs[ATTR_EFFECT] == EFFECT_PARTY:
-                await self._device.set_light_color(6)  # Party mode
+            effect_name = kwargs[ATTR_EFFECT]
+            if effect_name in EFFECT_TO_COLOR:
+                color_code = EFFECT_TO_COLOR[effect_name]
+                await self._device.set_light_color(color_code)
+                
+                # Store last static color (non-party mode) for persistence
+                if color_code != 6:  # Not party mode
+                    self.coordinator.data["last_static_color"] = color_code
         else:
-            # If no specific effect requested and light is off, turn on with white
+            # If no specific effect requested and light is off, turn on with previous color or white
             current_color = self.coordinator.data.get("light_color")
             if current_color is None or current_color == 7:  # Off or unknown
-                await self._device.set_light_color(1)  # White
+                # Check if there's a stored last color from previous sessions
+                last_color = self.coordinator.data.get("last_static_color", 1)  # Default to White
+                await self._device.set_light_color(last_color)
         
         # Enable lighting if not already enabled
         if not self.coordinator.data.get("lighting_enabled", False):
@@ -143,8 +177,14 @@ class DeskLight(DeskEntity, LightEntity):
         if not self.available or not self._device:
             return
 
-        if effect == EFFECT_PARTY:
-            await self._device.set_light_color(6)  # Party mode
+        if effect in EFFECT_TO_COLOR:
+            color_code = EFFECT_TO_COLOR[effect]
+            await self._device.set_light_color(color_code)
+            
+            # Store last static color (non-party mode) for persistence
+            if color_code != 6:  # Not party mode
+                self.coordinator.data["last_static_color"] = color_code
+            
             await self._device.get_light_color()
 
     @property

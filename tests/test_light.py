@@ -230,6 +230,56 @@ async def test_light_party_mode_effect(
     mock_device.set_light_color.assert_called_once_with(6)  # Party mode is color ID 6
 
 
+async def test_light_color_effects(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    init_integration,
+):
+    """Test setting different color effects."""
+    await hass.async_block_till_done()
+    
+    # Set up coordinator data
+    coordinator = await setup_coordinator_data(hass, mock_config_entry)
+    mock_device = coordinator._device
+    
+    # Mock the device methods
+    mock_device.set_light_color = AsyncMock(return_value=True)
+    mock_device.get_light_color = AsyncMock(return_value=True)
+    
+    # Test color effects
+    color_tests = [
+        ("White", 1),
+        ("Red", 2),
+        ("Green", 3),
+        ("Blue", 4),
+        ("Yellow", 5),
+        ("Party mode", 6),
+    ]
+    
+    for effect_name, expected_color_id in color_tests:
+        mock_device.set_light_color.reset_mock()
+        
+        await hass.services.async_call(
+            LIGHT_DOMAIN,
+            SERVICE_TURN_ON,
+            {
+                ATTR_ENTITY_ID: "light.desky_desk_led_strip",
+                ATTR_EFFECT: effect_name,
+            },
+            blocking=True,
+        )
+        
+        mock_device.set_light_color.assert_called_once_with(expected_color_id)
+        
+        # Test that the effect is reported correctly
+        coordinator.data["light_color"] = expected_color_id
+        coordinator.async_set_updated_data(coordinator.data)
+        await hass.async_block_till_done()
+        
+        state = hass.states.get("light.desky_desk_led_strip")
+        assert state.attributes.get(ATTR_EFFECT) == effect_name
+
+
 async def test_light_turn_off_via_color(
     hass: HomeAssistant,
     mock_config_entry: MockConfigEntry,
