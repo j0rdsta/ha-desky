@@ -55,8 +55,8 @@ set_position_limit:
       selector:
         select:
           options:
-            - min
-            - max
+            - "min"
+            - "max"
     height:
       name: Height
       description: Limit height in centimeters
@@ -94,13 +94,13 @@ set_light_color:
       selector:
         select:
           options:
-            - White
-            - Red
-            - Green
-            - Blue
-            - Yellow
-            - Party mode
-            - Off
+            - "White"
+            - "Red"
+            - "Green"
+            - "Blue"
+            - "Yellow"
+            - "Party mode"
+            - "Off"
 
 set_sensitivity:
   name: Set Collision Sensitivity
@@ -118,6 +118,6 @@ set_sensitivity:
       selector:
         select:
           options:
-            - High
-            - Medium
-            - Low
+            - "High"
+            - "Medium"
+            - "Low"
