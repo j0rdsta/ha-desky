@@ -9,7 +9,7 @@ from homeassistant.components.number import (
     NumberMode,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import PERCENTAGE, UnitOfLength
+from homeassistant.const import EntityCategory, PERCENTAGE, UnitOfLength
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -32,6 +32,7 @@ NUMBER_DESCRIPTIONS = [
         native_max_value=MAX_HEIGHT,
         native_step=1.0,
         mode=NumberMode.BOX,
+        entity_category=EntityCategory.CONFIG,
     ),
     NumberEntityDescription(
         key="height_limit_lower",
@@ -43,6 +44,7 @@ NUMBER_DESCRIPTIONS = [
         native_max_value=MAX_HEIGHT,
         native_step=1.0,
         mode=NumberMode.BOX,
+        entity_category=EntityCategory.CONFIG,
     ),
     NumberEntityDescription(
         key="vibration_intensity",
@@ -54,6 +56,7 @@ NUMBER_DESCRIPTIONS = [
         native_max_value=100,
         native_step=1,
         mode=NumberMode.SLIDER,
+        entity_category=EntityCategory.CONFIG,
     ),
 ]
 

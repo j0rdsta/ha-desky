@@ -5,6 +5,7 @@ import logging
 
 from homeassistant.components.select import SelectEntity, SelectEntityDescription
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -20,6 +21,7 @@ SELECT_DESCRIPTIONS = [
         name="Collision Sensitivity",
         icon="mdi:car-brake-alert",
         options=["High", "Medium", "Low"],
+        entity_category=EntityCategory.CONFIG,
     ),
     SelectEntityDescription(
         key="touch_mode",
@@ -27,6 +29,7 @@ SELECT_DESCRIPTIONS = [
         name="Touch Mode",
         icon="mdi:gesture-tap",
         options=["One press", "Press and hold"],
+        entity_category=EntityCategory.CONFIG,
     ),
     SelectEntityDescription(
         key="unit",
@@ -34,6 +37,7 @@ SELECT_DESCRIPTIONS = [
         name="Display Unit",
         icon="mdi:ruler",
         options=["cm", "in"],
+        entity_category=EntityCategory.CONFIG,
     ),
 ]
 

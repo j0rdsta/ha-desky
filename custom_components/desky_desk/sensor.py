@@ -5,7 +5,7 @@ import logging
 
 from homeassistant.components.sensor import SensorEntity, SensorEntityDescription
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import UnitOfLength
+from homeassistant.const import EntityCategory, UnitOfLength
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -26,6 +26,7 @@ SENSOR_DESCRIPTIONS = [
         translation_key="led_color",
         name="LED Color",
         icon="mdi:palette",
+        entity_category=EntityCategory.DIAGNOSTIC,
     ),
     SensorEntityDescription(
         key="vibration_intensity_display",
@@ -33,6 +34,7 @@ SENSOR_DESCRIPTIONS = [
         name="Vibration Intensity Display",
         icon="mdi:vibrate",
         native_unit_of_measurement="%",
+        entity_category=EntityCategory.DIAGNOSTIC,
     ),
 ]
 
