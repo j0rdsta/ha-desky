@@ -27,6 +27,8 @@ Control your Desky standing desk via Bluetooth Low Energy (BLE) in Home Assistan
 
 ## Example Automation
 
+⚠️ **Safety Note**: Always include presence detection in desk automations to prevent unattended movement!
+
 ```yaml
 automation:
   - alias: "Hourly Standing Reminder"
@@ -37,10 +39,18 @@ automation:
       - condition: time
         after: "09:00:00"
         before: "17:00:00"
+      # IMPORTANT: Add presence detection for safety
+      - condition: state
+        entity_id: binary_sensor.office_presence
+        state: "on"
     action:
-      - service: desky_desk.move_to_preset
+      - service: notify.mobile_app_your_phone
         data:
-          preset: 2  # Standing position
+          message: "Time to stand up!"
+          data:
+            actions:
+              - action: "RAISE_DESK"
+                title: "Raise desk"
 ```
 
 ## Requirements
