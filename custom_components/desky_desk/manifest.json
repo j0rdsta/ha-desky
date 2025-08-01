@@ -1,18 +1,18 @@
 {
   "domain": "desky_desk",
   "name": "Desky Standing Desk",
-  "codeowners": ["@j0rdsta"],
-  "config_flow": true,
-  "dependencies": ["bluetooth_adapters"],
-  "documentation": "https://github.com/j0rdsta/ha-desky",
-  "issue_tracker": "https://github.com/j0rdsta/ha-desky/issues",
-  "integration_type": "device",
-  "iot_class": "local_push",
-  "requirements": ["bleak-retry-connector>=3.1.0"],
   "bluetooth": [
     {
       "local_name": "Desky*"
     }
   ],
+  "codeowners": ["@j0rdsta"],
+  "config_flow": true,
+  "dependencies": ["bluetooth_adapters"],
+  "documentation": "https://github.com/j0rdsta/ha-desky",
+  "integration_type": "device",
+  "iot_class": "local_push",
+  "issue_tracker": "https://github.com/j0rdsta/ha-desky/issues",
+  "requirements": ["bleak-retry-connector>=3.1.0"],
   "version": "1.0.0"
 }
