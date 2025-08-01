@@ -56,6 +56,19 @@ class DeskUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "is_moving": self._device.is_moving,
             "movement_direction": self._device.movement_direction,
             "is_connected": self._device.is_connected,
+            # New device features
+            "light_color": self._device.light_color,
+            "brightness": self._device.brightness,
+            "lighting_enabled": self._device.lighting_enabled,
+            "vibration_enabled": self._device.vibration_enabled,
+            "vibration_intensity": self._device.vibration_intensity,
+            "lock_status": self._device.lock_status,
+            "sensitivity_level": self._device.sensitivity_level,
+            "height_limit_upper": self._device.height_limit_upper,
+            "height_limit_lower": self._device.height_limit_lower,
+            "limits_enabled": self._device.limits_enabled,
+            "touch_mode": self._device.touch_mode,
+            "unit_preference": self._device.unit_preference,
         }
 
     async def async_config_entry_first_refresh(self) -> None:
@@ -87,6 +100,19 @@ class DeskUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "is_moving": False,
             "movement_direction": None,
             "is_connected": False,
+            # New device features with default values
+            "light_color": None,
+            "brightness": None,
+            "lighting_enabled": None,
+            "vibration_enabled": None,
+            "vibration_intensity": None,
+            "lock_status": False,
+            "sensitivity_level": None,
+            "height_limit_upper": None,
+            "height_limit_lower": None,
+            "limits_enabled": False,
+            "touch_mode": None,
+            "unit_preference": None,
         })
 
     async def _reconnect(self) -> None:
@@ -123,6 +149,19 @@ class DeskUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "is_moving": moving,
             "movement_direction": self._device.movement_direction if self._device else None,
             "is_connected": True,
+            # Include all device attributes from current state
+            "light_color": self._device.light_color if self._device else None,
+            "brightness": self._device.brightness if self._device else None,
+            "lighting_enabled": self._device.lighting_enabled if self._device else None,
+            "vibration_enabled": self._device.vibration_enabled if self._device else None,
+            "vibration_intensity": self._device.vibration_intensity if self._device else None,
+            "lock_status": self._device.lock_status if self._device else False,
+            "sensitivity_level": self._device.sensitivity_level if self._device else None,
+            "height_limit_upper": self._device.height_limit_upper if self._device else None,
+            "height_limit_lower": self._device.height_limit_lower if self._device else None,
+            "limits_enabled": self._device.limits_enabled if self._device else False,
+            "touch_mode": self._device.touch_mode if self._device else None,
+            "unit_preference": self._device.unit_preference if self._device else None,
         })
 
     def _handle_disconnect(self) -> None:
@@ -133,6 +172,19 @@ class DeskUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "is_moving": False,
             "movement_direction": None,
             "is_connected": False,
+            # Preserve last known values for device features
+            "light_color": self._device.light_color if self._device else None,
+            "brightness": self._device.brightness if self._device else None,
+            "lighting_enabled": self._device.lighting_enabled if self._device else None,
+            "vibration_enabled": self._device.vibration_enabled if self._device else None,
+            "vibration_intensity": self._device.vibration_intensity if self._device else None,
+            "lock_status": self._device.lock_status if self._device else False,
+            "sensitivity_level": self._device.sensitivity_level if self._device else None,
+            "height_limit_upper": self._device.height_limit_upper if self._device else None,
+            "height_limit_lower": self._device.height_limit_lower if self._device else None,
+            "limits_enabled": self._device.limits_enabled if self._device else False,
+            "touch_mode": self._device.touch_mode if self._device else None,
+            "unit_preference": self._device.unit_preference if self._device else None,
         })
 
     async def async_shutdown(self) -> None:

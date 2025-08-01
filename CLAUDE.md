@@ -60,7 +60,7 @@ deactivate
 ### Integration Structure
 This is a Home Assistant custom integration that follows the standard component structure:
 
-- **Entry Point** (`__init__.py`): Sets up the integration, defines platforms (cover, number, button, binary_sensor), and manages config entry lifecycle
+- **Entry Point** (`__init__.py`): Sets up the integration, defines platforms (cover, number, button, binary_sensor, light, switch, select, sensor), and manages config entry lifecycle
 - **Data Coordinator** (`coordinator.py`): Implements `DataUpdateCoordinator` pattern for centralized data updates and connection management
 - **Bluetooth Layer** (`bluetooth.py`): Handles BLE communication using `bleak` library with retry logic via `bleak-retry-connector`
 - **Config Flow** (`config_flow.py`): Manages integration setup through UI, including Bluetooth device discovery
@@ -84,9 +84,13 @@ This is a Home Assistant custom integration that follows the standard component 
 
 3. **Entity Implementation**:
    - Cover entity: Main control interface (0-100% position mapping) with proper direction tracking
-   - Number entity: Direct height control (60-130cm range)
+   - Number entities: Direct height control (60-130cm range), height limits, vibration intensity
    - Button entities: Four preset positions + manual Move Up/Down controls
    - Binary sensor: Collision detection
+   - Light entity: LED strip control with color, brightness, and effects
+   - Switch entities: Vibration on/off, desk lock
+   - Select entities: Collision sensitivity, touch mode, unit preference
+   - Sensor entities: Height display with units, light color name, sensitivity level
 
 ### BLE Protocol Commands
 ```python
@@ -99,10 +103,24 @@ COMMAND_MEMORY_2 = bytes([0xF1, 0xF1, 0x06, 0x00, 0x06, 0x7E])
 COMMAND_MEMORY_3 = bytes([0xF1, 0xF1, 0x27, 0x00, 0x27, 0x7E])
 COMMAND_MEMORY_4 = bytes([0xF1, 0xF1, 0x28, 0x00, 0x28, 0x7E])
 
+# Additional commands for advanced features
+COMMAND_GET_LIGHT_COLOR = bytes([0xF1, 0xF1, 0xB4, 0x00, 0xB4, 0x7E])
+COMMAND_GET_BRIGHTNESS = bytes([0xF1, 0xF1, 0xB6, 0x00, 0xB6, 0x7E])
+COMMAND_GET_LIGHTING = bytes([0xF1, 0xF1, 0xB5, 0x00, 0xB5, 0x7E])
+COMMAND_GET_VIBRATION = bytes([0xF1, 0xF1, 0xB3, 0x00, 0xB3, 0x7E])
+COMMAND_GET_LOCK_STATUS = bytes([0xF1, 0xF1, 0xB2, 0x00, 0xB2, 0x7E])
+COMMAND_GET_SENSITIVITY = bytes([0xF1, 0xF1, 0x1D, 0x00, 0x1D, 0x7E])
+COMMAND_GET_LIMITS = bytes([0xF1, 0xF1, 0x0C, 0x00, 0x0C, 0x7E])
+COMMAND_CLEAR_LIMITS = bytes([0xF1, 0xF1, 0x23, 0x00, 0x23, 0x7E])
+
 # Move to specific height command structure:
 # bytes([0xF1, 0xF1, 0x1B, 0x02, height_high_byte, height_low_byte, checksum, 0x7E])
 # where height is in mm (e.g., 850mm = 0x0352, so high=0x03, low=0x52)
 # checksum = (0x1B + 0x02 + height_high + height_low) & 0xFF
+
+# Set commands with parameters use similar structure:
+# bytes([0xF1, 0xF1, command_byte, 0x01, value, checksum, 0x7E])
+# where checksum = (command_byte + 0x01 + value) & 0xFF
 ```
 
 ### BLE Notification Formats
@@ -125,6 +143,27 @@ The desk can send height updates in two different formats depending on firmware 
 
 Note: The two formats use different byte orders for height data - movement notifications use little-endian while status notifications use big-endian.
 
+### Advanced Feature Response Formats
+
+Additional device features send responses with specific headers:
+
+1. **Light Color Response** (0xF2 0xF2 0xB4 0x01):
+   - Values: 1=White, 2=Red, 3=Green, 4=Blue, 5=Yellow, 6=Party mode, 7=Off
+
+2. **Brightness Response** (0xF2 0xF2 0xB6 0x01):
+   - Value: 0-100 (percentage)
+
+3. **Lock Status Response** (0xF2 0xF2 0xB2 0x01):
+   - Value: 0=Unlocked, 1=Locked
+
+4. **Sensitivity Response** (0xF2 0xF2 0x1D 0x01):
+   - Values: 1=High, 2=Medium, 3=Low
+
+5. **Height Limit Responses**:
+   - Upper limit (0xF2 0xF2 0x21 0x02): Height in mm (big-endian)
+   - Lower limit (0xF2 0xF2 0x22 0x02): Height in mm (big-endian)
+   - Limit status (0xF2 0xF2 0x20 0x01): 0x00=No limits, 0x01=Upper only, 0x10=Lower only, 0x11=Both
+
 ### Troubleshooting Height Updates
 
 If height updates aren't working:
@@ -144,10 +183,13 @@ If height updates aren't working:
 
 ### Service Implementations
 
-The integration provides three custom services:
+The integration provides these custom services:
 - `move_to_height`: Sends direct height command to desk using the 0x1B command
 - `move_to_preset`: Sends preset command via Bluetooth
-- `set_position_limit`: Would require desk firmware support (placeholder)
+- `set_position_limit`: Sets minimum or maximum height limit
+- `clear_height_limits`: Clears all height limits using 0x23 command
+- `set_light_color`: Sets LED strip color (1-7)
+- `set_sensitivity`: Sets collision detection sensitivity (1-3)
 
 ### Connection Management
 
@@ -166,3 +208,4 @@ The integration provides three custom services:
 5. **Multi-desk Support**: Each desk gets its own coordinator instance
 6. **Movement Tracking**: Direction tracking prevents cover UI issues; auto-stop detection when desk reaches target
 7. **Manual Controls**: Move Up/Down buttons bypass any cover entity restrictions
+8. **Feature Detection**: Device capabilities are queried on connection; not all desks support all features

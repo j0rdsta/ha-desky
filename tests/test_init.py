@@ -50,7 +50,7 @@ async def test_setup_entry_success(
         # Verify platforms were forwarded
         mock_forward.assert_called_once()
         platforms = mock_forward.call_args[0][1]
-        assert len(platforms) == 4
+        assert len(platforms) == 8
 
 async def test_setup_entry_no_device(
     hass: HomeAssistant,
@@ -125,8 +125,12 @@ async def test_setup_platforms(
             
             mock_forward.assert_called_once()
             platforms = mock_forward.call_args[0][1]
-            assert len(platforms) == 4
+            assert len(platforms) == 8
             assert "cover" in [p.value for p in platforms]
             assert "number" in [p.value for p in platforms]
             assert "button" in [p.value for p in platforms]
             assert "binary_sensor" in [p.value for p in platforms]
+            assert "light" in [p.value for p in platforms]
+            assert "switch" in [p.value for p in platforms]
+            assert "select" in [p.value for p in platforms]
+            assert "sensor" in [p.value for p in platforms]

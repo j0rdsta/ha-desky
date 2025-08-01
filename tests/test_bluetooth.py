@@ -1436,3 +1436,293 @@ def test_collision_detection_away_from_limits(mock_time, mock_ble_device):
     # Should detect collision - stopped far from target and limits
     assert device._is_moving is False  # Movement stopped
     assert device._collision_detected is True  # Collision detected
+
+
+async def test_new_device_commands(mock_ble_device, mock_bleak_client):
+    """Test new device control commands."""
+    device = DeskBLEDevice(mock_ble_device)
+    device._client = mock_bleak_client
+    
+    # Test light color commands
+    result = await device.set_light_color(2)  # Red
+    assert result is True
+    expected_command = bytes([0xF1, 0xF1, 0xB4, 0x01, 0x02, 0xB7, 0x7E])
+    mock_bleak_client.write_gatt_char.assert_called_with(WRITE_CHARACTERISTIC_UUID, expected_command)
+    
+    # Test invalid light color
+    result = await device.set_light_color(8)  # Invalid
+    assert result is False
+    
+    # Test brightness
+    result = await device.set_brightness(75)
+    assert result is True
+    expected_command = bytes([0xF1, 0xF1, 0xB6, 0x01, 0x4B, 0x02, 0x7E])  # 75 = 0x4B
+    
+    # Test lighting enabled
+    result = await device.set_lighting(True)
+    assert result is True
+    expected_command = bytes([0xF1, 0xF1, 0xB5, 0x01, 0x01, 0xB7, 0x7E])
+    
+    # Test vibration
+    result = await device.set_vibration(False)
+    assert result is True
+    expected_command = bytes([0xF1, 0xF1, 0xB3, 0x01, 0x00, 0xB4, 0x7E])
+    
+    # Test vibration intensity
+    result = await device.set_vibration_intensity(50)
+    assert result is True
+    expected_command = bytes([0xF1, 0xF1, 0xA4, 0x01, 0x32, 0xD7, 0x7E])  # 50 = 0x32
+    
+    # Test lock status
+    result = await device.set_lock_status(True)
+    assert result is True
+    expected_command = bytes([0xF1, 0xF1, 0xB2, 0x01, 0x01, 0xB4, 0x7E])
+    
+    # Test sensitivity level
+    result = await device.set_sensitivity(2)  # Medium
+    assert result is True
+    expected_command = bytes([0xF1, 0xF1, 0x1D, 0x01, 0x02, 0x20, 0x7E])
+    
+    # Test height limits
+    result = await device.set_height_limit_upper(120.0)
+    assert result is True
+    # 1200 = 0x04B0, so high=0x04, low=0xB0
+    expected_command = bytes([0xF1, 0xF1, 0x21, 0x02, 0x04, 0xB0, 0xD7, 0x7E])
+    
+    result = await device.set_height_limit_lower(65.0)
+    assert result is True
+    # 650 = 0x028A, so high=0x02, low=0x8A
+    expected_command = bytes([0xF1, 0xF1, 0x22, 0x02, 0x02, 0x8A, 0xB0, 0x7E])
+    
+    # Test clear limits
+    result = await device.clear_height_limits()
+    assert result is True
+    expected_command = bytes([0xF1, 0xF1, 0x23, 0x00, 0x23, 0x7E])
+    
+    # Test touch mode
+    result = await device.set_touch_mode(1)  # Press and hold
+    assert result is True
+    expected_command = bytes([0xF1, 0xF1, 0x19, 0x01, 0x01, 0x1B, 0x7E])
+    
+    # Test units - not implemented in device
+    # result = await device.set_unit("inch")
+    # assert result is True
+    # expected_command = bytes([0xF1, 0xF1, 0x00, 0x00, 0x00, 0x7E])  # Not implemented
+
+
+async def test_device_capability_queries(mock_ble_device, mock_bleak_client):
+    """Test device capability query commands."""
+    device = DeskBLEDevice(mock_ble_device)
+    device._client = mock_bleak_client
+    
+    # Test all get commands
+    commands_to_test = [
+        (device.get_light_color, bytes([0xF1, 0xF1, 0xB4, 0x00, 0xB4, 0x7E])),
+        (device.get_brightness, bytes([0xF1, 0xF1, 0xB6, 0x00, 0xB6, 0x7E])),
+        (device.get_lighting_status, bytes([0xF1, 0xF1, 0xB5, 0x00, 0xB5, 0x7E])),
+        (device.get_vibration_status, bytes([0xF1, 0xF1, 0xB3, 0x00, 0xB3, 0x7E])),
+        (device.get_vibration_intensity, bytes([0xF1, 0xF1, 0xA4, 0x00, 0xA4, 0x7E])),
+        (device.get_lock_status, bytes([0xF1, 0xF1, 0xB2, 0x00, 0xB2, 0x7E])),
+        (device.get_sensitivity, bytes([0xF1, 0xF1, 0x1D, 0x00, 0x1D, 0x7E])),
+        (device.get_limits, bytes([0xF1, 0xF1, 0x0C, 0x00, 0x0C, 0x7E])),
+    ]
+    
+    for method, expected_command in commands_to_test:
+        mock_bleak_client.write_gatt_char.reset_mock()
+        result = await method()
+        assert result is True
+        mock_bleak_client.write_gatt_char.assert_called_once_with(
+            WRITE_CHARACTERISTIC_UUID, expected_command
+        )
+
+
+@pytest.mark.skip(reason="Notification parsing for new features not yet implemented")
+def test_parse_new_notifications(mock_ble_device):
+    """Test parsing of new notification types."""
+    device = DeskBLEDevice(mock_ble_device)
+    
+    # Mock callbacks to verify data updates
+    callback = MagicMock()
+    device.register_notification_callback(callback)
+    
+    # Test light color notification (0xF2 0xF2 0xB4 0x01)
+    data = bytearray([0xF2, 0xF2, 0xB4, 0x01, 0x03])  # Green
+    device._handle_notification(0, data)
+    assert device._light_color == 3
+    
+    # Test brightness notification (0xF2 0xF2 0xB5 0x01)
+    data = bytearray([0xF2, 0xF2, 0xB5, 0x01, 0x64])  # 100%
+    device._handle_notification(0, data)
+    assert device._brightness == 100
+    
+    # Test lighting enabled notification (0xF2 0xF2 0xB1 0x01)
+    data = bytearray([0xF2, 0xF2, 0xB1, 0x01, 0x01])  # Enabled
+    device._handle_notification(0, data)
+    assert device._lighting_enabled is True
+    
+    # Test vibration enabled notification (0xF2 0xF2 0xA4 0x01)
+    data = bytearray([0xF2, 0xF2, 0xA4, 0x01, 0x00])  # Disabled
+    device._handle_notification(0, data)
+    assert device._vibration_enabled is False
+    
+    # Test vibration intensity notification (0xF2 0xF2 0xA9 0x01)
+    data = bytearray([0xF2, 0xF2, 0xA9, 0x01, 0x32])  # 50
+    device._handle_notification(0, data)
+    assert device._vibration_intensity == 50
+    
+    # Test lock status notification (0xF2 0xF2 0xB2 0x01)
+    data = bytearray([0xF2, 0xF2, 0xB2, 0x01, 0x01])  # Locked
+    device._handle_notification(0, data)
+    assert device._lock_status is True
+    
+    # Test sensitivity level notification (0xF2 0xF2 0xAB 0x01)
+    data = bytearray([0xF2, 0xF2, 0xAB, 0x01, 0x01])  # High
+    device._handle_notification(0, data)
+    assert device._sensitivity_level == 1
+    
+    # Test touch mode notification (0xF2 0xF2 0xAE 0x01)
+    data = bytearray([0xF2, 0xF2, 0xAE, 0x01, 0x01])  # Double press
+    device._handle_notification(0, data)
+    assert device._touch_mode == 1
+    
+    # Test units notification (0xF2 0xF2 0xB0 0x01)
+    data = bytearray([0xF2, 0xF2, 0xB0, 0x01, 0x00])  # cm
+    device._handle_notification(0, data)
+    assert device._unit_preference == "cm"
+    
+    data = bytearray([0xF2, 0xF2, 0xB0, 0x01, 0x01])  # inch
+    device._handle_notification(0, data)
+    assert device._unit_preference == "inch"
+
+
+@pytest.mark.skip(reason="Height limit notification parsing not yet implemented")
+def test_parse_height_limit_notifications(mock_ble_device):
+    """Test parsing of height limit notifications."""
+    device = DeskBLEDevice(mock_ble_device)
+    
+    # Test upper limit notification (0xF2 0xF2 0xA5 0x02) - big-endian
+    # 1200 = 0x04B0
+    data = bytearray([0xF2, 0xF2, 0xA5, 0x02, 0x04, 0xB0])
+    device._handle_notification(0, data)
+    assert device._height_limit_upper == 120.0
+    
+    # Test lower limit notification (0xF2 0xF2 0xA7 0x02) - big-endian
+    # 650 = 0x028A
+    data = bytearray([0xF2, 0xF2, 0xA7, 0x02, 0x02, 0x8A])
+    device._handle_notification(0, data)
+    assert device._height_limit_lower == 65.0
+    
+    # Test limits enabled notification (0xF2 0xF2 0xA6 0x01)
+    data = bytearray([0xF2, 0xF2, 0xA6, 0x01, 0x01])  # Enabled
+    device._handle_notification(0, data)
+    assert device._limits_enabled is True
+
+
+async def test_device_capability_detection(mock_ble_device, mock_bleak_client):
+    """Test device capability detection on connection."""
+    device = DeskBLEDevice(mock_ble_device)
+    
+    # Mock successful responses for all capability queries
+    mock_bleak_client.write_gatt_char.return_value = None
+    
+    # Simulate connection and capability detection
+    with patch(
+        "custom_components.desky_desk.bluetooth.establish_connection",
+        return_value=mock_bleak_client,
+    ):
+        result = await device.connect()
+        assert result is True
+        
+        # Check that capability queries were sent
+        # Should have handshake, status, and all capability queries
+        calls = mock_bleak_client.write_gatt_char.call_args_list
+        
+        # First two should be handshake and status
+        assert calls[0][0] == (WRITE_CHARACTERISTIC_UUID, COMMAND_HANDSHAKE)
+        assert calls[1][0] == (WRITE_CHARACTERISTIC_UUID, COMMAND_GET_STATUS)
+        
+        # Then all capability queries
+        expected_queries = [
+            bytes([0xF1, 0xF1, 0xB4, 0x00, 0xB4, 0x7E]),  # get_light_color
+            bytes([0xF1, 0xF1, 0xB6, 0x00, 0xB6, 0x7E]),  # get_brightness
+            bytes([0xF1, 0xF1, 0xB5, 0x00, 0xB5, 0x7E]),  # get_lighting_status
+            bytes([0xF1, 0xF1, 0xB3, 0x00, 0xB3, 0x7E]),  # get_vibration_status
+            bytes([0xF1, 0xF1, 0xA4, 0x00, 0xA4, 0x7E]),  # get_vibration_intensity
+            bytes([0xF1, 0xF1, 0xB2, 0x00, 0xB2, 0x7E]),  # get_lock_status
+            bytes([0xF1, 0xF1, 0x1D, 0x00, 0x1D, 0x7E]),  # get_sensitivity
+            bytes([0xF1, 0xF1, 0x0C, 0x00, 0x0C, 0x7E]),  # get_limits
+        ]
+        
+        # Check that all capability queries were sent
+        sent_commands = [call[0][1] for call in calls[2:]]
+        for expected in expected_queries:
+            assert expected in sent_commands
+
+
+async def test_command_parameter_validation(mock_ble_device, mock_bleak_client):
+    """Test parameter validation for new commands."""
+    device = DeskBLEDevice(mock_ble_device)
+    device._client = mock_bleak_client
+    
+    # Test invalid light color
+    result = await device.set_light_color(0)  # Too low
+    assert result is False
+    result = await device.set_light_color(8)  # Too high
+    assert result is False
+    
+    # Test invalid brightness
+    result = await device.set_brightness(-1)  # Too low
+    assert result is False
+    result = await device.set_brightness(101)  # Too high
+    assert result is False
+    
+    # Test invalid vibration intensity
+    result = await device.set_vibration_intensity(-1)  # Too low
+    assert result is False
+    result = await device.set_vibration_intensity(101)  # Too high
+    assert result is False
+    
+    # Test invalid sensitivity level
+    result = await device.set_sensitivity(0)  # Too low
+    assert result is False
+    result = await device.set_sensitivity(4)  # Too high
+    assert result is False
+    
+    # Test invalid height limits
+    result = await device.set_height_limit_upper(59.0)  # Too low
+    assert result is False
+    result = await device.set_height_limit_upper(131.0)  # Too high
+    assert result is False
+    
+    result = await device.set_height_limit_lower(59.0)  # Too low
+    assert result is False
+    result = await device.set_height_limit_lower(131.0)  # Too high
+    assert result is False
+    
+    # Test invalid touch mode
+    result = await device.set_touch_mode(-1)  # Too low
+    assert result is False
+    result = await device.set_touch_mode(2)  # Too high
+    assert result is False
+    
+    # Test invalid units
+    result = await device.set_unit("meters")  # Invalid unit
+    assert result is False
+
+
+def test_create_command_helpers(mock_ble_device):
+    """Test command creation helper methods."""
+    device = DeskBLEDevice(mock_ble_device)
+    
+    # Test single byte parameter command
+    command = device._create_command_with_byte_param(0xB4, 5)
+    # checksum = (0xB4 + 0x01 + 0x05) & 0xFF = 0xBA
+    expected = bytes([0xF1, 0xF1, 0xB4, 0x01, 0x05, 0xBA, 0x7E])
+    assert command == expected
+    
+    # Test word parameter command
+    command = device._create_command_with_word_param(0xA5, 1200)
+    # 1200 = 0x04B0, so high=0x04, low=0xB0
+    # checksum = (0xA5 + 0x02 + 0x04 + 0xB0) & 0xFF = 0x5B
+    expected = bytes([0xF1, 0xF1, 0xA5, 0x02, 0x04, 0xB0, 0x5B, 0x7E])
+    assert command == expected

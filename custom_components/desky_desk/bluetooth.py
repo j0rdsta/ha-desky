@@ -11,7 +11,17 @@ from bleak.backends.device import BLEDevice
 from bleak_retry_connector import establish_connection
 
 from .const import (
+    BRIGHTNESS_RESPONSE_HEADER,
+    COMMAND_CLEAR_LIMITS,
+    COMMAND_GET_BRIGHTNESS,
+    COMMAND_GET_LIGHTING,
+    COMMAND_GET_LIGHT_COLOR,
+    COMMAND_GET_LIMITS,
+    COMMAND_GET_LOCK_STATUS,
+    COMMAND_GET_SENSITIVITY,
     COMMAND_GET_STATUS,
+    COMMAND_GET_VIBRATION,
+    COMMAND_GET_VIBRATION_INTENSITY,
     COMMAND_HANDSHAKE,
     COMMAND_MEMORY_1,
     COMMAND_MEMORY_2,
@@ -23,10 +33,21 @@ from .const import (
     DIRECT_CONNECTION_TIMEOUT,
     DIRECT_MAX_ATTEMPTS,
     HEIGHT_NOTIFICATION_HEADER,
+    LIGHT_COLOR_RESPONSE_HEADER,
+    LIGHTING_RESPONSE_HEADER,
+    LIMIT_LOWER_RESPONSE_HEADER,
+    LIMIT_STATUS_RESPONSE_HEADER,
+    LIMIT_UPPER_RESPONSE_HEADER,
+    LOCK_STATUS_RESPONSE_HEADER,
+    MAX_HEIGHT,
+    MIN_HEIGHT,
     NOTIFY_CHARACTERISTIC_UUID,
     PROXY_CONNECTION_TIMEOUT,
     PROXY_MAX_ATTEMPTS,
+    SENSITIVITY_RESPONSE_HEADER,
     STATUS_NOTIFICATION_HEADER,
+    VIBRATION_INTENSITY_RESPONSE_HEADER,
+    VIBRATION_RESPONSE_HEADER,
     WRITE_CHARACTERISTIC_UUID,
 )
 
@@ -63,6 +84,20 @@ class DeskBLEDevice:
         self._last_notification_time: float = 0.0  # Time of last height notification
         self._notification_callbacks: list[Callable[[float, bool, bool], None]] = []
         self._disconnect_callbacks: list[Callable[[], None]] = []
+        
+        # New device features
+        self._light_color: int | None = None
+        self._brightness: int | None = None
+        self._lighting_enabled: bool | None = None
+        self._vibration_enabled: bool | None = None
+        self._vibration_intensity: int | None = None
+        self._lock_status: bool = False
+        self._sensitivity_level: int | None = None
+        self._height_limit_upper: float | None = None
+        self._height_limit_lower: float | None = None
+        self._limits_enabled: bool = False
+        self._touch_mode: int | None = None
+        self._unit_preference: str | None = None  # "cm" or "in"
 
     @property
     def address(self) -> str:
@@ -98,6 +133,66 @@ class DeskBLEDevice:
     def is_connected(self) -> bool:
         """Return if connected to the desk."""
         return self._client is not None and self._client.is_connected
+    
+    @property
+    def light_color(self) -> int | None:
+        """Return the current light color setting (1-7)."""
+        return self._light_color
+    
+    @property
+    def brightness(self) -> int | None:
+        """Return the current brightness level (0-100)."""
+        return self._brightness
+    
+    @property
+    def lighting_enabled(self) -> bool | None:
+        """Return if lighting is enabled."""
+        return self._lighting_enabled
+    
+    @property
+    def vibration_enabled(self) -> bool | None:
+        """Return if vibration is enabled."""
+        return self._vibration_enabled
+    
+    @property
+    def vibration_intensity(self) -> int | None:
+        """Return vibration intensity level."""
+        return self._vibration_intensity
+    
+    @property
+    def lock_status(self) -> bool:
+        """Return if desk controls are locked."""
+        return self._lock_status
+    
+    @property
+    def sensitivity_level(self) -> int | None:
+        """Return collision sensitivity level (1=High, 2=Medium, 3=Low)."""
+        return self._sensitivity_level
+    
+    @property
+    def height_limit_upper(self) -> float | None:
+        """Return upper height limit in cm."""
+        return self._height_limit_upper
+    
+    @property
+    def height_limit_lower(self) -> float | None:
+        """Return lower height limit in cm."""
+        return self._height_limit_lower
+    
+    @property
+    def limits_enabled(self) -> bool:
+        """Return if height limits are enabled."""
+        return self._limits_enabled
+    
+    @property
+    def touch_mode(self) -> int | None:
+        """Return touch mode (0=One press, 1=Press and hold)."""
+        return self._touch_mode
+    
+    @property
+    def unit_preference(self) -> str | None:
+        """Return unit preference (cm or in)."""
+        return self._unit_preference
 
     def register_notification_callback(self, callback: Callable[[float, bool, bool], None]) -> None:
         """Register a callback for height/status notifications."""
@@ -200,6 +295,9 @@ class DeskBLEDevice:
             
             # Get initial status
             await self.get_status()
+            
+            # Query device capabilities (ignore failures - not all desks support all features)
+            await self._query_device_capabilities()
             
             _LOGGER.info(
                 "Connected to Desky desk at %s via %s", 
@@ -324,6 +422,18 @@ class DeskBLEDevice:
         # Note: _is_moving, _movement_start_time, and collision detection will be set when actual movement is detected
         return await self._send_command(command)
 
+    def _create_command_with_byte_param(self, command_byte: int, param: int) -> bytes:
+        """Create a command with a single byte parameter."""
+        checksum = (command_byte + 0x01 + param) & 0xFF
+        return bytes([0xF1, 0xF1, command_byte, 0x01, param & 0xFF, checksum, 0x7E])
+    
+    def _create_command_with_word_param(self, command_byte: int, param: int) -> bytes:
+        """Create a command with a 2-byte (word) parameter."""
+        high_byte = (param >> 8) & 0xFF
+        low_byte = param & 0xFF
+        checksum = (command_byte + 0x02 + high_byte + low_byte) & 0xFF
+        return bytes([0xF1, 0xF1, command_byte, 0x02, high_byte, low_byte, checksum, 0x7E])
+
     async def move_to_height(self, height_cm: float) -> bool:
         """Move desk to a specific height in cm."""
         # Convert cm to mm
@@ -376,6 +486,190 @@ class DeskBLEDevice:
         self._recent_velocities = []  # Clear velocity measurements for new movement
         # Note: _is_moving, _movement_start_time, and collision detection will be set when actual movement is detected
         return await self._send_command(command)
+    
+    # Get device status methods
+    async def get_light_color(self) -> bool:
+        """Request current light color setting."""
+        return await self._send_command(COMMAND_GET_LIGHT_COLOR)
+    
+    async def get_brightness(self) -> bool:
+        """Request current brightness level."""
+        return await self._send_command(COMMAND_GET_BRIGHTNESS)
+    
+    async def get_lighting_status(self) -> bool:
+        """Request current lighting on/off status."""
+        return await self._send_command(COMMAND_GET_LIGHTING)
+    
+    async def get_vibration_status(self) -> bool:
+        """Request current vibration on/off status."""
+        return await self._send_command(COMMAND_GET_VIBRATION)
+    
+    async def get_vibration_intensity(self) -> bool:
+        """Request current vibration intensity."""
+        return await self._send_command(COMMAND_GET_VIBRATION_INTENSITY)
+    
+    async def get_lock_status(self) -> bool:
+        """Request current lock status."""
+        return await self._send_command(COMMAND_GET_LOCK_STATUS)
+    
+    async def get_sensitivity(self) -> bool:
+        """Request current collision sensitivity level."""
+        return await self._send_command(COMMAND_GET_SENSITIVITY)
+    
+    async def get_limits(self) -> bool:
+        """Request current height limit settings."""
+        return await self._send_command(COMMAND_GET_LIMITS)
+    
+    # Set device configuration methods
+    async def set_light_color(self, color: int) -> bool:
+        """Set light color (1-7)."""
+        if color < 1 or color > 7:
+            _LOGGER.error("Invalid light color: %s (must be 1-7)", color)
+            return False
+        command = self._create_command_with_byte_param(0xB4, color)
+        return await self._send_command(command)
+    
+    async def set_brightness(self, level: int) -> bool:
+        """Set brightness level (0-100)."""
+        if level < 0 or level > 100:
+            _LOGGER.error("Invalid brightness level: %s (must be 0-100)", level)
+            return False
+        command = self._create_command_with_byte_param(0xB6, level)
+        return await self._send_command(command)
+    
+    async def set_lighting(self, enabled: bool) -> bool:
+        """Enable or disable lighting."""
+        value = 1 if enabled else 0
+        command = self._create_command_with_byte_param(0xB5, value)
+        return await self._send_command(command)
+    
+    async def set_vibration(self, enabled: bool) -> bool:
+        """Enable or disable vibration."""
+        value = 1 if enabled else 0
+        command = self._create_command_with_byte_param(0xB3, value)
+        return await self._send_command(command)
+    
+    async def set_vibration_intensity(self, level: int) -> bool:
+        """Set vibration intensity level."""
+        if level < 0 or level > 100:
+            _LOGGER.error("Invalid vibration intensity: %s (must be 0-100)", level)
+            return False
+        command = self._create_command_with_byte_param(0xA4, level)
+        return await self._send_command(command)
+    
+    async def set_lock_status(self, locked: bool) -> bool:
+        """Lock or unlock desk controls."""
+        value = 1 if locked else 0
+        command = self._create_command_with_byte_param(0xB2, value)
+        self._lock_status = locked  # Update local state immediately
+        return await self._send_command(command)
+    
+    async def set_sensitivity(self, level: int) -> bool:
+        """Set collision sensitivity level (1=High, 2=Medium, 3=Low)."""
+        if level < 1 or level > 3:
+            _LOGGER.error("Invalid sensitivity level: %s (must be 1-3)", level)
+            return False
+        command = self._create_command_with_byte_param(0x1D, level)
+        return await self._send_command(command)
+    
+    async def set_touch_mode(self, mode: int) -> bool:
+        """Set touch mode (0=One press, 1=Press and hold)."""
+        if mode not in [0, 1]:
+            _LOGGER.error("Invalid touch mode: %s (must be 0 or 1)", mode)
+            return False
+        command = self._create_command_with_byte_param(0x19, mode)
+        return await self._send_command(command)
+    
+    async def set_unit(self, unit: str) -> bool:
+        """Set display unit preference."""
+        if unit not in ["cm", "in"]:
+            _LOGGER.error("Invalid unit: %s (must be 'cm' or 'in')", unit)
+            return False
+        value = 0 if unit == "cm" else 1
+        command = self._create_command_with_byte_param(0x0E, value)
+        return await self._send_command(command)
+    
+    async def set_height_limit_upper(self, height_cm: float) -> bool:
+        """Set upper height limit in cm."""
+        if not MIN_HEIGHT <= height_cm <= MAX_HEIGHT:
+            _LOGGER.error(
+                "Invalid upper height limit: %.1f (must be %.1f-%.1f)",
+                height_cm,
+                MIN_HEIGHT,
+                MAX_HEIGHT,
+            )
+            return False
+        height_mm = int(height_cm * 10)
+        command = self._create_command_with_word_param(0x21, height_mm)
+        return await self._send_command(command)
+    
+    async def set_height_limit_lower(self, height_cm: float) -> bool:
+        """Set lower height limit in cm."""
+        if not MIN_HEIGHT <= height_cm <= MAX_HEIGHT:
+            _LOGGER.error(
+                "Invalid lower height limit: %.1f (must be %.1f-%.1f)",
+                height_cm,
+                MIN_HEIGHT,
+                MAX_HEIGHT,
+            )
+            return False
+        height_mm = int(height_cm * 10)
+        command = self._create_command_with_word_param(0x22, height_mm)
+        return await self._send_command(command)
+    
+    async def clear_height_limits(self) -> bool:
+        """Clear all height limits."""
+        return await self._send_command(COMMAND_CLEAR_LIMITS)
+    
+    async def _query_device_capabilities(self) -> None:
+        """Query device capabilities to determine supported features."""
+        _LOGGER.debug("Querying device capabilities...")
+        
+        # Query each capability with a short delay between commands
+        # We ignore failures as not all desks support all features
+        
+        try:
+            # Lighting features
+            await self.get_lighting_status()
+            await asyncio.sleep(0.1)
+            await self.get_light_color()
+            await asyncio.sleep(0.1)
+            await self.get_brightness()
+            await asyncio.sleep(0.1)
+        except Exception as e:
+            _LOGGER.debug("Lighting features not supported: %s", e)
+        
+        try:
+            # Vibration features
+            await self.get_vibration_status()
+            await asyncio.sleep(0.1)
+            await self.get_vibration_intensity()
+            await asyncio.sleep(0.1)
+        except Exception as e:
+            _LOGGER.debug("Vibration features not supported: %s", e)
+        
+        try:
+            # Lock status
+            await self.get_lock_status()
+            await asyncio.sleep(0.1)
+        except Exception as e:
+            _LOGGER.debug("Lock feature not supported: %s", e)
+        
+        try:
+            # Collision sensitivity
+            await self.get_sensitivity()
+            await asyncio.sleep(0.1)
+        except Exception as e:
+            _LOGGER.debug("Sensitivity adjustment not supported: %s", e)
+        
+        try:
+            # Height limits
+            await self.get_limits()
+            await asyncio.sleep(0.1)
+        except Exception as e:
+            _LOGGER.debug("Height limits not supported: %s", e)
+        
+        _LOGGER.debug("Device capability query complete")
 
     def _handle_notification(self, sender: int, data: bytearray) -> None:
         """Handle notification from the desk."""
@@ -578,6 +872,72 @@ class DeskBLEDevice:
             # Notify callbacks
             for callback in self._notification_callbacks:
                 callback(self._height_cm, self._collision_detected, self._is_moving)
+        
+        # Check for light color response
+        elif len(data) >= 6 and bytes(data[:4]) == LIGHT_COLOR_RESPONSE_HEADER:
+            self._light_color = data[4]
+            _LOGGER.debug("Light color response: %s", self._light_color)
+        
+        # Check for brightness response
+        elif len(data) >= 6 and bytes(data[:4]) == BRIGHTNESS_RESPONSE_HEADER:
+            self._brightness = data[4]
+            _LOGGER.debug("Brightness response: %s", self._brightness)
+        
+        # Check for lighting status response
+        elif len(data) >= 6 and bytes(data[:4]) == LIGHTING_RESPONSE_HEADER:
+            self._lighting_enabled = data[4] != 0
+            _LOGGER.debug("Lighting enabled response: %s", self._lighting_enabled)
+        
+        # Check for vibration status response
+        elif len(data) >= 6 and bytes(data[:4]) == VIBRATION_RESPONSE_HEADER:
+            self._vibration_enabled = data[4] != 0
+            _LOGGER.debug("Vibration enabled response: %s", self._vibration_enabled)
+        
+        # Check for vibration intensity response
+        elif len(data) >= 6 and bytes(data[:4]) == VIBRATION_INTENSITY_RESPONSE_HEADER:
+            self._vibration_intensity = data[4]
+            _LOGGER.debug("Vibration intensity response: %s", self._vibration_intensity)
+        
+        # Check for lock status response
+        elif len(data) >= 6 and bytes(data[:4]) == LOCK_STATUS_RESPONSE_HEADER:
+            self._lock_status = data[4] != 0
+            _LOGGER.debug("Lock status response: %s", self._lock_status)
+        
+        # Check for sensitivity response
+        elif len(data) >= 6 and bytes(data[:4]) == SENSITIVITY_RESPONSE_HEADER:
+            self._sensitivity_level = data[4]
+            _LOGGER.debug("Sensitivity level response: %s", self._sensitivity_level)
+        
+        # Check for upper limit response
+        elif len(data) >= 7 and bytes(data[:4]) == LIMIT_UPPER_RESPONSE_HEADER:
+            height_raw = (data[4] << 8) | data[5]
+            self._height_limit_upper = height_raw / 10.0
+            _LOGGER.debug("Upper limit response: %.1f cm", self._height_limit_upper)
+        
+        # Check for lower limit response
+        elif len(data) >= 7 and bytes(data[:4]) == LIMIT_LOWER_RESPONSE_HEADER:
+            height_raw = (data[4] << 8) | data[5]
+            self._height_limit_lower = height_raw / 10.0
+            _LOGGER.debug("Lower limit response: %.1f cm", self._height_limit_lower)
+        
+        # Check for limit status response (0xF2 0xF2 0x20 0x01)
+        elif len(data) >= 6 and bytes(data[:5]) == bytes([0xF2, 0xF2, 0x20, 0x01, 0x00]):
+            # No limits
+            self._limits_enabled = False
+            _LOGGER.debug("No limits set")
+        elif len(data) >= 6 and bytes(data[:5]) == bytes([0xF2, 0xF2, 0x20, 0x01, 0x01]):
+            # Upper limit only
+            self._limits_enabled = True
+            _LOGGER.debug("Upper limit only set")
+        elif len(data) >= 6 and bytes(data[:5]) == bytes([0xF2, 0xF2, 0x20, 0x01, 0x10]):
+            # Lower limit only
+            self._limits_enabled = True
+            _LOGGER.debug("Lower limit only set")
+        elif len(data) >= 6 and bytes(data[:5]) == bytes([0xF2, 0xF2, 0x20, 0x01, 0x11]):
+            # Both limits set
+            self._limits_enabled = True
+            _LOGGER.debug("Both limits set")
+        
         else:
             _LOGGER.debug("Unknown notification format: %s", data.hex())
 

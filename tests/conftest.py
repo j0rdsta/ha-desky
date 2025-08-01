@@ -123,6 +123,20 @@ def mock_coordinator_data():
         "collision_detected": False,
         "is_moving": False,
         "is_connected": True,
+        "movement_direction": None,
+        # New device features
+        "light_color": 1,  # White
+        "brightness": 50,
+        "lighting_enabled": True,
+        "vibration_enabled": True,
+        "vibration_intensity": 75,
+        "lock_status": False,
+        "sensitivity_level": 2,  # Medium
+        "height_limit_upper": 120.0,
+        "height_limit_lower": 65.0,
+        "limits_enabled": True,
+        "touch_mode": 0,  # One press
+        "unit_preference": "cm",
     }
 
 @pytest.fixture
@@ -175,6 +189,28 @@ async def init_integration(
             mock_device_instance.register_notification_callback = MagicMock()
             mock_device_instance.register_disconnect_callback = MagicMock()
             
+            # Add all the new device methods
+            mock_device_instance.set_lighting = AsyncMock(return_value=True)
+            mock_device_instance.get_lighting_status = AsyncMock(return_value=True)
+            mock_device_instance.set_light_color = AsyncMock(return_value=True)
+            mock_device_instance.get_light_color = AsyncMock(return_value=True)
+            mock_device_instance.set_brightness = AsyncMock(return_value=True)
+            mock_device_instance.get_brightness = AsyncMock(return_value=True)
+            mock_device_instance.set_vibration = AsyncMock(return_value=True)
+            mock_device_instance.get_vibration_status = AsyncMock(return_value=True)
+            mock_device_instance.set_vibration_intensity = AsyncMock(return_value=True)
+            mock_device_instance.get_vibration_intensity = AsyncMock(return_value=True)
+            mock_device_instance.set_lock_status = AsyncMock(return_value=True)
+            mock_device_instance.get_lock_status = AsyncMock(return_value=True)
+            mock_device_instance.set_sensitivity = AsyncMock(return_value=True)
+            mock_device_instance.get_sensitivity = AsyncMock(return_value=True)
+            mock_device_instance.set_touch_mode = AsyncMock(return_value=True)
+            mock_device_instance.set_unit = AsyncMock(return_value=True)
+            mock_device_instance.set_height_limit_upper = AsyncMock(return_value=True)
+            mock_device_instance.set_height_limit_lower = AsyncMock(return_value=True)
+            mock_device_instance.get_limits = AsyncMock(return_value=True)
+            mock_device_instance.move_to_height = AsyncMock(return_value=True)
+            
             # Mock the coordinator
             mock_coordinator = mock_coordinator_class.return_value
             mock_coordinator.data = {
@@ -182,6 +218,20 @@ async def init_integration(
                 "collision_detected": False,
                 "is_moving": False,
                 "is_connected": True,
+                "movement_direction": None,
+                # New device features
+                "light_color": 1,  # White
+                "brightness": 50,
+                "lighting_enabled": True,
+                "vibration_enabled": True,
+                "vibration_intensity": 75,
+                "lock_status": False,
+                "sensitivity_level": 2,  # Medium
+                "height_limit_upper": 120.0,
+                "height_limit_lower": 65.0,
+                "limits_enabled": True,
+                "touch_mode": 0,  # One press
+                "unit_preference": "cm",
             }
             mock_coordinator.last_update_success = True
             mock_coordinator.async_config_entry_first_refresh = AsyncMock()

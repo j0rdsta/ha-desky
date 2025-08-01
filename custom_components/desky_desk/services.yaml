@@ -69,3 +69,55 @@ set_position_limit:
           step: 0.1
           unit_of_measurement: cm
           mode: box
+
+clear_height_limits:
+  name: Clear Height Limits
+  description: Clear all height limits for the desk
+  target:
+    entity:
+      integration: desky_desk
+      domain: cover
+
+set_light_color:
+  name: Set Light Color
+  description: Set the LED strip color
+  target:
+    entity:
+      integration: desky_desk
+      domain: light
+  fields:
+    color:
+      name: Color
+      description: Color to set
+      required: true
+      example: White
+      selector:
+        select:
+          options:
+            - White
+            - Red
+            - Green
+            - Blue
+            - Yellow
+            - Party mode
+            - Off
+
+set_sensitivity:
+  name: Set Collision Sensitivity
+  description: Set the collision detection sensitivity level
+  target:
+    entity:
+      integration: desky_desk
+      domain: cover
+  fields:
+    level:
+      name: Sensitivity Level
+      description: Sensitivity level
+      required: true
+      example: Medium
+      selector:
+        select:
+          options:
+            - High
+            - Medium
+            - Low
