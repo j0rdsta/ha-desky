@@ -732,8 +732,11 @@ class DeskBLEDevice:
         
         # Log all available services for debugging
         try:
-            # Try to get services - use get_services() which forces a fresh discovery
-            services = await self._client.get_services()
+            # IMPORTANT: DO NOT use await self._client.get_services() - it's deprecated!
+            # Use the services property instead. Service discovery is already complete
+            # when this method is called from within connect() after connection is established.
+            # The services property is synchronous and returns the already-discovered services.
+            services = self._client.services
             service_count = 0
             device_info_service = None
             
