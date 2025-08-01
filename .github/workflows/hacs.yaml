@@ -14,6 +14,23 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Debug - Check repository structure
+        run: |
+          echo "Repository root:"
+          ls -la
+          echo ""
+          echo "custom_components directory:"
+          ls -la custom_components/
+          echo ""
+          echo "Integration directory:"
+          ls -la custom_components/desky_desk/
+          echo ""
+          echo "Manifest content:"
+          cat custom_components/desky_desk/manifest.json
+          echo ""
+          echo "hacs.json content:"
+          cat hacs.json
+
       - name: HACS Action
         uses: hacs/action@main
         with:
