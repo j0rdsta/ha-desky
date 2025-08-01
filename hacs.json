@@ -3,7 +3,6 @@
   "content_in_root": false,
   "render_readme": true,
   "homeassistant": "2023.12.0",
-  "country": ["AU", "US", "GB", "CA", "NZ"],
   "domains": ["cover", "number", "button", "binary_sensor"],
-  "iot_class": "Local Push"
+  "iot_class": "local_push"
 }
