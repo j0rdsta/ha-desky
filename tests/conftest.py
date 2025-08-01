@@ -89,6 +89,62 @@ def mock_bleak_client() -> MagicMock:
     return client
 
 @pytest.fixture
+def mock_device_info_service():
+    """Return a mock Device Information Service for BLE."""
+    service = MagicMock()
+    service.uuid = "0000180a-0000-1000-8000-00805f9b34fb"
+    
+    # Create mock characteristics
+    characteristics = []
+    device_info_chars = [
+        ("00002a29-0000-1000-8000-00805f9b34fb", b"Test Manufacturer"),  # Manufacturer
+        ("00002a24-0000-1000-8000-00805f9b34fb", b"Test Model"),         # Model
+        ("00002a25-0000-1000-8000-00805f9b34fb", b"TEST123456"),         # Serial
+        ("00002a27-0000-1000-8000-00805f9b34fb", b"1.0"),               # Hardware
+        ("00002a26-0000-1000-8000-00805f9b34fb", b"2.1.0"),             # Firmware
+        ("00002a28-0000-1000-8000-00805f9b34fb", b"1.5.2"),             # Software
+    ]
+    
+    for uuid, data in device_info_chars:
+        char = MagicMock()
+        char.uuid = uuid
+        char.properties = ["read"]
+        char.read_data = data
+        characteristics.append(char)
+    
+    service.characteristics = characteristics
+    return service
+
+@pytest.fixture
+def mock_bleak_client_with_device_info(mock_bleak_client, mock_device_info_service):
+    """Return a mock Bleak client with Device Information Service."""
+    # Add device info service to existing services
+    existing_services = mock_bleak_client.get_services.return_value
+    if hasattr(existing_services, '__await__'):
+        # If it's an async mock, get the return value
+        services = existing_services.return_value
+    else:
+        services = existing_services
+    
+    # Make it a list if it isn't already
+    if not isinstance(services, list):
+        services = [services]
+    services.append(mock_device_info_service)
+    
+    # Set up the services property for discovery
+    mock_bleak_client.services = services
+    
+    # Mock read_gatt_char to return device info data
+    async def mock_read_char(char_uuid):
+        for char in mock_device_info_service.characteristics:
+            if char.uuid.lower() == char_uuid.lower():
+                return char.read_data
+        return b""
+    
+    mock_bleak_client.read_gatt_char = AsyncMock(side_effect=mock_read_char)
+    return mock_bleak_client
+
+@pytest.fixture
 def mock_establish_connection(mock_bleak_client):
     """Mock the establish_connection function."""
     with patch(
@@ -137,6 +193,13 @@ def mock_coordinator_data():
         "limits_enabled": True,
         "touch_mode": 0,  # One press
         "unit_preference": "cm",
+        # Device information from Device Information Service (0x180A)
+        "manufacturer_name": "Test Manufacturer",
+        "model_number": "Test Model",
+        "serial_number": "TEST123456",
+        "hardware_revision": "1.0",
+        "firmware_revision": "2.1.0",
+        "software_revision": "1.5.2",
     }
 
 @pytest.fixture
@@ -232,6 +295,13 @@ async def init_integration(
                 "limits_enabled": True,
                 "touch_mode": 0,  # One press
                 "unit_preference": "cm",
+                # Device information from Device Information Service (0x180A)
+                "manufacturer_name": "Test Manufacturer",
+                "model_number": "Test Model",
+                "serial_number": "TEST123456",
+                "hardware_revision": "1.0",
+                "firmware_revision": "2.1.0",
+                "software_revision": "1.5.2",
             }
             mock_coordinator.last_update_success = True
             mock_coordinator.async_config_entry_first_refresh = AsyncMock()

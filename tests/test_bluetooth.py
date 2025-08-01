@@ -1726,3 +1726,236 @@ def test_create_command_helpers(mock_ble_device):
     # checksum = (0xA5 + 0x02 + 0x04 + 0xB0) & 0xFF = 0x5B
     expected = bytes([0xF1, 0xF1, 0xA5, 0x02, 0x04, 0xB0, 0x5B, 0x7E])
     assert command == expected
+
+
+# Device Information Service Tests
+
+async def test_read_device_information_success(mock_ble_device, mock_bleak_client_with_device_info):
+    """Test successful device information reading."""
+    device = DeskBLEDevice(mock_ble_device)
+    device._client = mock_bleak_client_with_device_info
+    
+    await device._read_device_information()
+    
+    # Verify all device information was read
+    assert device.manufacturer_name == "Test Manufacturer"
+    assert device.model_number == "Test Model"
+    assert device.serial_number == "TEST123456"
+    assert device.hardware_revision == "1.0"
+    assert device.firmware_revision == "2.1.0"
+    assert device.software_revision == "1.5.2"
+
+
+async def test_read_device_information_service_not_found(mock_ble_device, mock_bleak_client):
+    """Test when Device Information Service (0x180A) is not available."""
+    device = DeskBLEDevice(mock_ble_device)
+    device._client = mock_bleak_client
+    
+    # Mock services without device info service
+    mock_bleak_client.services = [MagicMock(uuid="0000fe60-0000-1000-8000-00805f9b34fb")]
+    
+    await device._read_device_information()
+    
+    # Verify all device information remains None (fallback behavior)
+    assert device.manufacturer_name is None
+    assert device.model_number is None
+    assert device.serial_number is None
+    assert device.hardware_revision is None
+    assert device.firmware_revision is None
+    assert device.software_revision is None
+
+
+async def test_read_device_information_partial_characteristics(mock_ble_device, mock_bleak_client):
+    """Test when only some device info characteristics are available."""
+    device = DeskBLEDevice(mock_ble_device)
+    device._client = mock_bleak_client
+    
+    # Create service with only manufacturer and model characteristics
+    service = MagicMock()
+    service.uuid = "0000180a-0000-1000-8000-00805f9b34fb"  # Device Info Service
+    
+    char1 = MagicMock()
+    char1.uuid = "00002a29-0000-1000-8000-00805f9b34fb"  # Manufacturer
+    char1.properties = ["read"]
+    
+    char2 = MagicMock()
+    char2.uuid = "00002a24-0000-1000-8000-00805f9b34fb"  # Model
+    char2.properties = ["read"]
+    
+    service.characteristics = [char1, char2]
+    mock_bleak_client.services = [service]
+    
+    # Mock read responses
+    async def mock_read_char(char_uuid):
+        if char_uuid.lower() == "00002a29-0000-1000-8000-00805f9b34fb":
+            return b"Partial Manufacturer"
+        elif char_uuid.lower() == "00002a24-0000-1000-8000-00805f9b34fb":
+            return b"Partial Model"
+        return b""
+    
+    mock_bleak_client.read_gatt_char = AsyncMock(side_effect=mock_read_char)
+    
+    await device._read_device_information()
+    
+    # Verify partial information was read
+    assert device.manufacturer_name == "Partial Manufacturer"
+    assert device.model_number == "Partial Model"
+    # Others remain None
+    assert device.serial_number is None
+    assert device.hardware_revision is None
+    assert device.firmware_revision is None
+    assert device.software_revision is None
+
+
+async def test_read_device_information_characteristic_read_failure(mock_ble_device, mock_bleak_client):
+    """Test when reading device info characteristics fails."""
+    device = DeskBLEDevice(mock_ble_device)
+    device._client = mock_bleak_client
+    
+    # Create service with characteristics
+    service = MagicMock()
+    service.uuid = "0000180a-0000-1000-8000-00805f9b34fb"
+    
+    char = MagicMock()
+    char.uuid = "00002a29-0000-1000-8000-00805f9b34fb"  # Manufacturer
+    char.properties = ["read"]
+    service.characteristics = [char]
+    
+    mock_bleak_client.services = [service]
+    
+    # Mock read_gatt_char to raise exception
+    mock_bleak_client.read_gatt_char = AsyncMock(side_effect=Exception("Read failed"))
+    
+    # Should not raise exception
+    await device._read_device_information()
+    
+    # Verify device info remains None after failure
+    assert device.manufacturer_name is None
+
+
+async def test_read_device_information_characteristic_not_readable(mock_ble_device, mock_bleak_client):
+    """Test when device info characteristic doesn't support read operation."""
+    device = DeskBLEDevice(mock_ble_device)
+    device._client = mock_bleak_client
+    
+    # Create service with non-readable characteristic
+    service = MagicMock()
+    service.uuid = "0000180a-0000-1000-8000-00805f9b34fb"
+    
+    char = MagicMock()
+    char.uuid = "00002a29-0000-1000-8000-00805f9b34fb"  # Manufacturer
+    char.properties = ["write"]  # No read property
+    service.characteristics = [char]
+    
+    mock_bleak_client.services = [service]
+    
+    await device._read_device_information()
+    
+    # Verify device info remains None when not readable
+    assert device.manufacturer_name is None
+
+
+async def test_read_device_information_empty_data(mock_ble_device, mock_bleak_client):
+    """Test when device info characteristics return empty data."""
+    device = DeskBLEDevice(mock_ble_device)
+    device._client = mock_bleak_client
+    
+    # Create service with characteristics
+    service = MagicMock()
+    service.uuid = "0000180a-0000-1000-8000-00805f9b34fb"
+    
+    char = MagicMock()
+    char.uuid = "00002a29-0000-1000-8000-00805f9b34fb"  # Manufacturer
+    char.properties = ["read"]
+    service.characteristics = [char]
+    
+    mock_bleak_client.services = [service]
+    
+    # Mock read to return empty data
+    mock_bleak_client.read_gatt_char = AsyncMock(return_value=b"")
+    
+    await device._read_device_information()
+    
+    # Verify device info remains None for empty data
+    assert device.manufacturer_name is None
+
+
+async def test_read_device_information_utf8_decoding(mock_ble_device, mock_bleak_client):
+    """Test UTF-8 decoding and whitespace handling."""
+    device = DeskBLEDevice(mock_ble_device)
+    device._client = mock_bleak_client
+    
+    # Create service with characteristics
+    service = MagicMock()
+    service.uuid = "0000180a-0000-1000-8000-00805f9b34fb"
+    
+    char = MagicMock()
+    char.uuid = "00002a29-0000-1000-8000-00805f9b34fb"  # Manufacturer
+    char.properties = ["read"]
+    service.characteristics = [char]
+    
+    mock_bleak_client.services = [service]
+    
+    # Mock read to return data with whitespace and null bytes
+    mock_bleak_client.read_gatt_char = AsyncMock(return_value=b"  Test Manufacturer\x00\r\n\t ")
+    
+    await device._read_device_information()
+    
+    # Verify whitespace and null bytes are stripped
+    assert device.manufacturer_name == "Test Manufacturer"
+
+
+async def test_read_device_information_not_connected(mock_ble_device):
+    """Test device information reading when not connected."""
+    device = DeskBLEDevice(mock_ble_device)
+    # Device not connected (no client)
+    
+    await device._read_device_information()
+    
+    # Should handle gracefully without error
+    assert device.manufacturer_name is None
+
+
+def test_device_info_properties(mock_ble_device):
+    """Test device information property getters."""
+    device = DeskBLEDevice(mock_ble_device)
+    
+    # Test initial state
+    assert device.manufacturer_name is None
+    assert device.model_number is None
+    assert device.serial_number is None
+    assert device.hardware_revision is None
+    assert device.firmware_revision is None
+    assert device.software_revision is None
+    
+    # Set values directly (simulating successful read)
+    device._manufacturer_name = "Test Manufacturer"
+    device._model_number = "Test Model"
+    device._serial_number = "TEST123456"
+    device._hardware_revision = "1.0"
+    device._firmware_revision = "2.1.0"
+    device._software_revision = "1.5.2"
+    
+    # Test property getters
+    assert device.manufacturer_name == "Test Manufacturer"
+    assert device.model_number == "Test Model"
+    assert device.serial_number == "TEST123456"
+    assert device.hardware_revision == "1.0"
+    assert device.firmware_revision == "2.1.0"
+    assert device.software_revision == "1.5.2"
+
+
+async def test_device_information_called_during_connect(mock_ble_device, mock_bleak_client_with_device_info):
+    """Test that device information is read during connection."""
+    device = DeskBLEDevice(mock_ble_device)
+    
+    with patch.object(device, '_read_device_information', AsyncMock()) as mock_read_device_info:
+        with patch(
+            "custom_components.desky_desk.bluetooth.establish_connection",
+            return_value=mock_bleak_client_with_device_info,
+        ):
+            result = await device.connect()
+            
+            assert result is True
+            # Verify device information was read during connection
+            mock_read_device_info.assert_called_once()

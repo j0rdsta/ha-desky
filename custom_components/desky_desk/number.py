@@ -90,12 +90,11 @@ class DeskyHeightNumber(CoordinatorEntity[DeskUpdateCoordinator], NumberEntity):
         """Initialize the height number entity."""
         super().__init__(coordinator)
         self._attr_unique_id = f"{coordinator.entry.unique_id}_height"
-        self._attr_device_info = {
-            "identifiers": {(DOMAIN, coordinator.entry.unique_id)},
-            "name": coordinator.device.name if coordinator.device else "Desky Desk",
-            "manufacturer": "Desky",
-            "model": "Standing Desk",
-        }
+        
+    @property
+    def device_info(self) -> dict[str, Any]:
+        """Return device information."""
+        return self.coordinator.get_device_info()
 
     @property
     def native_value(self) -> float | None:

@@ -17,12 +17,11 @@ class DeskEntity(CoordinatorEntity[DeskUpdateCoordinator]):
         """Initialize the entity."""
         super().__init__(coordinator)
         self._config_entry = config_entry
-        self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, config_entry.unique_id)},
-            manufacturer="Desky",
-            model="Standing Desk",
-            name=config_entry.title,
-        )
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device information."""
+        return DeviceInfo(**self.coordinator.get_device_info())
 
     @property
     def available(self) -> bool:

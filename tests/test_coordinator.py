@@ -10,7 +10,7 @@ from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from custom_components.desky_desk.coordinator import DeskUpdateCoordinator
-from custom_components.desky_desk.const import RECONNECT_INTERVAL_SECONDS, UPDATE_INTERVAL_SECONDS
+from custom_components.desky_desk.const import DOMAIN, RECONNECT_INTERVAL_SECONDS, UPDATE_INTERVAL_SECONDS
 
 async def test_coordinator_init(hass: HomeAssistant, mock_config_entry, enable_custom_integrations):
     """Test coordinator initialization."""
@@ -478,3 +478,234 @@ async def test_coordinator_notification_with_new_attributes(
         assert called_data["limits_enabled"] is False
         assert called_data["touch_mode"] == 0
         assert called_data["unit_preference"] == "cm"
+
+
+async def test_coordinator_data_includes_device_info(
+    hass: HomeAssistant,
+    mock_config_entry,
+    enable_custom_integrations,
+):
+    """Test coordinator data includes device information."""
+    coordinator = DeskUpdateCoordinator(hass, mock_config_entry)
+    
+    mock_device = MagicMock()
+    mock_device.is_connected = True
+    mock_device.height_cm = 80.0
+    mock_device.collision_detected = False
+    mock_device.is_moving = False
+    mock_device.movement_direction = None
+    mock_device.get_status = AsyncMock()
+    
+    # Set device info attributes
+    mock_device.manufacturer_name = "FlexiSpot"
+    mock_device.model_number = "E7"
+    mock_device.serial_number = "FS12345678"
+    mock_device.hardware_revision = "2.0"
+    mock_device.firmware_revision = "3.1.0"
+    mock_device.software_revision = "2.0.1"
+    
+    # Set other device attributes to None/defaults
+    mock_device.light_color = None
+    mock_device.brightness = None
+    mock_device.lighting_enabled = None
+    mock_device.vibration_enabled = None
+    mock_device.vibration_intensity = None
+    mock_device.lock_status = False
+    mock_device.sensitivity_level = None
+    mock_device.height_limit_upper = None
+    mock_device.height_limit_lower = None
+    mock_device.limits_enabled = False
+    mock_device.touch_mode = None
+    mock_device.unit_preference = None
+    
+    coordinator._device = mock_device
+    
+    data = await coordinator._async_update_data()
+    
+    # Verify device info is included
+    assert data["manufacturer_name"] == "FlexiSpot"
+    assert data["model_number"] == "E7"
+    assert data["serial_number"] == "FS12345678"
+    assert data["hardware_revision"] == "2.0"
+    assert data["firmware_revision"] == "3.1.0"
+    assert data["software_revision"] == "2.0.1"
+
+
+async def test_get_device_info_method(
+    hass: HomeAssistant,
+    mock_config_entry,
+    enable_custom_integrations,
+):
+    """Test get_device_info helper method."""
+    coordinator = DeskUpdateCoordinator(hass, mock_config_entry)
+    
+    # Test with no device info in data
+    coordinator.data = {
+        "height_cm": 80.0,
+        "is_connected": True,
+        # Device info fields missing - should use fallbacks
+    }
+    
+    device_info = coordinator.get_device_info()
+    
+    assert device_info["name"] == "Desky Desk"
+    assert device_info["manufacturer"] == "Desky"
+    assert device_info["model"] == "Standing Desk"
+    assert device_info["identifiers"] == {(DOMAIN, "AA:BB:CC:DD:EE:FF")}
+    # Connections not included in device_info method - only in DeviceInfo from entity
+    
+    # Test with device info in data  
+    coordinator.data = {
+        "height_cm": 80.0,
+        "is_connected": True,
+        "manufacturer_name": "FlexiSpot",
+        "model_number": "E7 Pro",
+        "serial_number": "FS98765432",
+        "hardware_revision": "3.0",
+        "firmware_revision": "4.2.1",
+        "software_revision": "3.1.0",
+    }
+    
+    device_info = coordinator.get_device_info()
+    
+    assert device_info["name"] == "Desky Desk"  # Always uses friendly name
+    assert device_info["manufacturer"] == "FlexiSpot"
+    assert device_info["model"] == "E7 Pro"
+    assert device_info["serial_number"] == "FS98765432"
+    assert device_info["hw_version"] == "3.0"
+    assert device_info["sw_version"] == "4.2.1"
+
+
+async def test_device_info_preserved_during_disconnect(
+    hass: HomeAssistant,
+    mock_config_entry,
+    enable_custom_integrations,
+):
+    """Test device information is preserved when device disconnects."""
+    coordinator = DeskUpdateCoordinator(hass, mock_config_entry)
+    
+    mock_device = MagicMock()
+    mock_device.height_cm = 85.0
+    mock_device.manufacturer_name = "Jarvis"
+    mock_device.model_number = "Bamboo Top"
+    mock_device.serial_number = "JRV123456"
+    mock_device.hardware_revision = "1.5"
+    mock_device.firmware_revision = "2.3.4"
+    mock_device.software_revision = "1.8.2"
+    
+    # Set other attributes
+    mock_device.light_color = 3
+    mock_device.brightness = 80
+    mock_device.lighting_enabled = True
+    mock_device.vibration_enabled = False
+    mock_device.vibration_intensity = 60
+    mock_device.lock_status = True
+    mock_device.sensitivity_level = 1
+    mock_device.height_limit_upper = 125.0
+    mock_device.height_limit_lower = 70.0
+    mock_device.limits_enabled = False
+    mock_device.touch_mode = 1
+    mock_device.unit_preference = "inch"
+    
+    coordinator._device = mock_device
+    
+    with patch.object(coordinator, "async_set_updated_data") as mock_set_data:
+        coordinator._handle_disconnect()
+        
+        called_data = mock_set_data.call_args[0][0]
+        
+        # Verify device info is preserved during disconnect
+        assert called_data["manufacturer_name"] == "Jarvis"
+        assert called_data["model_number"] == "Bamboo Top"
+        assert called_data["serial_number"] == "JRV123456"
+        assert called_data["hardware_revision"] == "1.5"
+        assert called_data["firmware_revision"] == "2.3.4"
+        assert called_data["software_revision"] == "1.8.2"
+        
+        # Verify connection state changed but device info remained
+        assert called_data["is_connected"] is False
+        assert called_data["height_cm"] == 85.0
+
+
+async def test_async_update_device_registry(
+    hass: HomeAssistant,
+    mock_config_entry,
+    enable_custom_integrations,
+):
+    """Test updating device registry with BLE device information."""
+    coordinator = DeskUpdateCoordinator(hass, mock_config_entry)
+    
+    # Mock device registry
+    with patch("custom_components.desky_desk.coordinator.dr") as mock_dr:
+        mock_registry = MagicMock()
+        mock_device = MagicMock()
+        mock_device.id = "test_device_id"
+        
+        mock_dr.async_get.return_value = mock_registry
+        mock_registry.async_get_device.return_value = mock_device
+        
+        # Set coordinator data with device info
+        coordinator.data = {
+            "manufacturer_name": "FlexiSpot",
+            "model_number": "E7 Pro",
+            "serial_number": "FS123456",
+            "hardware_revision": "2.0",
+            "firmware_revision": "3.1.0",
+            "software_revision": "2.0.1",
+        }
+        
+        # Mock device
+        mock_device_obj = MagicMock()
+        coordinator._device = mock_device_obj
+        
+        await coordinator.async_update_device_registry()
+        
+        # Verify device registry was updated
+        mock_registry.async_update_device.assert_called_once_with(
+            "test_device_id",
+            manufacturer="FlexiSpot",
+            model="E7 Pro",
+            serial_number="FS123456",
+            hw_version="2.0",
+            sw_version="3.1.0"
+        )
+
+
+async def test_async_update_device_registry_with_placeholders(
+    hass: HomeAssistant,
+    mock_config_entry,
+    enable_custom_integrations,
+):
+    """Test device registry update ignores generic placeholder values."""
+    coordinator = DeskUpdateCoordinator(hass, mock_config_entry)
+    
+    # Mock device registry
+    with patch("custom_components.desky_desk.coordinator.dr") as mock_dr:
+        mock_registry = MagicMock()
+        mock_device = MagicMock()
+        mock_device.id = "test_device_id"
+        
+        mock_dr.async_get.return_value = mock_registry
+        mock_registry.async_get_device.return_value = mock_device
+        
+        # Set coordinator data with placeholder values
+        coordinator.data = {
+            "manufacturer_name": "Manufacturer Name",  # Generic placeholder
+            "model_number": "L-BTMEB95",
+            "serial_number": "Serial Number",  # Generic placeholder
+            "hardware_revision": "Hardware Revision",  # Generic placeholder
+            "firmware_revision": "Rev01",
+        }
+        
+        # Mock device
+        mock_device_obj = MagicMock()
+        coordinator._device = mock_device_obj
+        
+        await coordinator.async_update_device_registry()
+        
+        # Verify only non-placeholder values were updated
+        mock_registry.async_update_device.assert_called_once_with(
+            "test_device_id",
+            model="L-BTMEB95",
+            sw_version="Rev01"
+        )

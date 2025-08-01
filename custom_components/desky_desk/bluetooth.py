@@ -30,8 +30,11 @@ from .const import (
     COMMAND_MOVE_DOWN,
     COMMAND_MOVE_UP,
     COMMAND_STOP,
+    DEVICE_INFORMATION_SERVICE_UUID,
     DIRECT_CONNECTION_TIMEOUT,
     DIRECT_MAX_ATTEMPTS,
+    FIRMWARE_REVISION_CHAR_UUID,
+    HARDWARE_REVISION_CHAR_UUID,
     HEIGHT_NOTIFICATION_HEADER,
     LIGHT_COLOR_RESPONSE_HEADER,
     LIGHTING_RESPONSE_HEADER,
@@ -39,12 +42,16 @@ from .const import (
     LIMIT_STATUS_RESPONSE_HEADER,
     LIMIT_UPPER_RESPONSE_HEADER,
     LOCK_STATUS_RESPONSE_HEADER,
+    MANUFACTURER_NAME_CHAR_UUID,
     MAX_HEIGHT,
     MIN_HEIGHT,
+    MODEL_NUMBER_CHAR_UUID,
     NOTIFY_CHARACTERISTIC_UUID,
     PROXY_CONNECTION_TIMEOUT,
     PROXY_MAX_ATTEMPTS,
     SENSITIVITY_RESPONSE_HEADER,
+    SERIAL_NUMBER_CHAR_UUID,
+    SOFTWARE_REVISION_CHAR_UUID,
     STATUS_NOTIFICATION_HEADER,
     VIBRATION_INTENSITY_RESPONSE_HEADER,
     VIBRATION_RESPONSE_HEADER,
@@ -98,6 +105,14 @@ class DeskBLEDevice:
         self._limits_enabled: bool = False
         self._touch_mode: int | None = None
         self._unit_preference: str | None = None  # "cm" or "in"
+        
+        # Device information from BLE Device Information Service (0x180A)
+        self._manufacturer_name: str | None = None
+        self._model_number: str | None = None
+        self._serial_number: str | None = None
+        self._hardware_revision: str | None = None
+        self._firmware_revision: str | None = None
+        self._software_revision: str | None = None
 
     @property
     def address(self) -> str:
@@ -193,6 +208,36 @@ class DeskBLEDevice:
     def unit_preference(self) -> str | None:
         """Return unit preference (cm or in)."""
         return self._unit_preference
+    
+    @property
+    def manufacturer_name(self) -> str | None:
+        """Return manufacturer name from device information service."""
+        return self._manufacturer_name
+    
+    @property
+    def model_number(self) -> str | None:
+        """Return model number from device information service."""
+        return self._model_number
+    
+    @property
+    def serial_number(self) -> str | None:
+        """Return serial number from device information service."""
+        return self._serial_number
+    
+    @property
+    def hardware_revision(self) -> str | None:
+        """Return hardware revision from device information service."""
+        return self._hardware_revision
+    
+    @property
+    def firmware_revision(self) -> str | None:
+        """Return firmware revision from device information service."""
+        return self._firmware_revision
+    
+    @property
+    def software_revision(self) -> str | None:
+        """Return software revision from device information service."""
+        return self._software_revision
 
     def register_notification_callback(self, callback: Callable[[float, bool, bool], None]) -> None:
         """Register a callback for height/status notifications."""
@@ -298,6 +343,12 @@ class DeskBLEDevice:
             
             # Query device capabilities (ignore failures - not all desks support all features)
             await self._query_device_capabilities()
+            
+            # Small delay to ensure all services are properly discovered
+            await asyncio.sleep(0.5)
+            
+            # Read device information from Device Information Service (0x180A)
+            await self._read_device_information()
             
             _LOGGER.info(
                 "Connected to Desky desk at %s via %s", 
@@ -670,6 +721,107 @@ class DeskBLEDevice:
             _LOGGER.debug("Height limits not supported: %s", e)
         
         _LOGGER.debug("Device capability query complete")
+    
+    async def _read_device_information(self) -> None:
+        """Read device information from BLE Device Information Service (0x180A)."""
+        if not self.is_connected:
+            _LOGGER.debug("Not connected - cannot read device information")
+            return
+        
+        _LOGGER.info("Starting device information read from Device Information Service...")
+        
+        # Log all available services for debugging
+        try:
+            # Try to get services - use get_services() which forces a fresh discovery
+            services = await self._client.get_services()
+            service_count = 0
+            device_info_service = None
+            
+            # Iterate through services
+            for service in services:
+                service_count += 1
+                _LOGGER.debug("Service UUID: %s", service.uuid)
+                
+                # Check if this is the Device Information Service
+                if service.uuid.lower() == DEVICE_INFORMATION_SERVICE_UUID.lower():
+                    device_info_service = service
+                    _LOGGER.info("Found Device Information Service: %s", service.uuid)
+                    
+                # Also log characteristics for debugging
+                for char in service.characteristics:
+                    _LOGGER.debug("  - Characteristic: %s (properties: %s)", char.uuid, char.properties)
+            
+            _LOGGER.debug("Total services discovered: %d", service_count)
+            
+        except Exception as e:
+            _LOGGER.error("Error discovering services: %s", e)
+            return
+        
+        if not device_info_service:
+            _LOGGER.warning("Device Information Service (0x180A) not found in %d services", service_count)
+            return
+        
+        _LOGGER.debug("Device Information Service has %d characteristics", len(device_info_service.characteristics))
+        
+        # Mapping of characteristic UUIDs to property names and storage attributes
+        char_mapping = {
+            MANUFACTURER_NAME_CHAR_UUID: ("manufacturer_name", "_manufacturer_name"),
+            MODEL_NUMBER_CHAR_UUID: ("model_number", "_model_number"),
+            SERIAL_NUMBER_CHAR_UUID: ("serial_number", "_serial_number"),
+            HARDWARE_REVISION_CHAR_UUID: ("hardware_revision", "_hardware_revision"),
+            FIRMWARE_REVISION_CHAR_UUID: ("firmware_revision", "_firmware_revision"),
+            SOFTWARE_REVISION_CHAR_UUID: ("software_revision", "_software_revision"),
+        }
+        
+        # Read each characteristic if available
+        for char in device_info_service.characteristics:
+            char_uuid = char.uuid.lower()
+            _LOGGER.debug("Found characteristic: %s with properties: %s", char.uuid, char.properties)
+            
+            for expected_uuid, (prop_name, attr_name) in char_mapping.items():
+                if char_uuid == expected_uuid.lower():
+                    _LOGGER.debug("Matched characteristic %s for %s", char.uuid, prop_name)
+                    try:
+                        # Check if characteristic supports read operation
+                        if "read" in char.properties:
+                            _LOGGER.debug("Reading characteristic %s...", prop_name)
+                            data = await self._client.read_gatt_char(char.uuid)
+                            if data:
+                                _LOGGER.debug("Raw data for %s: %s (len=%d)", prop_name, data.hex(), len(data))
+                                # Decode as UTF-8 string and strip whitespace/null bytes
+                                value = data.decode('utf-8', errors='ignore').strip('\x00\r\n\t ')
+                                if value:  # Only store non-empty values
+                                    setattr(self, attr_name, value)
+                                    _LOGGER.info("Device info - %s: %s", prop_name, value)
+                                else:
+                                    _LOGGER.debug("Device info - %s: (empty after decode)", prop_name)
+                            else:
+                                _LOGGER.debug("Device info - %s: (no data returned)", prop_name)
+                        else:
+                            _LOGGER.warning("Device info - %s: characteristic not readable (properties: %s)", prop_name, char.properties)
+                    except Exception as e:
+                        _LOGGER.error("Failed to read %s: %s", prop_name, e)
+                    break
+        
+        # Log summary of what was read
+        device_info_summary = []
+        if self._manufacturer_name:
+            device_info_summary.append(f"Manufacturer: {self._manufacturer_name}")
+        if self._model_number:
+            device_info_summary.append(f"Model: {self._model_number}")
+        if self._serial_number:
+            device_info_summary.append(f"Serial: {self._serial_number}")
+        if self._hardware_revision:
+            device_info_summary.append(f"HW: {self._hardware_revision}")
+        if self._firmware_revision:
+            device_info_summary.append(f"FW: {self._firmware_revision}")
+        if self._software_revision:
+            device_info_summary.append(f"SW: {self._software_revision}")
+        
+        if device_info_summary:
+            _LOGGER.info("Device information: %s", ", ".join(device_info_summary))
+        else:
+            _LOGGER.debug("No device information characteristics found or readable")
 
     def _handle_notification(self, sender: int, data: bytearray) -> None:
         """Handle notification from the desk."""

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from homeassistant.components.binary_sensor import (
     BinarySensorDeviceClass,
@@ -39,12 +40,11 @@ class DeskyCollisionSensor(CoordinatorEntity[DeskUpdateCoordinator], BinarySenso
         """Initialize the collision sensor."""
         super().__init__(coordinator)
         self._attr_unique_id = f"{coordinator.entry.unique_id}_collision"
-        self._attr_device_info = {
-            "identifiers": {(DOMAIN, coordinator.entry.unique_id)},
-            "name": coordinator.device.name if coordinator.device else "Desky Desk",
-            "manufacturer": "Desky",
-            "model": "Standing Desk",
-        }
+        
+    @property
+    def device_info(self) -> dict[str, Any]:
+        """Return device information."""
+        return self.coordinator.get_device_info()
 
     @property
     def is_on(self) -> bool | None:

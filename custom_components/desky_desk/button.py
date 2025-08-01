@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from homeassistant.components.button import ButtonEntity
 from homeassistant.config_entries import ConfigEntry
@@ -46,12 +47,11 @@ class DeskyPresetButton(CoordinatorEntity[DeskUpdateCoordinator], ButtonEntity):
         self._preset_number = preset_number
         self._attr_name = f"Preset {preset_number}"
         self._attr_unique_id = f"{coordinator.entry.unique_id}_preset_{preset_number}"
-        self._attr_device_info = {
-            "identifiers": {(DOMAIN, coordinator.entry.unique_id)},
-            "name": coordinator.device.name if coordinator.device else "Desky Desk",
-            "manufacturer": "Desky",
-            "model": "Standing Desk",
-        }
+        
+    @property
+    def device_info(self) -> dict[str, Any]:
+        """Return device information."""
+        return self.coordinator.get_device_info()
 
     @property
     def available(self) -> bool:
@@ -75,12 +75,11 @@ class DeskyMoveUpButton(CoordinatorEntity[DeskUpdateCoordinator], ButtonEntity):
         """Initialize the move up button."""
         super().__init__(coordinator)
         self._attr_unique_id = f"{coordinator.entry.unique_id}_move_up"
-        self._attr_device_info = {
-            "identifiers": {(DOMAIN, coordinator.entry.unique_id)},
-            "name": coordinator.device.name if coordinator.device else "Desky Desk",
-            "manufacturer": "Desky",
-            "model": "Standing Desk",
-        }
+        
+    @property
+    def device_info(self) -> dict[str, Any]:
+        """Return device information."""
+        return self.coordinator.get_device_info()
 
     @property
     def available(self) -> bool:
@@ -104,12 +103,11 @@ class DeskyMoveDownButton(CoordinatorEntity[DeskUpdateCoordinator], ButtonEntity
         """Initialize the move down button."""
         super().__init__(coordinator)
         self._attr_unique_id = f"{coordinator.entry.unique_id}_move_down"
-        self._attr_device_info = {
-            "identifiers": {(DOMAIN, coordinator.entry.unique_id)},
-            "name": coordinator.device.name if coordinator.device else "Desky Desk",
-            "manufacturer": "Desky",
-            "model": "Standing Desk",
-        }
+        
+    @property
+    def device_info(self) -> dict[str, Any]:
+        """Return device information."""
+        return self.coordinator.get_device_info()
 
     @property
     def available(self) -> bool:

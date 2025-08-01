@@ -10,6 +10,7 @@ from homeassistant.components import bluetooth
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .bluetooth import DeskBLEDevice
@@ -38,6 +39,94 @@ class DeskUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def device(self) -> DeskBLEDevice | None:
         """Return the BLE device."""
         return self._device
+    
+    def get_device_info(self) -> dict[str, Any]:
+        """Return device information for Home Assistant device registry."""
+        # Get device information from coordinator data with fallbacks
+        data = self.data or {}
+        
+        # Use device information from BLE Device Information Service if available
+        manufacturer = data.get("manufacturer_name") or "Desky"
+        model = data.get("model_number") or "Standing Desk"
+        
+        device_info = {
+            "identifiers": {(DOMAIN, self.entry.unique_id)},
+            "name": self.device.name if self.device else "Desky Desk",
+            "manufacturer": manufacturer,
+            "model": model,
+        }
+        
+        # Add optional device information fields if available
+        if data.get("serial_number"):
+            device_info["serial_number"] = data["serial_number"]
+        if data.get("hardware_revision"):
+            device_info["hw_version"] = data["hardware_revision"]
+        if data.get("firmware_revision"):
+            device_info["sw_version"] = data["firmware_revision"]
+        
+        return device_info
+    
+    async def async_update_device_registry(self) -> None:
+        """Update device registry with information from BLE Device Information Service."""
+        if not self._device or not self.data:
+            return
+            
+        # Only update if we have actual device information from BLE
+        if not any([
+            self.data.get("manufacturer_name"),
+            self.data.get("model_number"),
+            self.data.get("serial_number"),
+            self.data.get("firmware_revision"),
+            self.data.get("hardware_revision"),
+            self.data.get("software_revision")
+        ]):
+            return
+            
+        try:
+            device_registry = dr.async_get(self.hass)
+            
+            # Find the device by identifiers
+            device = device_registry.async_get_device(
+                identifiers={(DOMAIN, self.entry.unique_id)}
+            )
+            
+            if device:
+                # Prepare update kwargs - only include non-None values
+                update_kwargs = {}
+                
+                if self.data.get("manufacturer_name"):
+                    # Only update if it's not the generic placeholder
+                    if self.data["manufacturer_name"] != "Manufacturer Name":
+                        update_kwargs["manufacturer"] = self.data["manufacturer_name"]
+                    
+                if self.data.get("model_number"):
+                    update_kwargs["model"] = self.data["model_number"]
+                    
+                if self.data.get("serial_number"):
+                    # Only update if it's not the generic placeholder
+                    if self.data["serial_number"] != "Serial Number":
+                        update_kwargs["serial_number"] = self.data["serial_number"]
+                    
+                if self.data.get("hardware_revision"):
+                    # Only update if it's not the generic placeholder
+                    if self.data["hardware_revision"] != "Hardware Revision":
+                        update_kwargs["hw_version"] = self.data["hardware_revision"]
+                    
+                if self.data.get("firmware_revision"):
+                    update_kwargs["sw_version"] = self.data["firmware_revision"]
+                
+                if update_kwargs:
+                    device_registry.async_update_device(
+                        device.id,
+                        **update_kwargs
+                    )
+                    _LOGGER.info(
+                        "Updated device registry with BLE device information: %s",
+                        update_kwargs
+                    )
+                    
+        except Exception as err:
+            _LOGGER.error("Failed to update device registry: %s", err)
 
     async def _async_update_data(self) -> dict[str, Any]:
         """Update data via BLE."""
@@ -69,7 +158,27 @@ class DeskUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "limits_enabled": self._device.limits_enabled,
             "touch_mode": self._device.touch_mode,
             "unit_preference": self._device.unit_preference,
+            # Device information from Device Information Service (0x180A)
+            "manufacturer_name": self._device.manufacturer_name,
+            "model_number": self._device.model_number,
+            "serial_number": self._device.serial_number,
+            "hardware_revision": self._device.hardware_revision,
+            "firmware_revision": self._device.firmware_revision,
+            "software_revision": self._device.software_revision,
         }
+        
+        # Log device info for debugging
+        if any([self._device.manufacturer_name, self._device.model_number, self._device.serial_number]):
+            _LOGGER.info(
+                "Device info in coordinator - Manufacturer: %s, Model: %s, Serial: %s",
+                self._device.manufacturer_name,
+                self._device.model_number,
+                self._device.serial_number
+            )
+        else:
+            _LOGGER.debug("No device information available in coordinator")
+        
+        return data
 
     async def async_config_entry_first_refresh(self) -> None:
         """Perform first refresh and establish connection."""
@@ -113,6 +222,13 @@ class DeskUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "limits_enabled": False,
             "touch_mode": None,
             "unit_preference": None,
+            # Device information with default values
+            "manufacturer_name": None,
+            "model_number": None,
+            "serial_number": None,
+            "hardware_revision": None,
+            "firmware_revision": None,
+            "software_revision": None,
         })
 
     async def _reconnect(self) -> None:
@@ -129,7 +245,10 @@ class DeskUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     self._device._ble_device = ble_device
                     if await self._device.connect():
                         _LOGGER.info("Reconnected to desk")
-                        self.async_set_updated_data(await self._async_update_data())
+                        data = await self._async_update_data()
+                        self.async_set_updated_data(data)
+                        # Update device registry with BLE device information
+                        await self.async_update_device_registry()
                         break
                     else:
                         _LOGGER.debug("Connection attempt failed")
@@ -162,6 +281,13 @@ class DeskUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "limits_enabled": self._device.limits_enabled if self._device else False,
             "touch_mode": self._device.touch_mode if self._device else None,
             "unit_preference": self._device.unit_preference if self._device else None,
+            # Include device information
+            "manufacturer_name": self._device.manufacturer_name if self._device else None,
+            "model_number": self._device.model_number if self._device else None,
+            "serial_number": self._device.serial_number if self._device else None,
+            "hardware_revision": self._device.hardware_revision if self._device else None,
+            "firmware_revision": self._device.firmware_revision if self._device else None,
+            "software_revision": self._device.software_revision if self._device else None,
         })
 
     def _handle_disconnect(self) -> None:
@@ -185,6 +311,13 @@ class DeskUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "limits_enabled": self._device.limits_enabled if self._device else False,
             "touch_mode": self._device.touch_mode if self._device else None,
             "unit_preference": self._device.unit_preference if self._device else None,
+            # Preserve device information during disconnection
+            "manufacturer_name": self._device.manufacturer_name if self._device else None,
+            "model_number": self._device.model_number if self._device else None,
+            "serial_number": self._device.serial_number if self._device else None,
+            "hardware_revision": self._device.hardware_revision if self._device else None,
+            "firmware_revision": self._device.firmware_revision if self._device else None,
+            "software_revision": self._device.software_revision if self._device else None,
         })
 
     async def async_shutdown(self) -> None:

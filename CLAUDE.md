@@ -123,6 +123,30 @@ COMMAND_CLEAR_LIMITS = bytes([0xF1, 0xF1, 0x23, 0x00, 0x23, 0x7E])
 # where checksum = (command_byte + 0x01 + value) & 0xFF
 ```
 
+### BLE Device Information Service (0x180A)
+
+The integration automatically reads device information from the standard BLE Device Information Service during connection:
+
+```python
+# Service UUID
+DEVICE_INFORMATION_SERVICE_UUID = "0000180a-0000-1000-8000-00805f9b34fb"
+
+# Characteristic UUIDs  
+MANUFACTURER_NAME_CHAR_UUID = "00002a29-0000-1000-8000-00805f9b34fb"
+MODEL_NUMBER_CHAR_UUID = "00002a24-0000-1000-8000-00805f9b34fb"
+SERIAL_NUMBER_CHAR_UUID = "00002a25-0000-1000-8000-00805f9b34fb"
+HARDWARE_REVISION_CHAR_UUID = "00002a27-0000-1000-8000-00805f9b34fb"
+FIRMWARE_REVISION_CHAR_UUID = "00002a26-0000-1000-8000-00805f9b34fb"
+SOFTWARE_REVISION_CHAR_UUID = "00002a28-0000-1000-8000-00805f9b34fb"
+```
+
+**Device Information Integration:**
+- Automatically reads device info during initial connection
+- Populates Home Assistant device registry with manufacturer, model, serial number, hardware/firmware/software versions
+- Falls back to "Desky" and "Standing Desk" if device info service is unavailable
+- Device information is preserved during disconnections and displayed in HA device info panel
+- Visible in Home Assistant under Settings > Devices & Services > [Device Name] > Device Info
+
 ### BLE Notification Formats
 
 The desk can send height updates in two different formats depending on firmware version:

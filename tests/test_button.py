@@ -239,3 +239,36 @@ async def test_button_press_no_device(hass: HomeAssistant, init_integration):
         {ATTR_ENTITY_ID: "button.desky_desk_preset_1"},
         blocking=True,
     )
+
+
+async def test_button_device_info_integration(hass: HomeAssistant, init_integration):
+    """Test button entities use dynamic device information from coordinator."""
+    from unittest.mock import patch
+    coordinator = hass.data[DOMAIN][init_integration.entry_id]
+    
+    # Update coordinator with device info
+    coordinator.async_set_updated_data({
+        "height_cm": 80.0,
+        "collision_detected": False,
+        "is_moving": False,
+        "is_connected": True,
+        "manufacturer_name": "Uplift Desk",
+        "model_number": "V2 Commercial",
+        "serial_number": "UPL987654321",
+        "hardware_revision": "2.5",
+        "firmware_revision": "3.0.2",
+        "software_revision": "2.1.5",
+    })
+    await hass.async_block_till_done()
+    
+    # Get button entity
+    button_state = hass.states.get("button.desky_desk_preset_1")
+    assert button_state is not None
+    
+    # Verify the coordinator's get_device_info method returns the updated info
+    device_info = coordinator.get_device_info()
+    assert device_info["manufacturer"] == "Uplift Desk"
+    assert device_info["model"] == "V2 Commercial"
+    assert device_info["serial_number"] == "UPL987654321"
+    assert device_info["hw_version"] == "2.5"
+    assert device_info["sw_version"] == "3.0.2"
