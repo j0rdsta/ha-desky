@@ -62,3 +62,6 @@ deps/
 # Project specific
 *.sqlite
 .hass_dev/
+
+# Claude Code
+.claude/
