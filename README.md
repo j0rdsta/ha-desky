@@ -62,6 +62,10 @@ When creating automations for your standing desk, **ALWAYS** include safety meas
 
 ⚠️ **WARNING**: Unattended desk movement can cause serious injury or property damage. The integration authors are not responsible for any incidents resulting from unsafe automation practices.
 
+## Compatibility Notice
+
+**Upsy Desky Users:** If you have an Upsy Desky device installed between your desk's control box and handset, you must disconnect it before using this Bluetooth integration. The two systems cannot work simultaneously as Upsy Desky intercepts the RJ45 connection while this integration uses Bluetooth. See [Issue #4](https://github.com/j0rdsta/ha-desky/issues/4) for details.
+
 ## Installation
 
 ### HACS (Recommended)
