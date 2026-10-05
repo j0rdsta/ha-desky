@@ -697,16 +697,12 @@ async def test_async_update_device_registry(
 ):
     """Test updating device registry with BLE device information."""
     coordinator = DeskUpdateCoordinator(hass, mock_config_entry)
-    
+
     # Mock device registry
     with patch("custom_components.desky_desk.coordinator.dr") as mock_dr:
         mock_registry = MagicMock()
-        mock_device = MagicMock()
-        mock_device.id = "test_device_id"
-        
         mock_dr.async_get.return_value = mock_registry
-        mock_registry.async_get_device.return_value = mock_device
-        
+
         # Set coordinator data with device info
         coordinator.data = {
             "manufacturer_name": "FlexiSpot",
@@ -716,22 +712,30 @@ async def test_async_update_device_registry(
             "firmware_revision": "3.1.0",
             "software_revision": "2.0.1",
         }
-        
-        # Mock device
+
+        # Mock device. "name" is reserved by Mock's constructor, so it has to
+        # be assigned after creation.
         mock_device_obj = MagicMock()
+        mock_device_obj.name = "Desky Desk"
         coordinator._device = mock_device_obj
-        
+
         await coordinator.async_update_device_registry()
-        
-        # Verify device registry was updated
-        mock_registry.async_update_device.assert_called_once_with(
-            "test_device_id",
+
+        # Verify device registry was updated via the non-deprecated API
+        mock_registry.async_get_or_create.assert_called_once_with(
+            config_entry_id=mock_config_entry.entry_id,
+            identifiers={(DOMAIN, mock_config_entry.unique_id)},
+            name="Desky Desk",
             manufacturer="FlexiSpot",
             model="E7 Pro",
             serial_number="FS123456",
             hw_version="2.0",
             sw_version="3.1.0"
         )
+
+        # async_get_device is deprecated in HA 2026.9 and removed in 2027.8
+        mock_registry.async_get_device.assert_not_called()
+        mock_registry.async_update_device.assert_not_called()
 
 
 async def test_async_update_device_registry_with_placeholders(
@@ -741,16 +745,12 @@ async def test_async_update_device_registry_with_placeholders(
 ):
     """Test device registry update ignores generic placeholder values."""
     coordinator = DeskUpdateCoordinator(hass, mock_config_entry)
-    
+
     # Mock device registry
     with patch("custom_components.desky_desk.coordinator.dr") as mock_dr:
         mock_registry = MagicMock()
-        mock_device = MagicMock()
-        mock_device.id = "test_device_id"
-        
         mock_dr.async_get.return_value = mock_registry
-        mock_registry.async_get_device.return_value = mock_device
-        
+
         # Set coordinator data with placeholder values
         coordinator.data = {
             "manufacturer_name": "Manufacturer Name",  # Generic placeholder
@@ -759,16 +759,62 @@ async def test_async_update_device_registry_with_placeholders(
             "hardware_revision": "Hardware Revision",  # Generic placeholder
             "firmware_revision": "Rev01",
         }
-        
+
         # Mock device
         mock_device_obj = MagicMock()
+        mock_device_obj.name = "Desky Desk"
         coordinator._device = mock_device_obj
-        
+
         await coordinator.async_update_device_registry()
-        
-        # Verify only non-placeholder values were updated
-        mock_registry.async_update_device.assert_called_once_with(
-            "test_device_id",
+
+        # Verify only non-placeholder values were sent
+        mock_registry.async_get_or_create.assert_called_once_with(
+            config_entry_id=mock_config_entry.entry_id,
+            identifiers={(DOMAIN, mock_config_entry.unique_id)},
+            name="Desky Desk",
+            model="L-BTMEB95",
+            sw_version="Rev01"
+        )
+
+
+async def test_async_update_device_registry_when_device_not_yet_registered(
+    hass: HomeAssistant,
+    mock_config_entry,
+    enable_custom_integrations,
+):
+    """BLE device info still lands when the device is not in the registry yet.
+
+    _reconnect() calls async_update_device_registry() from a background task
+    started before async_forward_entry_setups() has added any entity, so the
+    device may not exist. The old async_get_device() lookup returned None and
+    the information was silently discarded; async_get_or_create() creates the
+    device instead.
+    """
+    coordinator = DeskUpdateCoordinator(hass, mock_config_entry)
+
+    with patch("custom_components.desky_desk.coordinator.dr") as mock_dr:
+        mock_registry = MagicMock()
+        mock_dr.async_get.return_value = mock_registry
+
+        # Simulate a registry that has no device for this config entry yet
+        mock_registry.async_get_device.return_value = None
+
+        coordinator.data = {
+            "model_number": "L-BTMEB95",
+            "firmware_revision": "Rev01",
+        }
+
+        mock_device_obj = MagicMock()
+        mock_device_obj.name = "Desky Desk"
+        coordinator._device = mock_device_obj
+
+        await coordinator.async_update_device_registry()
+
+        # The information must still reach the registry
+        mock_registry.async_get_or_create.assert_called_once_with(
+            config_entry_id=mock_config_entry.entry_id,
+            identifiers={(DOMAIN, mock_config_entry.unique_id)},
+            name="Desky Desk",
             model="L-BTMEB95",
             sw_version="Rev01"
         )

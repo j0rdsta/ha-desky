@@ -84,47 +84,50 @@ class DeskUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             
         try:
             device_registry = dr.async_get(self.hass)
-            
-            # Find the device by identifiers
-            device = device_registry.async_get_device(
-                identifiers={(DOMAIN, self.entry.unique_id)}
-            )
-            
-            if device:
-                # Prepare update kwargs - only include non-None values
-                update_kwargs = {}
-                
-                if self.data.get("manufacturer_name"):
-                    # Only update if it's not the generic placeholder
-                    if self.data["manufacturer_name"] != "Manufacturer Name":
-                        update_kwargs["manufacturer"] = self.data["manufacturer_name"]
-                    
-                if self.data.get("model_number"):
-                    update_kwargs["model"] = self.data["model_number"]
-                    
-                if self.data.get("serial_number"):
-                    # Only update if it's not the generic placeholder
-                    if self.data["serial_number"] != "Serial Number":
-                        update_kwargs["serial_number"] = self.data["serial_number"]
-                    
-                if self.data.get("hardware_revision"):
-                    # Only update if it's not the generic placeholder
-                    if self.data["hardware_revision"] != "Hardware Revision":
-                        update_kwargs["hw_version"] = self.data["hardware_revision"]
-                    
-                if self.data.get("firmware_revision"):
-                    update_kwargs["sw_version"] = self.data["firmware_revision"]
-                
-                if update_kwargs:
-                    device_registry.async_update_device(
-                        device.id,
-                        **update_kwargs
-                    )
-                    _LOGGER.info(
-                        "Updated device registry with BLE device information: %s",
-                        update_kwargs
-                    )
-                    
+
+            # Prepare update kwargs - only include non-None values
+            update_kwargs = {}
+
+            if self.data.get("manufacturer_name"):
+                # Only update if it's not the generic placeholder
+                if self.data["manufacturer_name"] != "Manufacturer Name":
+                    update_kwargs["manufacturer"] = self.data["manufacturer_name"]
+
+            if self.data.get("model_number"):
+                update_kwargs["model"] = self.data["model_number"]
+
+            if self.data.get("serial_number"):
+                # Only update if it's not the generic placeholder
+                if self.data["serial_number"] != "Serial Number":
+                    update_kwargs["serial_number"] = self.data["serial_number"]
+
+            if self.data.get("hardware_revision"):
+                # Only update if it's not the generic placeholder
+                if self.data["hardware_revision"] != "Hardware Revision":
+                    update_kwargs["hw_version"] = self.data["hardware_revision"]
+
+            if self.data.get("firmware_revision"):
+                update_kwargs["sw_version"] = self.data["firmware_revision"]
+
+            if update_kwargs:
+                # async_get_or_create() matches on identifiers, so no separate
+                # lookup is needed. device_registry.async_get_device() is
+                # deprecated and stops working in HA 2027.8.
+                #
+                # It also creates the device when the BLE connection completes
+                # before the platforms finish setting up, instead of silently
+                # discarding the information as the old lookup did.
+                device_registry.async_get_or_create(
+                    config_entry_id=self.entry.entry_id,
+                    identifiers={(DOMAIN, self.entry.unique_id)},
+                    name=self.device.name if self.device else "Desky Desk",
+                    **update_kwargs
+                )
+                _LOGGER.info(
+                    "Updated device registry with BLE device information: %s",
+                    update_kwargs
+                )
+
         except Exception as err:
             _LOGGER.error("Failed to update device registry: %s", err)
 
