@@ -1,0 +1,128 @@
+blueprint:
+  name: Desky - Scheduled stand
+  description: >-
+    Moves the desk at set times on set days, to a preset or to a height. Choose a
+    preset to recall a height saved on the hand controller, or leave it empty to
+    move to the height below.
+
+
+    Moving a desk nobody is watching can trap or crush what is around it. Choose a
+    person so the desk only moves while they are home, and read the safety notes in
+    the Desky documentation before you use this.
+  domain: automation
+  author: Jordan Gardiner
+  source_url: https://github.com/j0rdsta/ha-desky/blob/main/blueprints/automation/desky_desk/scheduled_stand.yaml
+  homeassistant:
+    min_version: 2025.10.0
+  input:
+    desk:
+      name: Desk
+      description: The desk's cover entity.
+      selector:
+        entity:
+          filter:
+            - integration: desky_desk
+              domain: cover
+    preset_button:
+      name: Preset
+      description: >-
+        A preset button of the same desk. Leave empty to move to the height
+        below instead.
+      default: ""
+      selector:
+        entity:
+          filter:
+            - integration: desky_desk
+              domain: button
+    height:
+      name: Height
+      description: The height to move to when no preset is chosen.
+      default: 110
+      selector:
+        number:
+          min: 60
+          max: 130
+          step: 0.1
+          unit_of_measurement: cm
+          mode: box
+    times:
+      name: Times
+      description: >-
+        The times to move the desk, as HH:MM. Pick from the list or type your own.
+      default: ["09:00"]
+      selector:
+        select:
+          multiple: true
+          custom_value: true
+          options:
+            - "08:00"
+            - "09:00"
+            - "10:00"
+            - "11:00"
+            - "13:00"
+            - "14:00"
+            - "15:00"
+            - "16:00"
+    weekdays:
+      name: Weekdays
+      description: The desk moves on these days.
+      default: [mon, tue, wed, thu, fri]
+      selector:
+        select:
+          multiple: true
+          mode: list
+          options:
+            - label: Monday
+              value: mon
+            - label: Tuesday
+              value: tue
+            - label: Wednesday
+              value: wed
+            - label: Thursday
+              value: thu
+            - label: Friday
+              value: fri
+            - label: Saturday
+              value: sat
+            - label: Sunday
+              value: sun
+    person:
+      name: Only when this person is home
+      description: Leave empty to move the desk whoever is home.
+      default: ""
+      selector:
+        entity:
+          filter:
+            - domain: person
+
+mode: single
+max_exceeded: silent
+
+variables:
+  preset_button: !input preset_button
+  person: !input person
+
+triggers:
+  - trigger: time
+    at: !input times
+
+conditions:
+  - condition: time
+    weekday: !input weekdays
+  - condition: template
+    value_template: "{{ not person or is_state(person, 'home') }}"
+
+actions:
+  - if:
+      - condition: template
+        value_template: "{{ preset_button | length > 0 }}"
+    then:
+      - action: button.press
+        target:
+          entity_id: "{{ preset_button }}"
+    else:
+      - action: desky_desk.move_to_height
+        target:
+          entity_id: !input desk
+        data:
+          height: !input height

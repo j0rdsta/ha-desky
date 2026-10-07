@@ -185,96 +185,39 @@ Height limits and presets are stored on the desk's control box and stay there. C
 
 ## Usage Examples
 
-### Automation Examples
+### Automation Blueprints
 
-#### ⚠️ Basic Example (Add Safety Features!)
-```yaml
-# WARNING: These basic examples lack safety features!
-# See "Safer Automation Example" below for recommended approach
+Blueprints turn the common desk automations into a form you fill in. Select a button to
+import a blueprint into your Home Assistant, then go to Settings → Automations & scenes →
+Blueprints and select it to create an automation. The desk fields only offer Desky entities.
 
-automation:
-  - alias: "Morning Standup - UNSAFE"
-    trigger:
-      - platform: time
-        at: "09:00:00"
-    action:
-      - service: button.press
-        target:
-          entity_id: button.desky_desk_preset_2  # Standing position
-```
+The notification field takes the name of a notify action, such as
+`notify.mobile_app_your_phone`. It defaults to `persistent_notification.create`, which shows
+the message in Home Assistant itself.
 
-#### ✅ Safer Automation Example (Recommended)
-```yaml
-automation:
-  - alias: "Safe Morning Standup"
-    trigger:
-      - platform: time
-        at: "09:00:00"
-    condition:
-      # CRITICAL: Only move desk if someone is present
-      - condition: state
-        entity_id: binary_sensor.office_presence  # Your presence sensor
-        state: "on"
-      # Ensure they've been present for at least 1 minute
-      - condition: state
-        entity_id: binary_sensor.office_presence
-        state: "on"
-        for: "00:01:00"
-      # Only on weekdays
-      - condition: time
-        weekday:
-          - mon
-          - tue
-          - wed
-          - thu
-          - fri
-    action:
-      # Send notification first
-      - service: notify.mobile_app_your_phone
-        data:
-          message: "Desk will move to standing position in 10 seconds"
-          data:
-            tag: "desk_movement"
-      # Wait for user to clear the area
-      - delay: "00:00:10"
-      # Final safety check
-      - condition: state
-        entity_id: binary_sensor.office_presence
-        state: "on"
-      # Move desk
-      - service: button.press
-        target:
-          entity_id: button.desky_desk_preset_2  # Standing position
+#### Sit/stand reminder
 
-  - alias: "Safe Sitting Reminder"
-    trigger:
-      # Trigger after standing for 45 minutes
-      - platform: state
-        entity_id: number.desky_desk_height
-        to: "110"  # Standing height
-        for: "00:45:00"
-    condition:
-      # Only if someone is at the desk
-      - condition: state
-        entity_id: binary_sensor.office_presence
-        state: "on"
-      # During work hours
-      - condition: time
-        after: "08:00:00"
-        before: "18:00:00"
-    action:
-      # Suggest sitting, don't force it
-      - service: notify.mobile_app_your_phone
-        data:
-          message: "You've been standing for 45 minutes. Consider sitting?"
-          data:
-            tag: "desk_reminder"
-            actions:
-              - action: "MOVE_TO_SITTING"
-                title: "Move to sitting position"
-              - action: "DISMISS"
-                title: "Keep standing"
-```
+[![Import the sit/stand reminder blueprint into Home Assistant](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fraw.githubusercontent.com%2Fj0rdsta%2Fha-desky%2Fmain%2Fblueprints%2Fautomation%2Fdesky_desk%2Fsit_stand_reminder.yaml)
+
+Reminds you to stand once the posture sensor has said **Sitting** for a set number of minutes
+(60 by default), only between a start and end time and on chosen weekdays. Leave the start and
+end time the same to be reminded at any time of day. Time while the desk is unavailable does not
+count: the timer starts again when the desk comes back.
+
+#### Scheduled stand
+
+[![Import the scheduled stand blueprint into Home Assistant](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fraw.githubusercontent.com%2Fj0rdsta%2Fha-desky%2Fmain%2Fblueprints%2Fautomation%2Fdesky_desk%2Fscheduled_stand.yaml)
+
+Moves the desk at set times on chosen weekdays, to one of its presets or, with no preset chosen,
+to a height in centimetres. Choose a person so the desk only moves while they are home. Read the
+safety warning above before you use it.
+
+#### Collision alert
+
+[![Import the collision alert blueprint into Home Assistant](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fraw.githubusercontent.com%2Fj0rdsta%2Fha-desky%2Fmain%2Fblueprints%2Fautomation%2Fdesky_desk%2Fcollision_alert.yaml)
+
+Sends a notification naming the desk when its collision sensor turns on, that is when a
+commanded movement stopped early or bounced back.
 
 ### Dashboard Card
 ```yaml
@@ -331,166 +274,6 @@ period: day
 stat_types:
   - change
 days_to_show: 14
-```
-
-### Advanced Safety Automation Example
-
-This comprehensive example demonstrates multiple safety layers for desk automation:
-
-```yaml
-# Input helpers for user preferences (create in UI under Helpers)
-input_boolean:
-  desk_automation_enabled:
-    name: "Desk Automation Enabled"
-    icon: mdi:desk
-
-input_number:
-  desk_standing_duration:
-    name: "Standing Duration (minutes)"
-    min: 15
-    max: 120
-    step: 15
-    unit_of_measurement: "min"
-
-# Presence detection using multiple methods
-binary_sensor:
-  - platform: template
-    sensors:
-      office_definitely_occupied:
-        friendly_name: "Office Definitely Occupied"
-        device_class: presence
-        value_template: >
-          {{ is_state('binary_sensor.office_motion', 'on')
-             and is_state('binary_sensor.desk_chair_occupied', 'on')
-             and is_state('device_tracker.work_laptop', 'home') }}
-
-automation:
-  # Main standing desk automation with multiple safety checks
-  - alias: "Ultra-Safe Desk Movement Control"
-    trigger:
-      - platform: time_pattern
-        minutes: "/30"  # Check every 30 minutes
-    condition:
-      # Master enable switch
-      - condition: state
-        entity_id: input_boolean.desk_automation_enabled
-        state: "on"
-      # Multiple presence confirmations
-      - condition: state
-        entity_id: binary_sensor.office_definitely_occupied
-        state: "on"
-        for: "00:02:00"  # Present for at least 2 minutes
-      # Not in a meeting (if calendar integrated)
-      - condition: state
-        entity_id: calendar.work
-        state: "off"
-      # Work hours only
-      - condition: time
-        after: "08:00:00"
-        before: "18:00:00"
-        weekday: [mon, tue, wed, thu, fri]
-    action:
-      # Determine if we should stand or sit
-      - choose:
-          # Time to stand
-          - conditions:
-              - condition: numeric_state
-                entity_id: number.desky_desk_height
-                below: 85  # Currently sitting
-              - condition: template
-                value_template: >
-                  {{ (now() - states.number.desky_desk_height.last_changed).seconds > 1800 }}
-            sequence:
-              # Pre-movement safety protocol
-              - service: light.turn_on
-                target:
-                  entity_id: light.office_lights
-                data:
-                  flash: short
-              - service: notify.mobile_app_your_phone
-                data:
-                  message: "Preparing to raise desk. Clear the area!"
-                  data:
-                    tag: "desk_safety"
-                    timeout: 30
-                    actions:
-                      - action: "CANCEL_MOVEMENT"
-                        title: "Cancel"
-              - delay: "00:00:15"
-              # Final safety checks
-              - condition: state
-                entity_id: binary_sensor.office_definitely_occupied
-                state: "on"
-              - condition: state
-                entity_id: binary_sensor.desky_desk_collision_detected
-                state: "off"
-              # Move to standing
-              - service: cover.open_cover
-                target:
-                  entity_id: cover.desky_desk
-              # Monitor for collisions during movement
-              - wait_template: "{{ is_state('cover.desky_desk', 'open') }}"
-                timeout: "00:00:30"
-                continue_on_timeout: false
-              - service: notify.mobile_app_your_phone
-                data:
-                  message: "Desk raised to standing position"
-
-          # Time to sit
-          - conditions:
-              - condition: numeric_state
-                entity_id: number.desky_desk_height
-                above: 100  # Currently standing
-              - condition: template
-                value_template: >
-                  {{ (now() - states.number.desky_desk_height.last_changed).seconds >
-                     (states('input_number.desk_standing_duration') | int * 60) }}
-            sequence:
-              # Sitting reminder only - no automatic lowering for safety
-              - service: notify.mobile_app_your_phone
-                data:
-                  title: "Time to Sit"
-                  message: "You've been standing for {{ states('input_number.desk_standing_duration') }} minutes"
-                  data:
-                    tag: "desk_reminder"
-                    persistent: true
-                    actions:
-                      - action: "LOWER_DESK"
-                        title: "Lower to sitting"
-                      - action: "SNOOZE_15"
-                        title: "Remind in 15 min"
-
-  # Emergency stop automation
-  - alias: "Desk Emergency Stop on Collision"
-    trigger:
-      - platform: state
-        entity_id: binary_sensor.desky_desk_collision_detected
-        to: "on"
-    action:
-      - service: cover.stop_cover
-        target:
-          entity_id: cover.desky_desk
-      - service: notify.mobile_app_your_phone
-        data:
-          title: "⚠️ Desk Collision Detected!"
-          message: "Desk movement stopped for safety"
-          data:
-            priority: high
-            tag: "desk_emergency"
-
-  # Automation safety disable when away
-  - alias: "Disable Desk Automation When Away"
-    trigger:
-      - platform: state
-        entity_id: person.you
-        to: "not_home"
-    action:
-      - service: input_boolean.turn_off
-        target:
-          entity_id: input_boolean.desk_automation_enabled
-      - service: notify.mobile_app_your_phone
-        data:
-          message: "Desk automation disabled - you're away from home"
 ```
 
 ## Troubleshooting
