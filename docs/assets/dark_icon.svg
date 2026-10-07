@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="40 49 432 432">
+  <!-- Standing desk: a desktop on two legs, with up/down chevrons for height -->
+  <rect x="48" y="104" width="416" height="56" rx="24" fill="#eceff1"/>
+  <g stroke="#eceff1" stroke-width="36" stroke-linecap="round" fill="none">
+    <path d="M140 160 V404 M100 408 H180"/>
+    <path d="M372 160 V404 M332 408 H412"/>
+  </g>
+  <g stroke="#2dd4bf" stroke-width="30" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <path d="M216 252 L256 212 L296 252"/>
+    <path d="M216 312 L256 352 L296 312"/>
+  </g>
+</svg>
