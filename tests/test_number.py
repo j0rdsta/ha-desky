@@ -8,11 +8,14 @@ from homeassistant.components.number import (
     ATTR_VALUE,
     DOMAIN as NUMBER_DOMAIN,
     SERVICE_SET_VALUE,
+    NumberEntityDescription,
 )
 from homeassistant.const import ATTR_ENTITY_ID, STATE_UNAVAILABLE, UnitOfLength
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity_component import DATA_INSTANCES
 
 from custom_components.desky_desk.const import DOMAIN, MAX_HEIGHT, MIN_HEIGHT
+from custom_components.desky_desk.number import DeskNumber
 
 
 async def test_number_setup(hass: HomeAssistant, init_integration):
@@ -435,3 +438,114 @@ async def test_all_number_entities_setup(hass: HomeAssistant, init_integration):
         hass.states.get("number.desky_desk_lower_height_limit").state
         == STATE_UNAVAILABLE
     )
+
+
+CONNECTED_DATA = {
+    "height_cm": 80.0,
+    "collision_detected": False,
+    "is_moving": False,
+    "is_connected": True,
+    "height_limit_upper": 120.0,
+    "height_limit_lower": 65.0,
+    "limits_enabled": True,
+    "vibration_intensity": 75,
+}
+
+
+async def test_height_number_native_value_without_data(
+    hass: HomeAssistant, init_integration
+):
+    """Test the height number reports no value when the coordinator has no data."""
+    coordinator = hass.data[DOMAIN][init_integration.entry_id]
+    entity = hass.data[DATA_INSTANCES][NUMBER_DOMAIN].get_entity(
+        "number.desky_desk_height"
+    )
+
+    coordinator.async_set_updated_data({})
+    await hass.async_block_till_done()
+
+    assert hass.states.get("number.desky_desk_height").state == STATE_UNAVAILABLE
+    assert entity.native_value is None
+
+
+async def test_height_number_set_value_without_device(
+    hass: HomeAssistant, init_integration
+):
+    """Test setting the height does nothing when the BLE device is gone."""
+    coordinator = hass.data[DOMAIN][init_integration.entry_id]
+    coordinator.async_set_updated_data(dict(CONNECTED_DATA))
+    await hass.async_block_till_done()
+
+    previous_device = coordinator._device
+    coordinator._device = None
+    coordinator.async_request_refresh = AsyncMock()
+
+    await hass.services.async_call(
+        NUMBER_DOMAIN,
+        SERVICE_SET_VALUE,
+        {ATTR_ENTITY_ID: "number.desky_desk_height", ATTR_VALUE: 100.0},
+        blocking=True,
+    )
+
+    previous_device.move_to_height.assert_not_called()
+    coordinator.async_request_refresh.assert_not_called()
+    assert hass.states.get("number.desky_desk_height").state == "80.0"
+
+
+async def test_desk_number_native_value_when_unavailable(
+    hass: HomeAssistant, init_integration
+):
+    """Test the limit number reports no value while the desk is disconnected."""
+    coordinator = hass.data[DOMAIN][init_integration.entry_id]
+    entity = hass.data[DATA_INSTANCES][NUMBER_DOMAIN].get_entity(
+        "number.desky_desk_upper_height_limit"
+    )
+
+    coordinator.async_set_updated_data({**CONNECTED_DATA, "is_connected": False})
+    await hass.async_block_till_done()
+
+    assert (
+        hass.states.get("number.desky_desk_upper_height_limit").state
+        == STATE_UNAVAILABLE
+    )
+    assert entity.native_value is None
+
+
+async def test_desk_number_set_value_without_device(
+    hass: HomeAssistant, init_integration
+):
+    """Test setting a limit does nothing when the BLE device is gone."""
+    coordinator = hass.data[DOMAIN][init_integration.entry_id]
+    coordinator.async_set_updated_data(dict(CONNECTED_DATA))
+    await hass.async_block_till_done()
+
+    previous_device = coordinator._device
+    coordinator._device = None
+
+    await hass.services.async_call(
+        NUMBER_DOMAIN,
+        SERVICE_SET_VALUE,
+        {ATTR_ENTITY_ID: "number.desky_desk_upper_height_limit", ATTR_VALUE: 110.0},
+        blocking=True,
+    )
+
+    previous_device.set_height_limit_upper.assert_not_called()
+    previous_device.get_limits.assert_not_called()
+    assert hass.states.get("number.desky_desk_upper_height_limit").state == "120.0"
+
+
+async def test_desk_number_set_value_unknown_key(hass: HomeAssistant, init_integration):
+    """Test a number with an unrecognised key sends no command to the desk."""
+    coordinator = hass.data[DOMAIN][init_integration.entry_id]
+    coordinator.async_set_updated_data(dict(CONNECTED_DATA))
+    await hass.async_block_till_done()
+
+    mock_device = AsyncMock()
+    coordinator._device = mock_device
+    entity = DeskNumber(
+        coordinator, init_integration, NumberEntityDescription(key="unknown")
+    )
+
+    await entity.async_set_native_value(42.0)
+
+    assert mock_device.method_calls == []

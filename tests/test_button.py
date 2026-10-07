@@ -5,8 +5,9 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock
 
 from homeassistant.components.button import DOMAIN as BUTTON_DOMAIN, SERVICE_PRESS
-from homeassistant.const import ATTR_ENTITY_ID, STATE_UNAVAILABLE
+from homeassistant.const import ATTR_ENTITY_ID, STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import HomeAssistant
+import pytest
 
 from custom_components.desky_desk.const import DOMAIN
 
@@ -300,3 +301,42 @@ async def test_button_device_info_integration(hass: HomeAssistant, init_integrat
     assert device_info["serial_number"] == "UPL987654321"
     assert device_info["hw_version"] == "2.5"
     assert device_info["sw_version"] == "3.0.2"
+
+
+@pytest.mark.parametrize(
+    ("entity_id", "method"),
+    [
+        ("button.desky_desk_preset_1", "move_to_preset"),
+        ("button.desky_desk_move_up", "move_up"),
+        ("button.desky_desk_move_down", "move_down"),
+    ],
+)
+async def test_button_press_available_without_device(
+    hass: HomeAssistant, init_integration, entity_id: str, method: str
+):
+    """Test pressing an available button does nothing when the BLE device is gone."""
+    coordinator = hass.data[DOMAIN][init_integration.entry_id]
+    coordinator.async_set_updated_data(
+        {
+            "height_cm": 80.0,
+            "collision_detected": False,
+            "is_moving": False,
+            "is_connected": True,
+        }
+    )
+    await hass.async_block_till_done()
+    assert hass.states.get(entity_id).state == STATE_UNKNOWN
+
+    previous_device = coordinator._device
+    coordinator._device = None
+
+    await hass.services.async_call(
+        BUTTON_DOMAIN,
+        SERVICE_PRESS,
+        {ATTR_ENTITY_ID: entity_id},
+        blocking=True,
+    )
+
+    # The press is recorded, but no command reaches the old device
+    assert hass.states.get(entity_id).state not in (STATE_UNKNOWN, STATE_UNAVAILABLE)
+    getattr(previous_device, method).assert_not_called()

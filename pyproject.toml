@@ -2,12 +2,20 @@
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
+filterwarnings = [
+    "error",
+    # Home Assistant's http component stores plain string keys on the aiohttp app.
+    "ignore:It is recommended to use web.AppKey instances for keys:aiohttp.web_exceptions.NotAppKeyWarning:homeassistant\\.components\\.http",
+    # asyncinotify (pulled in by HA 2025.10) warns on import outside Linux; macOS only.
+    "ignore:inotify is a Linux:UserWarning:asyncinotify",
+]
 
 [tool.coverage.run]
 source = ["custom_components/desky_desk"]
 branch = true
 
 [tool.coverage.report]
+fail_under = 94
 show_missing = true
 skip_covered = true
 exclude_also = [

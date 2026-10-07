@@ -14,6 +14,7 @@ from homeassistant.components.light import (
 from homeassistant.const import ATTR_ENTITY_ID, STATE_OFF, STATE_ON, STATE_UNAVAILABLE
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.entity_component import DATA_INSTANCES
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -388,3 +389,238 @@ async def test_light_color_mapping(
         else:
             assert state.state == STATE_ON
             assert state.attributes.get("color_name") == expected_name
+
+
+def _get_light_entity(hass: HomeAssistant):
+    """Return the LED strip entity object registered with the light component."""
+    return hass.data[DATA_INSTANCES][LIGHT_DOMAIN].get_entity(
+        "light.desky_desk_led_strip"
+    )
+
+
+async def test_light_properties_when_unavailable(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    init_integration,
+):
+    """Test the light reports off with no brightness or effect when disconnected."""
+    coordinator = await setup_coordinator_data(hass, mock_config_entry)
+    light = _get_light_entity(hass)
+    assert light.is_on is True
+    assert light.effect == "White"
+
+    # The "Off" colour code has no matching effect
+    coordinator.data["light_color"] = 7
+    coordinator.async_set_updated_data(coordinator.data)
+    await hass.async_block_till_done()
+    assert light.effect is None
+
+    coordinator.data["light_color"] = 1
+    coordinator.data["is_connected"] = False
+    coordinator.async_set_updated_data(coordinator.data)
+    await hass.async_block_till_done()
+
+    assert hass.states.get("light.desky_desk_led_strip").state == STATE_UNAVAILABLE
+    assert light.is_on is False
+    assert light.brightness is None
+    assert light.effect is None
+
+
+async def test_light_brightness_unknown(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    init_integration,
+):
+    """Test the light has no brightness when the desk has not reported one."""
+    coordinator = await setup_coordinator_data(hass, mock_config_entry)
+
+    coordinator.data["brightness"] = None
+    coordinator.async_set_updated_data(coordinator.data)
+    await hass.async_block_till_done()
+
+    state = hass.states.get("light.desky_desk_led_strip")
+    assert state.state == STATE_ON
+    assert state.attributes.get(ATTR_BRIGHTNESS) is None
+    assert _get_light_entity(hass).brightness is None
+
+
+@pytest.mark.parametrize(
+    ("light_color", "stored_color", "expected_color"),
+    [
+        (7, 3, 3),  # Off, previous static colour Green is restored
+        (7, None, 1),  # Off, no previous colour defaults to White
+        (None, None, 1),  # Unknown colour defaults to White
+    ],
+)
+async def test_light_turn_on_restores_color(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    init_integration,
+    light_color: int | None,
+    stored_color: int | None,
+    expected_color: int,
+):
+    """Test turning on an off light restores the last static colour."""
+    coordinator = await setup_coordinator_data(hass, mock_config_entry)
+    coordinator.data["light_color"] = light_color
+    coordinator.data["lighting_enabled"] = False
+    if stored_color is not None:
+        coordinator.data["last_static_color"] = stored_color
+    coordinator.async_set_updated_data(coordinator.data)
+    await hass.async_block_till_done()
+
+    mock_device = coordinator._device
+    mock_device.set_light_color.reset_mock()
+    mock_device.set_lighting.reset_mock()
+
+    await hass.services.async_call(
+        LIGHT_DOMAIN,
+        SERVICE_TURN_ON,
+        {ATTR_ENTITY_ID: "light.desky_desk_led_strip"},
+        blocking=True,
+    )
+
+    mock_device.set_light_color.assert_called_once_with(expected_color)
+    mock_device.set_lighting.assert_called_once_with(True)
+    mock_device.get_lighting_status.assert_called()
+    mock_device.get_light_color.assert_called()
+    mock_device.get_brightness.assert_called()
+
+
+async def test_light_turn_on_keeps_current_color(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    init_integration,
+):
+    """Test turning on a light that already has a colour does not change it."""
+    coordinator = await setup_coordinator_data(hass, mock_config_entry)
+    mock_device = coordinator._device
+    mock_device.set_light_color.reset_mock()
+    mock_device.set_lighting.reset_mock()
+
+    await hass.services.async_call(
+        LIGHT_DOMAIN,
+        SERVICE_TURN_ON,
+        {ATTR_ENTITY_ID: "light.desky_desk_led_strip"},
+        blocking=True,
+    )
+
+    mock_device.set_light_color.assert_not_called()
+    mock_device.set_lighting.assert_not_called()
+    mock_device.get_lighting_status.assert_called()
+
+
+async def test_light_turn_on_unknown_effect_ignored(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    init_integration,
+):
+    """Test an effect the desk does not support sends no colour command."""
+    coordinator = await setup_coordinator_data(hass, mock_config_entry)
+    mock_device = coordinator._device
+    mock_device.set_light_color.reset_mock()
+    mock_device.set_lighting.reset_mock()
+    mock_device.get_lighting_status.reset_mock()
+
+    await hass.services.async_call(
+        LIGHT_DOMAIN,
+        SERVICE_TURN_ON,
+        {ATTR_ENTITY_ID: "light.desky_desk_led_strip", ATTR_EFFECT: "Rainbow"},
+        blocking=True,
+    )
+
+    mock_device.set_light_color.assert_not_called()
+    mock_device.set_lighting.assert_not_called()
+    mock_device.get_lighting_status.assert_called_once()
+    assert "last_static_color" not in coordinator.data
+
+
+async def test_light_commands_skipped_without_device(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    init_integration,
+):
+    """Test turn on and off do nothing when the desk device is gone."""
+    coordinator = await setup_coordinator_data(hass, mock_config_entry)
+    old_device = coordinator._device
+    old_device.set_lighting.reset_mock()
+    old_device.get_lighting_status.reset_mock()
+    coordinator._device = None
+
+    await hass.services.async_call(
+        LIGHT_DOMAIN,
+        SERVICE_TURN_ON,
+        {ATTR_ENTITY_ID: "light.desky_desk_led_strip", ATTR_EFFECT: "Red"},
+        blocking=True,
+    )
+    await hass.services.async_call(
+        LIGHT_DOMAIN,
+        SERVICE_TURN_OFF,
+        {ATTR_ENTITY_ID: "light.desky_desk_led_strip"},
+        blocking=True,
+    )
+
+    old_device.set_light_color.assert_not_called()
+    old_device.set_lighting.assert_not_called()
+    old_device.get_lighting_status.assert_not_called()
+    assert hass.states.get("light.desky_desk_led_strip").state == STATE_ON
+
+
+async def test_light_set_effect(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    init_integration,
+):
+    """Test setting an effect directly sends the colour and remembers it."""
+    coordinator = await setup_coordinator_data(hass, mock_config_entry)
+    mock_device = coordinator._device
+    mock_device.set_light_color.reset_mock()
+    mock_device.get_light_color.reset_mock()
+    light = _get_light_entity(hass)
+
+    # A static colour is sent and stored as the last static colour
+    await light.async_set_effect("Green")
+    mock_device.set_light_color.assert_called_once_with(3)
+    mock_device.get_light_color.assert_called_once()
+    assert coordinator.data["last_static_color"] == 3
+
+    # Party mode is sent but does not replace the stored static colour
+    mock_device.set_light_color.reset_mock()
+    mock_device.get_light_color.reset_mock()
+    await light.async_set_effect("Party mode")
+    mock_device.set_light_color.assert_called_once_with(6)
+    mock_device.get_light_color.assert_called_once()
+    assert coordinator.data["last_static_color"] == 3
+
+    # Unknown effects are ignored
+    mock_device.set_light_color.reset_mock()
+    mock_device.get_light_color.reset_mock()
+    await light.async_set_effect("Rainbow")
+    mock_device.set_light_color.assert_not_called()
+    mock_device.get_light_color.assert_not_called()
+
+
+async def test_light_set_effect_unavailable(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    init_integration,
+):
+    """Test setting an effect does nothing when the desk is unavailable."""
+    coordinator = await setup_coordinator_data(hass, mock_config_entry)
+    mock_device = coordinator._device
+    mock_device.set_light_color.reset_mock()
+    light = _get_light_entity(hass)
+
+    coordinator.data["is_connected"] = False
+    coordinator.async_set_updated_data(coordinator.data)
+    await hass.async_block_till_done()
+    await light.async_set_effect("Blue")
+
+    coordinator.data["is_connected"] = True
+    coordinator.async_set_updated_data(coordinator.data)
+    await hass.async_block_till_done()
+    coordinator._device = None
+    await light.async_set_effect("Blue")
+
+    mock_device.set_light_color.assert_not_called()
+    assert "last_static_color" not in coordinator.data

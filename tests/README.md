@@ -1,89 +1,103 @@
-# Desky Desk Integration Tests
+# Desky Desk integration tests
 
-This directory contains comprehensive unit tests for the Desky Desk Home Assistant integration.
+The tests use
+[pytest-homeassistant-custom-component](https://github.com/MatthewFlamm/pytest-homeassistant-custom-component),
+which runs a real Home Assistant core in-process. BLE traffic is mocked, so no desk is needed.
 
-## Test Structure
+## Layout
 
-- `conftest.py` - Common fixtures and mocks used across all tests
-- `test_init.py` - Tests for integration setup and teardown
-- `test_coordinator.py` - Tests for the data update coordinator
-- `test_bluetooth.py` - Tests for Bluetooth/BLE communication
-- `test_config_flow.py` - Tests for configuration flow and device discovery
-- `test_cover.py` - Tests for the cover entity (desk position control)
-- `test_number.py` - Tests for the number entity (height control)
-- `test_button.py` - Tests for button entities (preset positions)
-- `test_binary_sensor.py` - Tests for binary sensor (collision detection)
+| Path | Covers |
+| --- | --- |
+| `../conftest.py` | Registers the Home Assistant test plugin (it only works from the root conftest) |
+| `__init__.py` | Shared builders, such as `make_service_info()` for Bluetooth discovery |
+| `conftest.py` | Shared fixtures (see below) |
+| `test_init.py` | Config entry setup and unload |
+| `test_config_flow.py` | User and Bluetooth discovery flows |
+| `test_coordinator.py` | `DeskUpdateCoordinator`: refresh, reconnect, disconnect and device info |
+| `test_bluetooth.py` | `DeskBLEDevice`: commands, notification parsing, movement and collision detection |
+| `test_entities.py` | Snapshot of every entity's registry entry and state |
+| `test_<platform>.py` | One file per entity platform: binary sensor, button, cover, light, number, select, sensor, switch |
+| `snapshots/` | Snapshot files used by `test_entities.py` |
 
-## Running Tests
+## Running the tests
 
-### Prerequisites
-
-Install test dependencies:
-```bash
-pip install -r requirements_test.txt
-```
-
-### Run All Tests
-
-```bash
-# Using the test runner script
-./run_tests.sh
-
-# Or directly with pytest
-pytest tests/ -v
-```
-
-### Run Specific Tests
+Set up a virtual environment as described in [CONTRIBUTING.md](../CONTRIBUTING.md). CI runs the
+suite against two Home Assistant versions. To reproduce both locally, keep one environment per
+version:
 
 ```bash
-# Run a specific test file
-pytest tests/test_bluetooth.py -v
+# Latest stable Home Assistant (Python 3.14)
+python3.14 -m venv .venv/latest
+.venv/latest/bin/pip install -r requirements_test.txt
+.venv/latest/bin/pip install -r <(.venv/latest/bin/python script/ha_test_requirements.py)
 
-# Run a specific test function
-pytest tests/test_bluetooth.py::test_connect_success -v
+# Minimum supported Home Assistant, 2025.10 (Python 3.13)
+python3.13 -m venv .venv/min
+.venv/min/bin/pip install -r requirements_test_min.txt
+.venv/min/bin/pip install -r <(.venv/min/bin/python script/ha_test_requirements.py)
 ```
 
-### Coverage Reports
+Then, with either environment active:
 
 ```bash
-# Generate coverage report
-pytest tests/ --cov=custom_components.desky_desk --cov-report=html
-
-# View coverage report
-open htmlcov/index.html
+pytest                                    # the whole suite
+pytest tests/test_bluetooth.py            # one file
+pytest tests/test_cover.py::test_cover_open_service  # one test
+pytest --cov                              # with coverage and the coverage floor
+pytest --cov --cov-report=html            # HTML report in htmlcov/index.html
 ```
 
-## Test Fixtures
+## Snapshots
 
-Key fixtures provided by `conftest.py`:
+`test_entities.py` sets up a desk with every platform and compares each entity's unique ID,
+entity ID, registry metadata and state with `snapshots/test_entities.ambr`. It uses the harness's
+`snapshot` fixture ([syrupy](https://github.com/syrupy-project/syrupy) with Home Assistant's
+serializer).
 
-- `mock_config_entry` - Mock Home Assistant config entry
-- `mock_ble_device` - Mock Bluetooth device
-- `mock_bleak_client` - Mock Bleak BLE client
-- `mock_coordinator_data` - Mock coordinator data dict
-- `init_integration` - Fully initialized integration for testing
+A snapshot diff means an entity changed in a way users would see. Unique IDs and entity IDs must
+never change for existing users, so treat a diff in either as a bug unless the change ships with
+a migration. When the change is intended, regenerate the snapshot and commit the updated file:
 
-## Writing New Tests
+```bash
+pytest tests/test_entities.py --snapshot-update
+```
 
-When adding new features, ensure you:
+Check that the snapshot still passes on both Home Assistant versions. Attributes that Home Assistant
+itself added within the supported range are left out of the snapshot (see
+`VERSION_DEPENDENT_ATTRIBUTES`).
 
-1. Add corresponding test cases
-2. Mock all external dependencies (Bluetooth, Home Assistant APIs)
-3. Test both success and failure scenarios
-4. Test edge cases and error conditions
-5. Maintain high test coverage (aim for >90%)
+## Warnings are errors
 
-## Continuous Integration
+`pyproject.toml` sets `filterwarnings = ["error"]`, so any warning fails the test that raised it.
+The only ignores are for warnings raised inside dependencies, each scoped to its message and
+module with a comment giving the cause. Fix a new warning in the test or the integration rather
+than adding an ignore. A coroutine that is never awaited usually means a patched
+`asyncio.create_task`: close the coroutine in the patch, as `tests/test_coordinator.py` does.
 
-Tests run automatically on GitHub Actions for:
-- Every push to main branch
-- Every pull request
-- Python versions 3.11 and 3.12
+## Coverage
 
-## Best Practices
+`pytest --cov` measures statement and branch coverage of `custom_components/desky_desk` and fails
+below the floor set by `fail_under` in `pyproject.toml`. Raise the floor when coverage improves;
+never lower it to get a change through.
 
-1. Use async test functions for async code
-2. Mock at the appropriate level (prefer mocking external APIs)
-3. Use fixtures to reduce code duplication
-4. Test one thing per test function
-5. Use descriptive test names that explain what is being tested
+## Fixtures
+
+Key fixtures in `conftest.py`:
+
+- `mock_config_entry`: a `MockConfigEntry` for a desk at `AA:BB:CC:DD:EE:FF`
+- `init_integration`: sets the integration up with a mocked BLE device and returns the entry
+- `mock_coordinator_data`: a full coordinator data dict for a connected desk
+- `mock_ble_device`, `mock_service_info`: discovery inputs
+- `mock_bleak_client`: a Bleak client mock specced to the real `BleakClient`
+- `mock_bleak_client_with_device_info`: the same client with the Device Information Service
+
+Custom integrations are enabled for every test automatically.
+
+## Writing tests
+
+- New behaviour needs tests. A bug fix needs a test that fails without the fix.
+- Mock at the boundary (Bleak, `establish_connection`, Home Assistant's Bluetooth helpers), not the
+  integration's own classes.
+- Drive platforms through `hass.services.async_call` and assert on `hass.states`, as users and
+  automations do.
+- Cover failure paths as well as the happy path.

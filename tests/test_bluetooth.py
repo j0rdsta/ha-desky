@@ -9,6 +9,7 @@ import pytest
 
 from custom_components.desky_desk.bluetooth import DeskBLEDevice
 from custom_components.desky_desk.const import (
+    BRIGHTNESS_RESPONSE_HEADER,
     COMMAND_GET_STATUS,
     COMMAND_HANDSHAKE,
     COMMAND_MEMORY_1,
@@ -18,9 +19,18 @@ from custom_components.desky_desk.const import (
     COMMAND_MOVE_DOWN,
     COMMAND_MOVE_UP,
     COMMAND_STOP,
+    LIGHT_COLOR_RESPONSE_HEADER,
+    LIGHTING_RESPONSE_HEADER,
+    LIMIT_LOWER_RESPONSE_HEADER,
+    LIMIT_STATUS_RESPONSE_HEADER,
+    LIMIT_UPPER_RESPONSE_HEADER,
+    LOCK_STATUS_RESPONSE_HEADER,
     MAX_HEIGHT,
     MIN_HEIGHT,
     NOTIFY_CHARACTERISTIC_UUID,
+    SENSITIVITY_RESPONSE_HEADER,
+    VIBRATION_INTENSITY_RESPONSE_HEADER,
+    VIBRATION_RESPONSE_HEADER,
     WRITE_CHARACTERISTIC_UUID,
 )
 
@@ -87,9 +97,8 @@ async def test_connect_success(
     mock_bleak_client.start_notify.assert_called_once_with(
         NOTIFY_CHARACTERISTIC_UUID, device._handle_notification
     )
-    # Verify services property was accessed (not get_services method)
-    # The services property is accessed during connection to discover services
-    assert hasattr(mock_bleak_client, "services")
+    # The client mock is specced to Bleak, which has no get_services() any more
+    assert not hasattr(mock_bleak_client, "get_services")
 
     # Verify handshake command was sent
     expected_calls = [
@@ -1673,86 +1682,63 @@ async def test_device_capability_queries(mock_ble_device, mock_bleak_client):
         )
 
 
-@pytest.mark.skip(reason="Notification parsing for new features not yet implemented")
-def test_parse_new_notifications(mock_ble_device):
-    """Test parsing of new notification types."""
+def _response(header: bytes, *payload: int) -> bytearray:
+    """Build a desk response frame: header, payload, checksum and terminator."""
+    checksum = (sum(header[2:]) + sum(payload)) & 0xFF
+    return bytearray([*header, *payload, checksum, 0x7E])
+
+
+@pytest.mark.parametrize(
+    ("header", "value", "attribute", "expected"),
+    [
+        (LIGHT_COLOR_RESPONSE_HEADER, 0x03, "light_color", 3),
+        (BRIGHTNESS_RESPONSE_HEADER, 0x64, "brightness", 100),
+        (LIGHTING_RESPONSE_HEADER, 0x01, "lighting_enabled", True),
+        (LIGHTING_RESPONSE_HEADER, 0x00, "lighting_enabled", False),
+        (VIBRATION_RESPONSE_HEADER, 0x00, "vibration_enabled", False),
+        (VIBRATION_RESPONSE_HEADER, 0x01, "vibration_enabled", True),
+        (VIBRATION_INTENSITY_RESPONSE_HEADER, 0x32, "vibration_intensity", 50),
+        (LOCK_STATUS_RESPONSE_HEADER, 0x01, "lock_status", True),
+        (LOCK_STATUS_RESPONSE_HEADER, 0x00, "lock_status", False),
+        (SENSITIVITY_RESPONSE_HEADER, 0x01, "sensitivity_level", 1),
+    ],
+)
+def test_parse_feature_responses(mock_ble_device, header, value, attribute, expected):
+    """Test parsing of single-byte feature responses."""
     device = DeskBLEDevice(mock_ble_device)
 
-    # Mock callbacks to verify data updates
-    callback = MagicMock()
-    device.register_notification_callback(callback)
+    device._handle_notification(None, _response(header, value))
 
-    # Test light color notification (0xF2 0xF2 0xB4 0x01)
-    data = bytearray([0xF2, 0xF2, 0xB4, 0x01, 0x03])  # Green
-    device._handle_notification(0, data)
-    assert device._light_color == 3
-
-    # Test brightness notification (0xF2 0xF2 0xB5 0x01)
-    data = bytearray([0xF2, 0xF2, 0xB5, 0x01, 0x64])  # 100%
-    device._handle_notification(0, data)
-    assert device._brightness == 100
-
-    # Test lighting enabled notification (0xF2 0xF2 0xB1 0x01)
-    data = bytearray([0xF2, 0xF2, 0xB1, 0x01, 0x01])  # Enabled
-    device._handle_notification(0, data)
-    assert device._lighting_enabled is True
-
-    # Test vibration enabled notification (0xF2 0xF2 0xA4 0x01)
-    data = bytearray([0xF2, 0xF2, 0xA4, 0x01, 0x00])  # Disabled
-    device._handle_notification(0, data)
-    assert device._vibration_enabled is False
-
-    # Test vibration intensity notification (0xF2 0xF2 0xA9 0x01)
-    data = bytearray([0xF2, 0xF2, 0xA9, 0x01, 0x32])  # 50
-    device._handle_notification(0, data)
-    assert device._vibration_intensity == 50
-
-    # Test lock status notification (0xF2 0xF2 0xB2 0x01)
-    data = bytearray([0xF2, 0xF2, 0xB2, 0x01, 0x01])  # Locked
-    device._handle_notification(0, data)
-    assert device._lock_status is True
-
-    # Test sensitivity level notification (0xF2 0xF2 0xAB 0x01)
-    data = bytearray([0xF2, 0xF2, 0xAB, 0x01, 0x01])  # High
-    device._handle_notification(0, data)
-    assert device._sensitivity_level == 1
-
-    # Test touch mode notification (0xF2 0xF2 0xAE 0x01)
-    data = bytearray([0xF2, 0xF2, 0xAE, 0x01, 0x01])  # Double press
-    device._handle_notification(0, data)
-    assert device._touch_mode == 1
-
-    # Test units notification (0xF2 0xF2 0xB0 0x01)
-    data = bytearray([0xF2, 0xF2, 0xB0, 0x01, 0x00])  # cm
-    device._handle_notification(0, data)
-    assert device._unit_preference == "cm"
-
-    data = bytearray([0xF2, 0xF2, 0xB0, 0x01, 0x01])  # inch
-    device._handle_notification(0, data)
-    assert device._unit_preference == "inch"
+    assert getattr(device, attribute) == expected
 
 
-@pytest.mark.skip(reason="Height limit notification parsing not yet implemented")
-def test_parse_height_limit_notifications(mock_ble_device):
-    """Test parsing of height limit notifications."""
+def test_parse_height_limit_responses(mock_ble_device):
+    """Test parsing of height limit responses, which are big-endian millimetres."""
     device = DeskBLEDevice(mock_ble_device)
 
-    # Test upper limit notification (0xF2 0xF2 0xA5 0x02) - big-endian
-    # 1200 = 0x04B0
-    data = bytearray([0xF2, 0xF2, 0xA5, 0x02, 0x04, 0xB0])
-    device._handle_notification(0, data)
-    assert device._height_limit_upper == 120.0
+    device._handle_notification(
+        None, _response(LIMIT_UPPER_RESPONSE_HEADER, 0x04, 0xB0)
+    )
+    assert device.height_limit_upper == 120.0
 
-    # Test lower limit notification (0xF2 0xF2 0xA7 0x02) - big-endian
-    # 650 = 0x028A
-    data = bytearray([0xF2, 0xF2, 0xA7, 0x02, 0x02, 0x8A])
-    device._handle_notification(0, data)
-    assert device._height_limit_lower == 65.0
+    device._handle_notification(
+        None, _response(LIMIT_LOWER_RESPONSE_HEADER, 0x02, 0x8A)
+    )
+    assert device.height_limit_lower == 65.0
 
-    # Test limits enabled notification (0xF2 0xF2 0xA6 0x01)
-    data = bytearray([0xF2, 0xF2, 0xA6, 0x01, 0x01])  # Enabled
-    device._handle_notification(0, data)
-    assert device._limits_enabled is True
+
+@pytest.mark.parametrize(
+    ("status", "expected"),
+    [(0x00, False), (0x01, True), (0x10, True), (0x11, True)],
+)
+def test_parse_limit_status_response(mock_ble_device, status, expected):
+    """Test parsing of the limit status response (none, upper, lower, both)."""
+    device = DeskBLEDevice(mock_ble_device)
+    device._limits_enabled = not expected
+
+    device._handle_notification(None, _response(LIMIT_STATUS_RESPONSE_HEADER, status))
+
+    assert device.limits_enabled is expected
 
 
 async def test_device_capability_detection(mock_ble_device, mock_bleak_client):

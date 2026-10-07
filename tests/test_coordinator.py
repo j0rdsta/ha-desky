@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+from collections.abc import Coroutine
+from typing import Any
+from unittest.mock import DEFAULT, AsyncMock, MagicMock, patch
 
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
@@ -18,9 +20,13 @@ from custom_components.desky_desk.const import (
 from custom_components.desky_desk.coordinator import DeskUpdateCoordinator
 
 
-async def test_coordinator_init(
-    hass: HomeAssistant, mock_config_entry, enable_custom_integrations
-):
+def _close_coroutine(coro: Coroutine[Any, Any, Any]) -> Any:
+    """Close a coroutine passed to a patched create_task so it is never awaited."""
+    coro.close()
+    return DEFAULT
+
+
+async def test_coordinator_init(hass: HomeAssistant, mock_config_entry):
     """Test coordinator initialization."""
     coordinator = DeskUpdateCoordinator(hass, mock_config_entry)
 
@@ -35,7 +41,6 @@ async def test_coordinator_first_refresh_success(
     mock_config_entry,
     mock_bluetooth_device_from_address,
     mock_establish_connection,
-    enable_custom_integrations,
 ):
     """Test successful first refresh."""
     coordinator = DeskUpdateCoordinator(hass, mock_config_entry)
@@ -61,7 +66,9 @@ async def test_coordinator_first_refresh_success(
         mock_device_instance.software_revision = None
 
         # Patch asyncio.create_task to prevent the reconnect task from running
-        with patch("asyncio.create_task") as mock_create_task:
+        with patch(
+            "asyncio.create_task", side_effect=_close_coroutine
+        ) as mock_create_task:
             mock_task = MagicMock()
             mock_create_task.return_value = mock_task
 
@@ -101,7 +108,6 @@ async def test_coordinator_first_refresh_success(
 async def test_coordinator_first_refresh_no_device(
     hass: HomeAssistant,
     mock_config_entry,
-    enable_custom_integrations,
 ):
     """Test first refresh when device is not found."""
     coordinator = DeskUpdateCoordinator(hass, mock_config_entry)
@@ -118,7 +124,6 @@ async def test_coordinator_first_refresh_connection_failed(
     hass: HomeAssistant,
     mock_config_entry,
     mock_bluetooth_device_from_address,
-    enable_custom_integrations,
 ):
     """Test first refresh when connection fails - starts reconnect task."""
     coordinator = DeskUpdateCoordinator(hass, mock_config_entry)
@@ -132,7 +137,9 @@ async def test_coordinator_first_refresh_connection_failed(
         mock_device_instance.register_disconnect_callback = MagicMock()
 
         # Patch asyncio.create_task to prevent the reconnect task from running
-        with patch("asyncio.create_task") as mock_create_task:
+        with patch(
+            "asyncio.create_task", side_effect=_close_coroutine
+        ) as mock_create_task:
             mock_task = MagicMock()
             mock_create_task.return_value = mock_task
 
@@ -180,7 +187,6 @@ async def test_coordinator_first_refresh_connection_failed(
 async def test_coordinator_update_data_connected(
     hass: HomeAssistant,
     mock_config_entry,
-    enable_custom_integrations,
 ):
     """Test data update when connected."""
     coordinator = DeskUpdateCoordinator(hass, mock_config_entry)
@@ -249,7 +255,6 @@ async def test_coordinator_update_data_connected(
 async def test_coordinator_update_data_not_connected(
     hass: HomeAssistant,
     mock_config_entry,
-    enable_custom_integrations,
 ):
     """Test data update when not connected."""
     coordinator = DeskUpdateCoordinator(hass, mock_config_entry)
@@ -259,7 +264,7 @@ async def test_coordinator_update_data_not_connected(
     coordinator._device = mock_device
 
     # Patch create_task to prevent reconnect task from running
-    with patch("asyncio.create_task") as mock_create_task:
+    with patch("asyncio.create_task", side_effect=_close_coroutine) as mock_create_task:
         mock_task = MagicMock()
         mock_create_task.return_value = mock_task
 
@@ -273,7 +278,6 @@ async def test_coordinator_update_data_not_connected(
 async def test_coordinator_notification_callback(
     hass: HomeAssistant,
     mock_config_entry,
-    enable_custom_integrations,
 ):
     """Test notification callback updates data."""
     coordinator = DeskUpdateCoordinator(hass, mock_config_entry)
@@ -339,7 +343,6 @@ async def test_coordinator_notification_callback(
 async def test_coordinator_disconnect_callback(
     hass: HomeAssistant,
     mock_config_entry,
-    enable_custom_integrations,
 ):
     """Test disconnect callback updates data."""
     coordinator = DeskUpdateCoordinator(hass, mock_config_entry)
@@ -406,7 +409,6 @@ async def test_coordinator_reconnect(
     hass: HomeAssistant,
     mock_config_entry,
     mock_bluetooth_device_from_address,
-    enable_custom_integrations,
 ):
     """Test reconnection logic."""
     coordinator = DeskUpdateCoordinator(hass, mock_config_entry)
@@ -447,7 +449,6 @@ async def test_coordinator_reconnect(
 async def test_coordinator_shutdown(
     hass: HomeAssistant,
     mock_config_entry,
-    enable_custom_integrations,
 ):
     """Test coordinator shutdown."""
     coordinator = DeskUpdateCoordinator(hass, mock_config_entry)
@@ -469,7 +470,6 @@ async def test_coordinator_shutdown(
 async def test_coordinator_update_new_device_attributes(
     hass: HomeAssistant,
     mock_config_entry,
-    enable_custom_integrations,
 ):
     """Test coordinator properly updates new device attributes."""
     coordinator = DeskUpdateCoordinator(hass, mock_config_entry)
@@ -519,7 +519,6 @@ async def test_coordinator_update_new_device_attributes(
 async def test_coordinator_notification_with_new_attributes(
     hass: HomeAssistant,
     mock_config_entry,
-    enable_custom_integrations,
 ):
     """Test notification callback includes all new device attributes."""
     coordinator = DeskUpdateCoordinator(hass, mock_config_entry)
@@ -568,7 +567,6 @@ async def test_coordinator_notification_with_new_attributes(
 async def test_coordinator_data_includes_device_info(
     hass: HomeAssistant,
     mock_config_entry,
-    enable_custom_integrations,
 ):
     """Test coordinator data includes device information."""
     coordinator = DeskUpdateCoordinator(hass, mock_config_entry)
@@ -619,7 +617,6 @@ async def test_coordinator_data_includes_device_info(
 async def test_get_device_info_method(
     hass: HomeAssistant,
     mock_config_entry,
-    enable_custom_integrations,
 ):
     """Test get_device_info helper method."""
     coordinator = DeskUpdateCoordinator(hass, mock_config_entry)
@@ -664,7 +661,6 @@ async def test_get_device_info_method(
 async def test_device_info_preserved_during_disconnect(
     hass: HomeAssistant,
     mock_config_entry,
-    enable_custom_integrations,
 ):
     """Test device information is preserved when device disconnects."""
     coordinator = DeskUpdateCoordinator(hass, mock_config_entry)
@@ -715,7 +711,6 @@ async def test_device_info_preserved_during_disconnect(
 async def test_async_update_device_registry(
     hass: HomeAssistant,
     mock_config_entry,
-    enable_custom_integrations,
 ):
     """Test updating device registry with BLE device information."""
     coordinator = DeskUpdateCoordinator(hass, mock_config_entry)
@@ -763,7 +758,6 @@ async def test_async_update_device_registry(
 async def test_async_update_device_registry_with_placeholders(
     hass: HomeAssistant,
     mock_config_entry,
-    enable_custom_integrations,
 ):
     """Test device registry update ignores generic placeholder values."""
     coordinator = DeskUpdateCoordinator(hass, mock_config_entry)
@@ -802,7 +796,6 @@ async def test_async_update_device_registry_with_placeholders(
 async def test_async_update_device_registry_when_device_not_yet_registered(
     hass: HomeAssistant,
     mock_config_entry,
-    enable_custom_integrations,
 ):
     """BLE device info still lands when the device is not in the registry yet.
 
@@ -840,3 +833,171 @@ async def test_async_update_device_registry_when_device_not_yet_registered(
             model="L-BTMEB95",
             sw_version="Rev01",
         )
+
+
+async def test_async_update_device_registry_without_device_info(
+    hass: HomeAssistant,
+    mock_config_entry,
+):
+    """Test the registry is left alone when the desk reported no device info."""
+    coordinator = DeskUpdateCoordinator(hass, mock_config_entry)
+    coordinator._device = MagicMock()
+    coordinator.data = {
+        "height_cm": 80.0,
+        "manufacturer_name": None,
+        "model_number": None,
+        "serial_number": None,
+        "hardware_revision": None,
+        "firmware_revision": None,
+        "software_revision": None,
+    }
+
+    with patch("custom_components.desky_desk.coordinator.dr") as mock_dr:
+        await coordinator.async_update_device_registry()
+
+    mock_dr.async_get.assert_not_called()
+
+
+async def test_async_update_device_registry_partial_info(
+    hass: HomeAssistant,
+    mock_config_entry,
+):
+    """Test only the fields the desk reported are written to the registry."""
+    coordinator = DeskUpdateCoordinator(hass, mock_config_entry)
+    mock_device_obj = MagicMock()
+    mock_device_obj.name = "Desky Desk"
+    coordinator._device = mock_device_obj
+    coordinator.data = {
+        "manufacturer_name": "Desky",
+        "model_number": None,
+        "serial_number": "SN42",
+        "hardware_revision": "HW2",
+        "firmware_revision": None,
+        "software_revision": None,
+    }
+
+    with patch("custom_components.desky_desk.coordinator.dr") as mock_dr:
+        mock_registry = MagicMock()
+        mock_dr.async_get.return_value = mock_registry
+
+        await coordinator.async_update_device_registry()
+
+    mock_registry.async_get_or_create.assert_called_once_with(
+        config_entry_id=mock_config_entry.entry_id,
+        identifiers={(DOMAIN, mock_config_entry.unique_id)},
+        name="Desky Desk",
+        manufacturer="Desky",
+        serial_number="SN42",
+        hw_version="HW2",
+    )
+
+
+async def test_async_update_device_registry_only_placeholders(
+    hass: HomeAssistant,
+    mock_config_entry,
+):
+    """Test nothing is written when every reported value is a placeholder."""
+    coordinator = DeskUpdateCoordinator(hass, mock_config_entry)
+    coordinator._device = MagicMock()
+    coordinator.data = {
+        "manufacturer_name": "Manufacturer Name",
+        "model_number": None,
+        "serial_number": "Serial Number",
+        "hardware_revision": "Hardware Revision",
+        "firmware_revision": None,
+        "software_revision": "1.5.2",
+    }
+
+    with patch("custom_components.desky_desk.coordinator.dr") as mock_dr:
+        mock_registry = MagicMock()
+        mock_dr.async_get.return_value = mock_registry
+
+        await coordinator.async_update_device_registry()
+
+    mock_dr.async_get.assert_called_once_with(hass)
+    mock_registry.async_get_or_create.assert_not_called()
+
+
+async def test_async_update_device_registry_error_is_logged(
+    hass: HomeAssistant,
+    mock_config_entry,
+    caplog: pytest.LogCaptureFixture,
+):
+    """Test a registry failure is logged rather than raised."""
+    coordinator = DeskUpdateCoordinator(hass, mock_config_entry)
+    coordinator._device = MagicMock()
+    coordinator.data = {"model_number": "L-BTMEB95"}
+
+    with patch("custom_components.desky_desk.coordinator.dr") as mock_dr:
+        mock_registry = MagicMock()
+        mock_registry.async_get_or_create.side_effect = ValueError("registry boom")
+        mock_dr.async_get.return_value = mock_registry
+
+        await coordinator.async_update_device_registry()
+
+    assert "Failed to update device registry: registry boom" in caplog.text
+
+
+async def test_coordinator_update_data_reconnect_already_running(
+    hass: HomeAssistant,
+    mock_config_entry,
+):
+    """Test a running reconnect task is reused instead of starting another."""
+    coordinator = DeskUpdateCoordinator(hass, mock_config_entry)
+
+    mock_device = MagicMock()
+    mock_device.is_connected = False
+    coordinator._device = mock_device
+
+    running_task = MagicMock()
+    running_task.done.return_value = False
+    coordinator._reconnect_task = running_task
+
+    with patch("asyncio.create_task", side_effect=_close_coroutine) as mock_create_task:
+        with pytest.raises(UpdateFailed, match="Not connected to desk"):
+            await coordinator._async_update_data()
+
+    mock_create_task.assert_not_called()
+    assert coordinator._reconnect_task is running_task
+
+
+async def test_coordinator_reconnect_retries_after_missing_device_and_error(
+    hass: HomeAssistant,
+    mock_config_entry,
+    mock_ble_device,
+    caplog: pytest.LogCaptureFixture,
+):
+    """Test reconnect keeps retrying when the desk is absent or connecting fails."""
+    caplog.set_level("DEBUG", logger="custom_components.desky_desk.coordinator")
+    coordinator = DeskUpdateCoordinator(hass, mock_config_entry)
+
+    mock_device = MagicMock()
+    mock_device.is_connected = False
+    mock_device.connect = AsyncMock(side_effect=OSError("adapter busy"))
+    coordinator._device = mock_device
+
+    sleep_calls = 0
+
+    async def fake_sleep(_delay: float) -> None:
+        nonlocal sleep_calls
+        sleep_calls += 1
+        if sleep_calls == 2:
+            coordinator._shutdown = True
+
+    with (
+        patch(
+            "homeassistant.components.bluetooth.async_ble_device_from_address",
+            side_effect=[None, mock_ble_device],
+        ),
+        patch("asyncio.sleep", side_effect=fake_sleep) as mock_sleep,
+        patch.object(coordinator, "async_set_updated_data") as mock_set_data,
+    ):
+        await coordinator._reconnect()
+
+    assert sleep_calls == 2
+    mock_sleep.assert_called_with(RECONNECT_INTERVAL_SECONDS)
+    mock_device.connect.assert_awaited_once()
+    assert mock_device._ble_device is mock_ble_device
+    mock_set_data.assert_not_called()
+    assert "BLE device not found at address AA:BB:CC:DD:EE:FF" in caplog.text
+    assert "Reconnection failed: adapter busy" in caplog.text

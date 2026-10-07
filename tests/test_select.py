@@ -7,14 +7,17 @@ from unittest.mock import AsyncMock
 from homeassistant.components.select import (
     DOMAIN as SELECT_DOMAIN,
     SERVICE_SELECT_OPTION,
+    SelectEntityDescription,
 )
 from homeassistant.const import ATTR_ENTITY_ID, ATTR_OPTION, STATE_UNAVAILABLE
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.entity_component import DATA_INSTANCES
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.desky_desk.const import DOMAIN
+from custom_components.desky_desk.select import DeskSelect
 
 
 async def setup_coordinator_data(hass, mock_config_entry):
@@ -310,3 +313,95 @@ async def test_custom_sensitivity_service(
     )
 
     mock_device.set_sensitivity.assert_called_once_with(3)  # Low = 3
+
+
+def _get_select(hass: HomeAssistant, entity_id: str):
+    """Return the select entity object for an entity id."""
+    return hass.data[DATA_INSTANCES][SELECT_DOMAIN].get_entity(entity_id)
+
+
+async def test_select_current_option_when_unavailable(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    init_integration,
+):
+    """Test a select reports no option while the desk is disconnected."""
+    coordinator = await setup_coordinator_data(hass, mock_config_entry)
+    entity = _get_select(hass, "select.desky_desk_collision_sensitivity")
+
+    coordinator.async_set_updated_data({**coordinator.data, "is_connected": False})
+    await hass.async_block_till_done()
+
+    assert entity.current_option is None
+
+
+async def test_select_unknown_key(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    init_integration,
+):
+    """Test a select with an unrecognised key has no option and sends nothing."""
+    coordinator = await setup_coordinator_data(hass, mock_config_entry)
+    mock_device = AsyncMock()
+    coordinator._device = mock_device
+    entity = DeskSelect(
+        coordinator,
+        mock_config_entry,
+        SelectEntityDescription(key="unknown", options=["a", "b"]),
+    )
+
+    assert entity.current_option is None
+
+    await entity.async_select_option("a")
+
+    assert mock_device.method_calls == []
+
+
+async def test_select_option_without_device(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    init_integration,
+):
+    """Test selecting an option does nothing when the BLE device is gone."""
+    coordinator = await setup_coordinator_data(hass, mock_config_entry)
+    previous_device = coordinator._device
+    previous_device.set_sensitivity.reset_mock()
+    coordinator._device = None
+
+    await hass.services.async_call(
+        SELECT_DOMAIN,
+        SERVICE_SELECT_OPTION,
+        {
+            ATTR_ENTITY_ID: "select.desky_desk_collision_sensitivity",
+            ATTR_OPTION: "High",
+        },
+        blocking=True,
+    )
+
+    previous_device.set_sensitivity.assert_not_called()
+    assert hass.states.get("select.desky_desk_collision_sensitivity").state == "Medium"
+
+
+@pytest.mark.parametrize(
+    ("entity_id", "option"),
+    [
+        ("select.desky_desk_collision_sensitivity", "Extreme"),
+        ("select.desky_desk_touch_mode", "Double tap"),
+        ("select.desky_desk_display_unit", "mm"),
+    ],
+)
+async def test_select_unrecognised_option_sends_nothing(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    init_integration,
+    entity_id: str,
+    option: str,
+):
+    """Test an option outside the known mapping sends no command to the desk."""
+    coordinator = await setup_coordinator_data(hass, mock_config_entry)
+    mock_device = AsyncMock()
+    coordinator._device = mock_device
+
+    await _get_select(hass, entity_id).async_select_option(option)
+
+    assert mock_device.method_calls == []
