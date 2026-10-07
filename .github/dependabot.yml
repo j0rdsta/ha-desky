@@ -8,6 +8,11 @@ updates:
       # Each release pins a Home Assistant version (including betas); bumped by hand
       # when a new stable Home Assistant ships.
       - dependency-name: pytest-homeassistant-custom-component
+      # Capped below 5 for the HA 2025.10 test leg, whose aiodns does not support it.
+      - dependency-name: pycares
+    commit-message:
+      prefix: build
+      include: scope
     groups:
       python-minor-patch:
         update-types: [minor, patch]
@@ -15,6 +20,9 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    commit-message:
+      prefix: ci
+      include: scope
     groups:
       actions-minor-patch:
         update-types: [minor, patch]
