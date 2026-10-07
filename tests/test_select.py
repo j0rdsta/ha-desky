@@ -25,7 +25,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.desky_desk.select import SELECT_DESCRIPTIONS, DeskSelect
 
-from . import disconnect_desk, set_desk_state
+from . import disconnect_desk, notify_desk, set_desk_state
 
 SENSITIVITY = "select.desky_desk_collision_sensitivity"
 TOUCH_MODE = "select.desky_desk_touch_mode"
@@ -101,11 +101,11 @@ async def test_select_current_option(
     [
         (SENSITIVITY, "High", "set_sensitivity", 1, "get_sensitivity"),
         (SENSITIVITY, "Low", "set_sensitivity", 3, "get_sensitivity"),
-        # The desk has no command to read the touch mode or unit back
-        (TOUCH_MODE, "Press and hold", "set_touch_mode", 1, None),
-        (TOUCH_MODE, "One press", "set_touch_mode", 0, None),
-        (UNIT, "in", "set_unit", "in", None),
-        (UNIT, "cm", "set_unit", "cm", None),
+        # The desk has no query for one setting, so all settings are read back
+        (TOUCH_MODE, "Press and hold", "set_touch_mode", 1, "get_settings"),
+        (TOUCH_MODE, "One press", "set_touch_mode", 0, "get_settings"),
+        (UNIT, "in", "set_unit", "in", "get_settings"),
+        (UNIT, "cm", "set_unit", "cm", "get_settings"),
     ],
 )
 async def test_select_option(
@@ -219,3 +219,97 @@ async def test_select_unknown_key(
     mock_desk.set_sensitivity.assert_not_awaited()
     mock_desk.set_touch_mode.assert_not_awaited()
     mock_desk.set_unit.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    ("entity_id", "field", "option", "reported"),
+    [
+        (UNIT, "unit_preference", "in", "in"),
+        (TOUCH_MODE, "touch_mode", "Press and hold", 1),
+    ],
+)
+async def test_select_shows_the_desk_report_after_selecting(
+    hass: HomeAssistant,
+    init_integration: MockConfigEntry,
+    mock_desk: MagicMock,
+    entity_id: str,
+    field: str,
+    option: str,
+    reported: Any,
+) -> None:
+    """After a change the select follows the desk's own report, not a guess."""
+    await hass.services.async_call(
+        SELECT_DOMAIN,
+        SERVICE_SELECT_OPTION,
+        {ATTR_ENTITY_ID: entity_id, ATTR_OPTION: option},
+        blocking=True,
+    )
+    mock_desk.get_settings.assert_awaited_once_with()
+    # Nothing changes until the desk reports the setting
+    assert hass.states.get(entity_id).state != option
+
+    notify_desk(mock_desk, **{field: reported})
+    await hass.async_block_till_done()
+    assert hass.states.get(entity_id).state == option
+
+
+@pytest.mark.parametrize(
+    ("entity_id", "option", "command"),
+    [(UNIT, "in", "set_unit"), (TOUCH_MODE, "Press and hold", "set_touch_mode")],
+)
+async def test_select_skips_read_back_when_the_write_fails(
+    hass: HomeAssistant,
+    init_integration: MockConfigEntry,
+    mock_desk: MagicMock,
+    entity_id: str,
+    option: str,
+    command: str,
+) -> None:
+    """A setting that could not be sent is not read back."""
+    getattr(mock_desk, command).return_value = False
+
+    await hass.services.async_call(
+        SELECT_DOMAIN,
+        SERVICE_SELECT_OPTION,
+        {ATTR_ENTITY_ID: entity_id, ATTR_OPTION: option},
+        blocking=True,
+    )
+
+    mock_desk.get_settings.assert_not_awaited()
+
+
+async def test_unreported_settings_show_no_option(
+    hass: HomeAssistant, init_integration: MockConfigEntry, mock_desk: MagicMock
+) -> None:
+    """A desk that has not reported a setting shows no option, and can still be set."""
+    notify_desk(mock_desk, unit_preference=None, touch_mode=None)
+    await hass.async_block_till_done()
+
+    assert hass.states.get(UNIT).state == STATE_UNKNOWN
+    assert hass.states.get(TOUCH_MODE).state == STATE_UNKNOWN
+
+    await hass.services.async_call(
+        SELECT_DOMAIN,
+        SERVICE_SELECT_OPTION,
+        {ATTR_ENTITY_ID: TOUCH_MODE, ATTR_OPTION: "One press"},
+        blocking=True,
+    )
+    mock_desk.set_touch_mode.assert_awaited_once_with(0)
+
+
+async def test_settings_are_read_again_after_reconnecting(
+    hass: HomeAssistant, init_integration: MockConfigEntry, mock_desk: MagicMock
+) -> None:
+    """While disconnected the selects are unavailable; afterwards they show the new report."""
+    disconnect_desk(mock_desk)
+    await hass.async_block_till_done()
+    assert hass.states.get(UNIT).state == STATE_UNAVAILABLE
+    assert hass.states.get(TOUCH_MODE).state == STATE_UNAVAILABLE
+
+    # The unit was changed on the hand controller while disconnected
+    mock_desk.is_connected = True
+    notify_desk(mock_desk, unit_preference="in", touch_mode=0)
+    await hass.async_block_till_done()
+
+    assert hass.states.get(UNIT).state == "in"
+    assert hass.states.get(TOUCH_MODE).state == "One press"

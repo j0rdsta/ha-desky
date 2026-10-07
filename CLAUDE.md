@@ -175,7 +175,15 @@ Additional device features send responses with specific headers:
 4. **Sensitivity Response** (0xF2 0xF2 0x1D 0x01):
    - Values: 1=High, 2=Medium, 3=Low
 
-5. **Height Limit Responses**:
+5. **Display Unit Response** (0xF2 0xF2 0x0E 0x01):
+   - Values: 0=cm (`f2 f2 0e 01 00 0f 7e`), 1=inches (`f2 f2 0e 01 01 10 7e`)
+
+6. **Touch Mode Response** (0xF2 0xF2 0x19 0x01):
+   - Values: 0=One press (`f2 f2 19 01 00 1a 7e`), 1=Press and hold (`f2 f2 19 01 01 1b 7e`)
+
+   The desk has no query for a single setting. It sends a settings block (presets `0x25`-`0x28`, unit `0x0E`, touch mode `0x19`, `0x17`, sensitivity `0x1D`) for a status request (`0x07`) that follows a handshake, which the integration sends on connect and after changing the unit or touch mode (`get_settings()`). It also sends the block unprompted when the unit is changed on the hand controller. It does not confirm a unit or touch-mode change by itself.
+
+7. **Height Limit Responses**:
    - Upper limit (0xF2 0xF2 0x21 0x02): Height in mm (big-endian)
    - Lower limit (0xF2 0xF2 0x22 0x02): Height in mm (big-endian)
    - Limit status (0xF2 0xF2 0x20 0x01): 0x00=No limits, 0x01=Upper only, 0x10=Lower only, 0x11=Both
@@ -209,7 +217,7 @@ The integration provides these custom services:
 
 ### Connection Management
 
-- Handshake command sent after connection to enable movement controls
+- Handshake command sent after connection to enable movement controls, and again before every command that moves the desk or changes a setting: the controller ignores commands while its display is asleep (about a minute after the last touch), and the handshake wakes it. `stop()` is sent without it
 - Automatic reconnection every 30 seconds when disconnected
 - Connection state tracked in coordinator data
 - All entities become unavailable when disconnected

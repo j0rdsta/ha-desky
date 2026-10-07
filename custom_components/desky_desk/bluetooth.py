@@ -37,6 +37,7 @@ from .const import (
     DEVICE_INFORMATION_SERVICE_UUID,
     DIRECT_CONNECTION_TIMEOUT,
     DIRECT_MAX_ATTEMPTS,
+    DISPLAY_UNITS,
     FIRMWARE_REVISION_CHAR_UUID,
     HARDWARE_REVISION_CHAR_UUID,
     HEIGHT_NOTIFICATION_HEADER,
@@ -56,6 +57,9 @@ from .const import (
     SERIAL_NUMBER_CHAR_UUID,
     SOFTWARE_REVISION_CHAR_UUID,
     STATUS_NOTIFICATION_HEADER,
+    TOUCH_MODE_RESPONSE_HEADER,
+    TOUCH_MODES,
+    UNIT_RESPONSE_HEADER,
     VIBRATION_INTENSITY_RESPONSE_HEADER,
     VIBRATION_RESPONSE_HEADER,
     WRITE_CHARACTERISTIC_UUID,
@@ -457,9 +461,18 @@ class DeskBLEDevice:
         """Forget the current movement, so no later reading is attributed to it."""
         self._movement = None
 
+    async def _send_awake_command(self, command: bytes) -> bool:
+        """Wake the desk with the handshake, then send a command.
+
+        The desk's controller ignores commands while its display is asleep.
+        """
+        if not await self._send_command(COMMAND_HANDSHAKE):
+            return False
+        return await self._send_command(command)
+
     async def _send_movement_command(self, command: bytes) -> bool:
         """Send a movement command, dropping the movement if the write fails."""
-        if await self._send_command(command):
+        if await self._send_awake_command(command):
             return True
         self._end_movement()
         return False
@@ -477,11 +490,20 @@ class DeskBLEDevice:
     async def stop(self) -> bool:
         """Stop desk movement."""
         self._end_movement()
+        # Sent at once: a moving desk is awake, and a sleeping one has nothing to stop
         return await self._send_command(COMMAND_STOP)
 
     async def get_status(self) -> bool:
         """Request current desk status."""
         return await self._send_command(COMMAND_GET_STATUS)
+
+    async def get_settings(self) -> bool:
+        """Ask the desk to report its settings, including unit and touch mode.
+
+        The desk sends its settings block for a status request that follows a
+        handshake; it has no query for a single setting.
+        """
+        return await self._send_awake_command(COMMAND_GET_STATUS)
 
     async def move_to_preset(self, preset: int) -> bool:
         """Move desk to a preset position (1-4)."""
@@ -594,7 +616,7 @@ class DeskBLEDevice:
             _LOGGER.error("Invalid light color: %s (must be 1-7)", color)
             return False
         command = self._create_command_with_byte_param(0xB4, color)
-        return await self._send_command(command)
+        return await self._send_awake_command(command)
 
     async def set_brightness(self, level: int) -> bool:
         """Set brightness level (0-100)."""
@@ -602,19 +624,19 @@ class DeskBLEDevice:
             _LOGGER.error("Invalid brightness level: %s (must be 0-100)", level)
             return False
         command = self._create_command_with_byte_param(0xB6, level)
-        return await self._send_command(command)
+        return await self._send_awake_command(command)
 
     async def set_lighting(self, enabled: bool) -> bool:
         """Enable or disable lighting."""
         value = 1 if enabled else 0
         command = self._create_command_with_byte_param(0xB5, value)
-        return await self._send_command(command)
+        return await self._send_awake_command(command)
 
     async def set_vibration(self, enabled: bool) -> bool:
         """Enable or disable vibration."""
         value = 1 if enabled else 0
         command = self._create_command_with_byte_param(0xB3, value)
-        return await self._send_command(command)
+        return await self._send_awake_command(command)
 
     async def set_vibration_intensity(self, level: int) -> bool:
         """Set vibration intensity level."""
@@ -622,14 +644,14 @@ class DeskBLEDevice:
             _LOGGER.error("Invalid vibration intensity: %s (must be 0-100)", level)
             return False
         command = self._create_command_with_byte_param(0xA4, level)
-        return await self._send_command(command)
+        return await self._send_awake_command(command)
 
     async def set_lock_status(self, locked: bool) -> bool:
         """Lock or unlock desk controls."""
         value = 1 if locked else 0
         command = self._create_command_with_byte_param(0xB2, value)
         self._lock_status = locked  # Update local state immediately
-        return await self._send_command(command)
+        return await self._send_awake_command(command)
 
     async def set_sensitivity(self, level: int) -> bool:
         """Set collision sensitivity level (1=High, 2=Medium, 3=Low)."""
@@ -637,7 +659,7 @@ class DeskBLEDevice:
             _LOGGER.error("Invalid sensitivity level: %s (must be 1-3)", level)
             return False
         command = self._create_command_with_byte_param(0x1D, level)
-        return await self._send_command(command)
+        return await self._send_awake_command(command)
 
     async def set_touch_mode(self, mode: int) -> bool:
         """Set touch mode (0=One press, 1=Press and hold)."""
@@ -645,7 +667,7 @@ class DeskBLEDevice:
             _LOGGER.error("Invalid touch mode: %s (must be 0 or 1)", mode)
             return False
         command = self._create_command_with_byte_param(0x19, mode)
-        return await self._send_command(command)
+        return await self._send_awake_command(command)
 
     async def set_unit(self, unit: str) -> bool:
         """Set display unit preference."""
@@ -654,7 +676,7 @@ class DeskBLEDevice:
             return False
         value = 0 if unit == "cm" else 1
         command = self._create_command_with_byte_param(0x0E, value)
-        return await self._send_command(command)
+        return await self._send_awake_command(command)
 
     async def set_height_limit_upper(self, height_cm: float) -> bool:
         """Set upper height limit in cm."""
@@ -668,7 +690,7 @@ class DeskBLEDevice:
             return False
         height_mm = int(height_cm * 10)
         command = self._create_command_with_word_param(0x21, height_mm)
-        return await self._send_command(command)
+        return await self._send_awake_command(command)
 
     async def set_height_limit_lower(self, height_cm: float) -> bool:
         """Set lower height limit in cm."""
@@ -682,11 +704,11 @@ class DeskBLEDevice:
             return False
         height_mm = int(height_cm * 10)
         command = self._create_command_with_word_param(0x22, height_mm)
-        return await self._send_command(command)
+        return await self._send_awake_command(command)
 
     async def clear_height_limits(self) -> bool:
         """Clear all height limits."""
-        return await self._send_command(COMMAND_CLEAR_LIMITS)
+        return await self._send_awake_command(COMMAND_CLEAR_LIMITS)
 
     async def _query_device_capabilities(self) -> None:
         """Query device capabilities to determine supported features."""
@@ -935,6 +957,18 @@ class DeskBLEDevice:
         elif len(data) >= 6 and bytes(data[:4]) == SENSITIVITY_RESPONSE_HEADER:
             self._sensitivity_level = data[4]
             _LOGGER.debug("Sensitivity level response: %s", self._sensitivity_level)
+
+        # Check for display unit response
+        elif len(data) >= 6 and bytes(data[:4]) == UNIT_RESPONSE_HEADER:
+            self._unit_preference = DISPLAY_UNITS.get(data[4])
+            _LOGGER.debug("Display unit response: %s", self._unit_preference)
+            self._notify_callbacks()
+
+        # Check for touch mode response
+        elif len(data) >= 6 and bytes(data[:4]) == TOUCH_MODE_RESPONSE_HEADER:
+            self._touch_mode = data[4] if data[4] in TOUCH_MODES else None
+            _LOGGER.debug("Touch mode response: %s", self._touch_mode)
+            self._notify_callbacks()
 
         # Check for upper limit response
         elif len(data) >= 7 and bytes(data[:4]) == LIMIT_UPPER_RESPONSE_HEADER:
@@ -1314,6 +1348,11 @@ class DeskBLEDevice:
         # drop is not shown again after reconnecting
         self._end_movement()
         self._set_collision_detected(False)
+
+        # Settings can change on the hand controller while disconnected, so they
+        # are read from the desk again on reconnecting
+        self._unit_preference = None
+        self._touch_mode = None
 
         # Notify callbacks
         for callback in self._disconnect_callbacks:

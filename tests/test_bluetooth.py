@@ -553,9 +553,11 @@ async def test_move_to_height_success(mock_ble_device, mock_bleak_client):
     # checksum = (0x1B + 0x02 + 0x03 + 0x52) & 0xFF = 0x72
     expected_command = bytes([0xF1, 0xF1, 0x1B, 0x02, 0x03, 0x52, 0x72, 0x7E])
 
-    mock_bleak_client.write_gatt_char.assert_called_once_with(
-        WRITE_CHARACTERISTIC_UUID, expected_command
-    )
+    # The handshake wakes the desk first
+    assert mock_bleak_client.write_gatt_char.call_args_list == [
+        call(WRITE_CHARACTERISTIC_UUID, COMMAND_HANDSHAKE),
+        call(WRITE_CHARACTERISTIC_UUID, expected_command),
+    ]
 
 
 async def test_move_to_height_out_of_range(mock_ble_device, mock_bleak_client):
@@ -593,7 +595,9 @@ async def test_move_to_height_edge_cases(mock_ble_device, mock_bleak_client):
     expected_max = bytes([0xF1, 0xF1, 0x1B, 0x02, 0x05, 0x14, 0x36, 0x7E])
 
     expected_calls = [
+        call(WRITE_CHARACTERISTIC_UUID, COMMAND_HANDSHAKE),
         call(WRITE_CHARACTERISTIC_UUID, expected_min),
+        call(WRITE_CHARACTERISTIC_UUID, COMMAND_HANDSHAKE),
         call(WRITE_CHARACTERISTIC_UUID, expected_max),
     ]
     mock_bleak_client.write_gatt_char.assert_has_calls(expected_calls)
@@ -2398,3 +2402,146 @@ def test_collision_stop_heuristics(
     device._movement.velocities = velocities
 
     assert device._is_collision_stop(device._movement, moved_until) is expected
+
+
+@pytest.mark.parametrize(
+    ("frame", "attribute", "expected"),
+    [
+        # Frames captured from the desk (L-BTMEB95-07014-03, firmware Rev01)
+        ("f2f20e01000f7e", "unit_preference", "cm"),
+        ("f2f20e0101107e", "unit_preference", "in"),
+        ("f2f21901001a7e", "touch_mode", 0),
+        ("f2f21901011b7e", "touch_mode", 1),
+        # Values the desk was never seen sending are not guessed
+        ("f2f20e0102117e", "unit_preference", None),
+        ("f2f21901021c7e", "touch_mode", None),
+    ],
+)
+def test_parse_unit_and_touch_mode_reports(mock_ble_device, frame, attribute, expected):
+    """The desk's unit and touch-mode reports update its state and notify at once."""
+    device = DeskBLEDevice(mock_ble_device)
+    device._height_cm = 80.0
+    callback = MagicMock()
+    device.register_notification_callback(callback)
+
+    device._handle_notification(None, bytearray.fromhex(frame))
+
+    assert getattr(device, attribute) == expected
+    callback.assert_called_once_with(80.0, False, False)
+
+
+def test_settings_block_after_connecting(mock_ble_device):
+    """The settings block the desk sends after connecting sets unit and touch mode."""
+    device = DeskBLEDevice(mock_ble_device)
+    for frame in (
+        "f2f2250202bde67e",  # preset 1
+        "f2f2260203b6e17e",  # preset 2
+        "f2f227020257827e",  # preset 3
+        "f2f2280200002a7e",  # preset 4 (unset)
+        "f2f20e01000f7e",  # unit: cm
+        "f2f21901001a7e",  # touch mode: one press
+        "f2f2170101197e",  # unknown
+        "f2f21d01011f7e",  # sensitivity: high
+    ):
+        device._handle_notification(None, bytearray.fromhex(frame))
+
+    assert device.unit_preference == "cm"
+    assert device.touch_mode == 0
+    assert device.sensitivity_level == 1
+
+
+def test_disconnect_forgets_unit_and_touch_mode(mock_ble_device, mock_bleak_client):
+    """Settings are read again after reconnecting, so a disconnect clears them."""
+    device = DeskBLEDevice(mock_ble_device)
+    device._client = mock_bleak_client
+    device._handle_notification(None, bytearray.fromhex("f2f20e0101107e"))
+    device._handle_notification(None, bytearray.fromhex("f2f21901011b7e"))
+
+    device._handle_disconnect(mock_bleak_client)
+
+    assert device.unit_preference is None
+    assert device.touch_mode is None
+
+
+@pytest.mark.parametrize(
+    ("method", "args"),
+    [
+        ("move_up", ()),
+        ("move_down", ()),
+        ("move_to_preset", (2,)),
+        ("move_to_height", (90.0,)),
+        ("get_settings", ()),
+        ("set_light_color", (3,)),
+        ("set_brightness", (50,)),
+        ("set_lighting", (True,)),
+        ("set_vibration", (False,)),
+        ("set_vibration_intensity", (40,)),
+        ("set_lock_status", (True,)),
+        ("set_sensitivity", (2,)),
+        ("set_touch_mode", (1,)),
+        ("set_unit", ("in",)),
+        ("set_height_limit_upper", (110.0,)),
+        ("set_height_limit_lower", (70.0,)),
+        ("clear_height_limits", ()),
+    ],
+)
+async def test_commands_wake_the_desk_first(
+    mock_ble_device, mock_bleak_client, method, args
+):
+    """Movement and settings commands are preceded by the handshake."""
+    device = DeskBLEDevice(mock_ble_device)
+    device._client = mock_bleak_client
+    device._height_cm = 80.0
+
+    assert await getattr(device, method)(*args) is True
+
+    writes = [c.args[1] for c in mock_bleak_client.write_gatt_char.call_args_list]
+    assert len(writes) == 2
+    assert writes[0] == COMMAND_HANDSHAKE
+    assert writes[1] != COMMAND_HANDSHAKE
+
+
+async def test_stop_is_sent_without_waking(mock_ble_device, mock_bleak_client):
+    """Stop goes out at once: a moving desk is awake already."""
+    device = DeskBLEDevice(mock_ble_device)
+    device._client = mock_bleak_client
+
+    await device.stop()
+
+    mock_bleak_client.write_gatt_char.assert_called_once_with(
+        WRITE_CHARACTERISTIC_UUID, COMMAND_STOP
+    )
+
+
+async def test_get_settings_requests_status_after_handshake(
+    mock_ble_device, mock_bleak_client
+):
+    """The settings block is requested with a handshake followed by a status request."""
+    device = DeskBLEDevice(mock_ble_device)
+    device._client = mock_bleak_client
+
+    await device.get_settings()
+
+    assert mock_bleak_client.write_gatt_char.call_args_list == [
+        call(WRITE_CHARACTERISTIC_UUID, COMMAND_HANDSHAKE),
+        call(WRITE_CHARACTERISTIC_UUID, COMMAND_GET_STATUS),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("method", "args"),
+    [("move_up", ()), ("set_unit", ("in",)), ("get_settings", ())],
+)
+async def test_failed_handshake_fails_the_command(
+    mock_ble_device, mock_bleak_client, method, args
+):
+    """If the handshake cannot be written, the command is reported as failed."""
+    device = DeskBLEDevice(mock_ble_device)
+    device._client = mock_bleak_client
+    mock_bleak_client.write_gatt_char.side_effect = Exception("write failed")
+
+    assert await getattr(device, method)(*args) is False
+    mock_bleak_client.write_gatt_char.assert_called_once_with(
+        WRITE_CHARACTERISTIC_UUID, COMMAND_HANDSHAKE
+    )
+    assert device._movement is None
