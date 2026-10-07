@@ -29,8 +29,8 @@ reach.
   It reacts after the desk has stopped, and does not see movements made with the hand controller.
 - It cannot make the desk stop faster than the desk's own anti-collision system. Set the desk's
   collision sensitivity to suit your setup.
-- Height limits set on the desk apply to every movement, including those started from Home
-  Assistant. Use them to keep the desk clear of fixed obstacles.
+- The move to height action refuses heights outside the height limits set on the desk. Set
+  limits that keep the desk clear of fixed obstacles.
 
 ## Automating the desk
 

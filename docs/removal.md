@@ -1,8 +1,7 @@
 # Removal
 
 Removing the integration closes the Bluetooth connection to the desk. The desk itself keeps its
-presets, height limits and other settings, and works from its hand controller and the Desky app
-as before.
+presets, height limits and other settings, and works from its hand controller as before.
 
 ## Remove a desk
 
@@ -16,8 +15,8 @@ entities or actions stop working, so remove or update them as well.
 
 After deleting every desk:
 
-- **HACS:** open **HACS**, find **Desky Standing Desk**, open its menu and select **Remove**,
-  then restart Home Assistant.
+- **HACS:** open **HACS**, find **Desky Standing Desk**, open the three dots menu on its entry
+  and select **Remove**, then restart Home Assistant.
 - **Manual installation:** delete the `custom_components/desky_desk` folder from your
   configuration directory, then restart Home Assistant.
 

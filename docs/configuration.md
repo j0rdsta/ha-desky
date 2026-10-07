@@ -5,8 +5,9 @@ The desk is added through the Home Assistant UI. There is nothing to add to
 
 ## Add the desk
 
-Power on the desk and make sure it is in range of a Bluetooth adapter or proxy. Close the Desky
-app on your phone first: a phone connected to the desk can keep Home Assistant out.
+Power on the desk and make sure it is in range of a Bluetooth adapter or proxy. The desk accepts
+one Bluetooth connection at a time, so if Home Assistant cannot connect, close the Desky app on
+your phone.
 
 ### When Home Assistant discovers the desk
 

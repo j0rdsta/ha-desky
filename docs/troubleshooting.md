@@ -9,15 +9,14 @@
 - Look for a device named `Desky…`. Only names that start with `Desky` are discovered
   automatically. If your desk has a different name, add it by its Bluetooth address instead (see
   [Configuration](configuration.md#adding-the-desk-yourself)).
-- Close the Desky app on any phone or tablet. A desk that is connected to something else may stop
-  advertising.
+- The desk accepts one Bluetooth connection at a time. Close the Desky app on any phone or tablet.
 
 ## Setup keeps retrying
 
 If setup fails with *Could not find the desk* or *Could not connect to the desk*, Home Assistant
 keeps retrying in the background. Check the points above, then:
 
-- Make sure no phone or other device is connected to the desk.
+- Make sure the Desky app is closed on every phone or tablet.
 - Make sure a Bluetooth proxy near the desk has a free connection slot (see below).
 - Restart the desk by unplugging it for 10 seconds.
 

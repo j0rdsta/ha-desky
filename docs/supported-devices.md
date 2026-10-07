@@ -2,9 +2,8 @@
 
 ## Supported desks
 
-The integration works with Desky desks whose controller has Bluetooth built in: the desks you can
-control with the Desky app. Such a desk advertises a Bluetooth name that starts with `Desky`,
-which is how Home Assistant discovers it.
+The integration works with Desky desks whose controller has Bluetooth built in. Such a desk
+advertises a Bluetooth name that starts with `Desky`, which is how Home Assistant discovers it.
 
 Desky desks use more than one controller, and controllers differ in firmware. The integration
 handles the differences it knows about:
@@ -35,9 +34,9 @@ are not discovered automatically unless their name starts with `Desky`.
 
 ## Known limitations
 
-- **One connection at a time.** The integration keeps a Bluetooth connection open to the desk.
-  While a phone running the Desky app is connected, Home Assistant may not be able to connect,
-  and the other way round.
+- **One connection at a time.** The desk accepts one Bluetooth connection at a time, and the
+  integration keeps its connection open. If Home Assistant cannot connect, close the Desky app on
+  your phone.
 - **Proxy connection slots.** The open connection uses one of a Bluetooth proxy's connection
   slots for as long as the desk is loaded. See
   [Troubleshooting](troubleshooting.md#esphome-bluetooth-proxies).
@@ -50,10 +49,9 @@ are not discovered automatically unless their name starts with `Desky`.
   integration infers one when a commanded movement stops early or bounces back, so movements
   made with the hand controller are never reported as collisions. The desk's own anti-collision
   system is what stops the desk. See [Safety](safety.md).
-- **Settings changed elsewhere.** A change of display unit on the hand controller shows in Home
-  Assistant straight away. Other settings, such as the lock, lighting and vibration, are read when
-  the desk connects and updated when you change them from Home Assistant; a change made on the
-  desk or in the Desky app may not show until the desk reconnects.
+- **Settings changed elsewhere.** Settings such as the lock, lighting and vibration are read when
+  the desk connects, and updated when you change them from Home Assistant. A change made on the
+  desk or in the Desky app may not appear until the desk reconnects.
 - **The desk's display wakes up.** The desk ignores commands while its display is asleep, so the
   integration wakes it before each command that moves the desk or changes a setting. The display
   lights up as it would if you touched the hand controller.

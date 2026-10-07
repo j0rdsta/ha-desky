@@ -9,10 +9,10 @@ Before you start, check the [requirements](index.md#requirements). If an
 ## HACS (recommended)
 
 1. In Home Assistant, open **HACS**.
-2. Open the menu in the top right corner and select **Custom repositories**.
-3. Enter `https://github.com/j0rdsta/ha-desky` as the repository and select **Integration** as
-   the type, then select **Add**.
-4. Search HACS for **Desky Standing Desk** and download it.
+2. Open the three dots menu in the top right corner and select **Custom repositories**.
+3. Enter `https://github.com/j0rdsta/ha-desky` as the repository, select **Integration** as the
+   type, then select **Add**.
+4. Search HACS for **Desky Standing Desk**, open it and select **Download**.
 5. Restart Home Assistant.
 
 HACS tells you when a new release is available. Releases are listed on the
