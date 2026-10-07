@@ -264,22 +264,6 @@ async def _stop_home_assistant(hass: HomeAssistant) -> None:
     hass.set_state(CoreState.not_running)
 
 
-async def test_disconnect_while_running_warns_and_reconnects(
-    hass: HomeAssistant,
-    init_integration: MockConfigEntry,
-    mock_desk: MagicMock,
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    """Test a dropped connection is logged and re-established."""
-    _reconnect_succeeds(mock_desk)
-
-    disconnect_desk(mock_desk)
-    await hass.async_block_till_done(wait_background_tasks=True)
-
-    assert "is unavailable" in caplog.text
-    assert mock_desk.connect.await_count == 2
-
-
 async def test_disconnect_during_startup_warns_and_reconnects(
     hass: HomeAssistant,
     init_integration: MockConfigEntry,

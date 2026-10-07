@@ -104,11 +104,9 @@ class DeskUpdateCoordinator(DataUpdateCoordinator[DeskData]):
         )
         self._address: str = entry.data[CONF_ADDRESS]
         self._device: DeskBLEDevice | None = None
-        # True while the entry is loaded, so a lost connection is re-established
+        # True while the entry is loaded and Home Assistant is not stopping, so
+        # a lost connection is logged and re-established
         self._expected_connected = False
-        # True from the stop event on: Home Assistant tears Bluetooth down
-        # later in shutdown, when is_stopping is already False again
-        self._home_assistant_stopping = False
         # True once the outage is logged, so it is logged once, not per retry
         self._unavailable_logged = False
         self._failed_attempts = 0
@@ -128,18 +126,6 @@ class DeskUpdateCoordinator(DataUpdateCoordinator[DeskData]):
         """Return the BLE device, which async_connect() creates."""
         assert self._device is not None  # entities exist only after connecting
         return self._device
-
-    @property
-    def _wants_connection(self) -> bool:
-        """Return whether a lost connection should be logged and re-established.
-
-        Home Assistant shutting down drops the connection on purpose.
-        """
-        return (
-            self._expected_connected
-            and not self._home_assistant_stopping
-            and not self.hass.is_stopping
-        )
 
     async def async_connect(self) -> None:
         """Find the desk and connect to it before the first refresh.
@@ -356,8 +342,12 @@ class DeskUpdateCoordinator(DataUpdateCoordinator[DeskData]):
 
     @callback
     def _async_handle_home_assistant_stop(self, _event: Event) -> None:
-        """Stop reconnecting once Home Assistant starts shutting down."""
-        self._home_assistant_stopping = True
+        """Stop reconnecting once Home Assistant starts shutting down.
+
+        Shutdown drops the connection on purpose. Bluetooth is torn down late,
+        once the state is not_running again, so hass.is_stopping cannot tell.
+        """
+        self._expected_connected = False
         self._async_cancel_retry()
 
     @callback
@@ -404,7 +394,7 @@ class DeskUpdateCoordinator(DataUpdateCoordinator[DeskData]):
     @callback
     def _async_request_reconnect(self) -> None:
         """Start a reconnect unless one is running, waiting or not wanted."""
-        if not self._wants_connection or self.device.is_connected:
+        if not self._expected_connected or self.device.is_connected:
             return
         if self._reconnect_task is not None and not self._reconnect_task.done():
             return
@@ -422,7 +412,7 @@ class DeskUpdateCoordinator(DataUpdateCoordinator[DeskData]):
         """Try to reconnect once, scheduling a retry with backoff if it fails."""
         device = self.device
         if not await device.connect():
-            if not self._wants_connection:
+            if not self._expected_connected:
                 return
             self._failed_attempts += 1
             delay = min(
@@ -480,7 +470,7 @@ class DeskUpdateCoordinator(DataUpdateCoordinator[DeskData]):
     def _handle_disconnect(self, device: DeskBLEDevice) -> None:
         """Handle disconnection from the desk."""
         self.async_set_updated_data(self._build_data(device))
-        if not self._wants_connection:
+        if not self._expected_connected:
             return
         if not self._unavailable_logged:
             _LOGGER.warning("The desk at %s is unavailable", self._address)
