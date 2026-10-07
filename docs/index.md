@@ -13,6 +13,8 @@ the desk.
 - Raises, lowers and stops the desk, and moves it to a height or to one of its four presets.
 - Reports the desk's height as it moves, in centimetres, whatever unit the desk's display shows.
 - Shows the desk as a cover entity, so it works in dashboards, scenes and voice assistants.
+- Tracks whether you are sitting or standing from the height the desk stops at, and counts the
+  minutes in each posture every day.
 - Detects when the desk stops or bounces back during a movement it was commanded to make, and
   reports it as a collision.
 - Controls the settings the desk exposes over Bluetooth: height limits, collision sensitivity,
@@ -36,5 +38,6 @@ to it as they happen. See [How data updates](data-updates.md).
 
 1. [Install](installation.md) the integration through HACS or by hand.
 2. [Add the desk](configuration.md) in **Settings → Devices & services**.
-3. Look at the [use cases](use-cases.md) for ideas, and the [safety guidance](safety.md) before
-   you write automations that move the desk.
+3. See what the desk gives you on the [entities](entities.md) and [actions](actions.md) pages.
+4. Look at the [use cases](use-cases.md) and [blueprints](blueprints.md) for ideas, and the
+   [safety guidance](safety.md) before you write automations that move the desk.

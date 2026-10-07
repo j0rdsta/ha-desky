@@ -55,6 +55,8 @@ nav:
       - Configuration: configuration.md
       - Removal: removal.md
   - Using the desk:
+      - Entities: entities.md
+      - Actions: actions.md
       - Use cases: use-cases.md
       - Blueprints: blueprints.md
       - How data updates: data-updates.md

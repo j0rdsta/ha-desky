@@ -43,9 +43,11 @@ Before you write an automation that moves the desk:
    and check presence again before moving.
 3. **Prefer prompts to automatic movement.** An actionable notification that asks before raising
    or lowering the desk is safer than a timed movement.
-4. **Keep a manual override.** Use an input boolean to turn desk automations off, and turn them
+4. **Limit when it runs.** Restrict automations that move the desk to the hours someone works
+   at it.
+5. **Keep a manual override.** Use an input boolean to turn desk automations off, and turn them
    off when nobody is home.
-5. **Test with care.** Test new automations with small movements first, with the area clear and
+6. **Test with care.** Test new automations with small movements first, with the area clear and
    the hand controller in reach.
 
 The [use cases](use-cases.md) follow these rules.
