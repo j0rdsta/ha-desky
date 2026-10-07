@@ -75,6 +75,15 @@ MIN_HEIGHT: Final = 60.0
 MAX_HEIGHT: Final = 130.0
 DEFAULT_HEIGHT: Final = 75.0
 
+# Posture: a desk stopped at or above the standing threshold counts as standing
+CONF_STANDING_THRESHOLD: Final = "standing_threshold"
+DEFAULT_STANDING_THRESHOLD: Final = 95
+# The height must stay unchanged this long before the posture follows it, so
+# passing through the threshold mid-move is not a posture change
+POSTURE_SETTLE_SECONDS: Final = 2
+POSTURE_SITTING: Final = "sitting"
+POSTURE_STANDING: Final = "standing"
+
 # Update intervals
 UPDATE_INTERVAL_SECONDS: Final = 30
 # Delay before retrying a failed reconnect, doubling up to the maximum, so a

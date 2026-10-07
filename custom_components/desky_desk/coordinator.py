@@ -28,6 +28,8 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .bluetooth import DeskBLEDevice, DeskError
 from .const import (
+    CONF_STANDING_THRESHOLD,
+    DEFAULT_STANDING_THRESHOLD,
     DOMAIN,
     RECONNECT_BACKOFF_MAX_SECONDS,
     RECONNECT_BACKOFF_MIN_SECONDS,
@@ -95,6 +97,9 @@ class DeskUpdateCoordinator(DataUpdateCoordinator[DeskData]):
             update_interval=timedelta(seconds=UPDATE_INTERVAL_SECONDS),
         )
         self._address: str = entry.data[CONF_ADDRESS]
+        self.standing_threshold: float = entry.options.get(
+            CONF_STANDING_THRESHOLD, DEFAULT_STANDING_THRESHOLD
+        )
         self._device: DeskBLEDevice | None = None
         # True while the entry is loaded, so a lost connection is re-established
         self._expected_connected = False

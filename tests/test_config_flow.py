@@ -7,9 +7,15 @@ from unittest.mock import patch
 from homeassistant import config_entries
 from homeassistant.const import CONF_ADDRESS
 from homeassistant.core import HomeAssistant
-from homeassistant.data_entry_flow import FlowResultType
+from homeassistant.data_entry_flow import FlowResultType, InvalidData
+import pytest
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.desky_desk.const import DOMAIN
+from custom_components.desky_desk.const import (
+    CONF_STANDING_THRESHOLD,
+    DEFAULT_STANDING_THRESHOLD,
+    DOMAIN,
+)
 
 from . import make_service_info
 
@@ -277,3 +283,58 @@ async def test_user_flow_manual_address_not_discovered(hass: HomeAssistant):
     assert result["type"] == FlowResultType.FORM
     assert result["step_id"] == "user"
     assert result["errors"] == {"base": "cannot_connect"}
+
+
+async def test_options_flow_sets_standing_threshold(
+    hass: HomeAssistant, init_integration: MockConfigEntry
+) -> None:
+    """Test the options flow saves the threshold and reloads the desk with it."""
+    coordinator = init_integration.runtime_data
+    assert coordinator.standing_threshold == DEFAULT_STANDING_THRESHOLD
+
+    result = await hass.config_entries.options.async_init(init_integration.entry_id)
+    assert result["type"] == FlowResultType.FORM
+    assert result["step_id"] == "init"
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], user_input={CONF_STANDING_THRESHOLD: 105}
+    )
+    await hass.async_block_till_done()
+
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert init_integration.options == {CONF_STANDING_THRESHOLD: 105}
+    assert init_integration.runtime_data is not coordinator
+    assert init_integration.runtime_data.standing_threshold == 105
+
+
+async def test_options_flow_suggests_current_threshold(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry, mock_setup_entry
+) -> None:
+    """Test the form starts from the saved threshold."""
+    mock_config_entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(
+        mock_config_entry, options={CONF_STANDING_THRESHOLD: 100}
+    )
+
+    result = await hass.config_entries.options.async_init(mock_config_entry.entry_id)
+
+    schema = result["data_schema"].schema
+    (key,) = schema
+    assert key == CONF_STANDING_THRESHOLD
+    assert key.default() == 100
+
+
+@pytest.mark.parametrize("threshold", [59, 131, 140])
+async def test_options_flow_rejects_out_of_range_threshold(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry, mock_setup_entry, threshold
+) -> None:
+    """Test a threshold outside the desk's range is rejected and nothing is saved."""
+    mock_config_entry.add_to_hass(hass)
+    result = await hass.config_entries.options.async_init(mock_config_entry.entry_id)
+
+    with pytest.raises(InvalidData):
+        await hass.config_entries.options.async_configure(
+            result["flow_id"], user_input={CONF_STANDING_THRESHOLD: threshold}
+        )
+
+    assert mock_config_entry.options == {}

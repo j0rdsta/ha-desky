@@ -143,6 +143,16 @@ When creating automations for your standing desk, **ALWAYS** include safety meas
 5. Select your desk from the list or enter the Bluetooth address manually
 6. Follow the setup flow
 
+### Options
+
+Open the desk under Settings → Devices & Services → Desky Desk and select **Configure**.
+
+| Option | Default | Range | Description |
+| --- | --- | --- | --- |
+| Standing threshold | 95 cm | 60–130 cm | The desk counts as standing when it stops at or above this height, and as sitting when it stops below it |
+
+Saving the options reloads the desk. Today's sitting and standing times are kept.
+
 ## Requirements
 
 - Home Assistant 2023.12.0 or newer

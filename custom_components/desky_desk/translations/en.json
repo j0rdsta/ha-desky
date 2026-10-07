@@ -30,6 +30,19 @@
       "no_devices_found": "No Desky desks found"
     }
   },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Desk options",
+        "data": {
+          "standing_threshold": "Standing threshold"
+        },
+        "data_description": {
+          "standing_threshold": "The desk counts as standing when it stops at or above this height, in cm."
+        }
+      }
+    }
+  },
   "entity": {
     "binary_sensor": {
       "collision": {
