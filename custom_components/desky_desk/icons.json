@@ -63,6 +63,12 @@
           "standing": "mdi:human-handsdown"
         }
       },
+      "sitting_time_today": {
+        "default": "mdi:chair-rolling"
+      },
+      "standing_time_today": {
+        "default": "mdi:human-handsdown"
+      },
       "vibration_intensity_display": {
         "default": "mdi:vibrate"
       }

@@ -104,6 +104,12 @@
           "standing": "Standing"
         }
       },
+      "sitting_time_today": {
+        "name": "Sitting time today"
+      },
+      "standing_time_today": {
+        "name": "Standing time today"
+      },
       "vibration_intensity_display": {
         "name": "Vibration intensity display"
       }

@@ -82,7 +82,7 @@ This is a Home Assistant custom integration that follows the standard component 
    - Light entity: LED strip control with color, brightness, and effects
    - Switch entities: Vibration on/off, desk lock
    - Select entities: Collision sensitivity, touch mode, unit preference
-   - Sensor entities: Height display with units, light color name, sensitivity level
+   - Sensor entities: Height display with units, light color name, sensitivity level, posture, standing/sitting time today
 
 ### BLE Protocol Commands
 ```python
@@ -234,6 +234,14 @@ The limit status (`0x20`: `0x00` none, `0x01` upper, `0x10` lower, `0x11` both) 
 - Connection state tracked in coordinator data
 - All entities become unavailable when disconnected
 - BLE device discovery uses Home Assistant's bluetooth component
+
+### Posture Tracking
+
+- The coordinator sets `DeskData.posture` (`sitting`/`standing`) once the height has been unchanged for `POSTURE_SETTLE_SECONDS` (2 s) and no commanded move is in flight, so passing the threshold mid-move changes nothing. A height at or above the standing threshold (option `standing_threshold`, default 95 cm, 60-130 cm) is standing
+- The posture is `None` while disconnected or before the first height. `posture_changed_at` is a `time.monotonic()` stamp: a change between postures dates from when the desk stopped, a posture that becomes known dates from that moment
+- A posture change is published without `async_set_updated_data()`, which would push back the 30-second poll
+- `PostureTimeSensor` (standing/sitting time today) counts minutes from those stamps on every coordinator update and a 1-minute tick. `state_class: total` with `last_reset` at local midnight; every update compares the local date too, so a day whose midnight a clock change skips still resets. It restores its value only if the restored `last_reset` is today
+- The options flow is an `OptionsFlowWithReload`; saving reloads the entry, and the totals survive the reload through restore
 
 ## Important Technical Notes
 

@@ -43,6 +43,8 @@ versions keep their existing entity IDs.
 | Sensor | LED color | `sensor.desky_desk_led_color` | Current LED colour |
 | Sensor | Vibration intensity display | `sensor.desky_desk_vibration_intensity_display` | Current vibration strength |
 | Sensor | Posture | `sensor.desky_desk_posture` | Sitting or Standing, from the height the desk stops at (see [Options](#options)) |
+| Sensor | Standing time today | `sensor.desky_desk_standing_time_today` | Minutes spent standing today |
+| Sensor | Sitting time today | `sensor.desky_desk_sitting_time_today` | Minutes spent sitting today |
 
 Not every desk supports every feature. All entities are unavailable while the desk is not
 connected.
@@ -282,6 +284,32 @@ entities:
     label: Status
   - entity: binary_sensor.desky_desk_collision_detected
     name: Collision Status
+```
+
+### Sitting and Standing Time
+
+The posture sensor reports **Standing** once the desk stops at or above the standing threshold
+(95 cm unless changed in [Options](#options)), and **Sitting** once it stops below it. A desk
+that passes the threshold without stopping does not change the posture.
+
+**Standing time today** and **Sitting time today** count minutes in each posture while the desk
+is connected. Time while the desk is unavailable counts towards neither. Both reset at local
+midnight and keep their value across Home Assistant restarts on the same day. They are recorded
+in long-term statistics, so a statistics graph shows each day's total:
+
+```yaml
+type: statistics-graph
+title: Sitting and standing
+entities:
+  - entity: sensor.desky_desk_standing_time_today
+    name: Standing
+  - entity: sensor.desky_desk_sitting_time_today
+    name: Sitting
+chart_type: bar
+period: day
+stat_types:
+  - change
+days_to_show: 14
 ```
 
 ### Advanced Safety Automation Example

@@ -44,7 +44,7 @@ async def test_setup_entry(
     mock_desk.connect.assert_awaited_once()
 
     states = _desk_entity_states(hass, init_integration)
-    assert len(states) == 22
+    assert len(states) == 24
     assert STATE_UNAVAILABLE not in states
 
 
@@ -114,7 +114,7 @@ async def test_setup_retry_succeeds_when_desk_comes_into_range(
 
     assert mock_config_entry.state is ConfigEntryState.LOADED
     states = _desk_entity_states(hass, mock_config_entry)
-    assert len(states) == 22
+    assert len(states) == 24
     assert STATE_UNAVAILABLE not in states
 
 

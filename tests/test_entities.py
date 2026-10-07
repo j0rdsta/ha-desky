@@ -15,6 +15,7 @@ from unittest.mock import MagicMock, patch
 from homeassistant.const import STATE_UNAVAILABLE
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
+import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 from syrupy.assertion import SnapshotAssertion
 
@@ -41,6 +42,8 @@ def _plain(value: Any) -> Any:
     return value
 
 
+# The time today sensors report the start of the day as their last reset
+@pytest.mark.freeze_time("2026-10-07 14:00:00-07:00")
 async def test_entities(
     hass: HomeAssistant,
     entity_registry: er.EntityRegistry,
@@ -107,6 +110,8 @@ V1_ENTITIES = {
 # Entities added since v1.0.x
 NEW_ENTITIES = {
     ("sensor", "posture"),
+    ("sensor", "sitting_time_today"),
+    ("sensor", "standing_time_today"),
 }
 
 INTEGRATION_DIR = Path(__file__).parent.parent / "custom_components" / DOMAIN
