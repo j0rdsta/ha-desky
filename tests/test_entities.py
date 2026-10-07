@@ -15,6 +15,7 @@ from unittest.mock import MagicMock, patch
 from homeassistant.const import STATE_UNAVAILABLE
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
+import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 from syrupy.assertion import SnapshotAssertion
 
@@ -41,6 +42,8 @@ def _plain(value: Any) -> Any:
     return value
 
 
+# The time today sensors report the start of the day as their last reset
+@pytest.mark.freeze_time("2026-10-07 14:00:00-07:00")
 async def test_entities(
     hass: HomeAssistant,
     entity_registry: er.EntityRegistry,
@@ -104,6 +107,13 @@ V1_ENTITIES = {
     ("switch", "vibration"),
 }
 
+# Entities added since v1.0.x
+NEW_ENTITIES = {
+    ("sensor", "posture"),
+    ("sensor", "sitting_time_today"),
+    ("sensor", "standing_time_today"),
+}
+
 INTEGRATION_DIR = Path(__file__).parent.parent / "custom_components" / DOMAIN
 
 
@@ -138,7 +148,12 @@ async def test_entity_ids_survive_upgrade(
     entries = er.async_entries_for_config_entry(
         entity_registry, mock_config_entry.entry_id
     )
-    assert {entry.unique_id: entry.entity_id for entry in entries} == registered
+    assert {
+        entry.unique_id: entry.entity_id
+        for entry in entries
+        if entry.unique_id in registered
+    } == registered
+    assert len(entries) == len(V1_ENTITIES) + len(NEW_ENTITIES)
     for entity_id in registered.values():
         assert hass.states.get(entity_id) is not None
 
@@ -146,13 +161,13 @@ async def test_entity_ids_survive_upgrade(
 async def test_unique_ids_unchanged(
     entity_registry: er.EntityRegistry, init_integration: MockConfigEntry
 ) -> None:
-    """Test a fresh install registers exactly the v1.0.x unique IDs."""
+    """Test a fresh install registers the v1.0.x unique IDs and the new ones."""
     entries = er.async_entries_for_config_entry(
         entity_registry, init_integration.entry_id
     )
     assert {(entry.domain, entry.unique_id) for entry in entries} == {
         (platform, f"{init_integration.unique_id}_{key}")
-        for platform, key in V1_ENTITIES
+        for platform, key in V1_ENTITIES | NEW_ENTITIES
     }
 
 

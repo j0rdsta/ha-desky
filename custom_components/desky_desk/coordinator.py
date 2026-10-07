@@ -28,11 +28,15 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .bluetooth import DeskBLEDevice, DeskError
 from .const import (
+    CONF_STANDING_THRESHOLD,
+    DEFAULT_STANDING_THRESHOLD,
     DOMAIN,
     RECONNECT_BACKOFF_MAX_SECONDS,
     RECONNECT_BACKOFF_MIN_SECONDS,
     UPDATE_INTERVAL_SECONDS,
+    Posture,
 )
+from .posture import PostureTracker
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -78,6 +82,10 @@ class DeskData:
     hardware_revision: str | None
     firmware_revision: str | None
     software_revision: str | None
+    # Sitting or standing once the desk has stopped; None while unknown
+    posture: Posture | None = None
+    # time.monotonic() when the posture last changed, or None if it never has
+    posture_changed_at: float | None = None
 
 
 class DeskUpdateCoordinator(DataUpdateCoordinator[DeskData]):
@@ -106,6 +114,11 @@ class DeskUpdateCoordinator(DataUpdateCoordinator[DeskData]):
         # True until the first poll after a connection, which asks again for
         # settings the desk did not report while connecting
         self._recheck_settings = False
+        self.posture_tracker = PostureTracker(
+            hass,
+            entry.options.get(CONF_STANDING_THRESHOLD, DEFAULT_STANDING_THRESHOLD),
+            self._async_publish_posture,
+        )
 
     @property
     def device(self) -> DeskBLEDevice:
@@ -164,9 +177,10 @@ class DeskUpdateCoordinator(DataUpdateCoordinator[DeskData]):
             )
         )
 
-    @staticmethod
-    def _build_data(device: DeskBLEDevice) -> DeskData:
+    def _build_data(self, device: DeskBLEDevice) -> DeskData:
         """Build the data snapshot from the device's current state."""
+        posture = self.posture_tracker
+        posture.track(device)
         connected = device.is_connected
         return DeskData(
             is_connected=connected,
@@ -193,7 +207,18 @@ class DeskUpdateCoordinator(DataUpdateCoordinator[DeskData]):
             hardware_revision=device.hardware_revision,
             firmware_revision=device.firmware_revision,
             software_revision=device.software_revision,
+            posture=posture.posture,
+            posture_changed_at=posture.changed_at,
         )
+
+    @callback
+    def _async_publish_posture(self) -> None:
+        """Publish a settled posture change.
+
+        async_set_updated_data() is not used, because it would push back the poll.
+        """
+        self.data = self._build_data(self.device)
+        self.async_update_listeners()
 
     def _device_registry_fields(self) -> dict[str, str]:
         """Return the device registry fields the desk reported, without placeholders."""
@@ -440,6 +465,7 @@ class DeskUpdateCoordinator(DataUpdateCoordinator[DeskData]):
         """
         self._expected_connected = False
         self._async_cancel_retry()
+        self.posture_tracker.cancel()
         await super().async_shutdown()
 
         if self._reconnect_task and not self._reconnect_task.done():

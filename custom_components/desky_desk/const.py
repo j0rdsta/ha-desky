@@ -1,5 +1,6 @@
 """Constants for the Desky Desk integration."""
 
+from enum import StrEnum
 from typing import Final
 
 DOMAIN: Final = "desky_desk"
@@ -74,6 +75,21 @@ CM_PER_INCH: Final = 2.54
 MIN_HEIGHT: Final = 60.0
 MAX_HEIGHT: Final = 130.0
 DEFAULT_HEIGHT: Final = 75.0
+
+# Posture: a desk stopped at or above the standing threshold counts as standing
+CONF_STANDING_THRESHOLD: Final = "standing_threshold"
+DEFAULT_STANDING_THRESHOLD: Final = 95
+# The height must stay unchanged this long before the posture follows it, so
+# passing through the threshold mid-move is not a posture change
+POSTURE_SETTLE_SECONDS: Final = 2
+
+
+class Posture(StrEnum):
+    """Where the desk has stopped: below or at least at the standing threshold."""
+
+    SITTING = "sitting"
+    STANDING = "standing"
+
 
 # Update intervals
 UPDATE_INTERVAL_SECONDS: Final = 30

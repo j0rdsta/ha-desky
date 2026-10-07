@@ -9,11 +9,28 @@ from homeassistant.components.bluetooth import (
     BluetoothServiceInfoBleak,
     async_discovered_service_info,
 )
-from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
-from homeassistant.const import CONF_ADDRESS
+from homeassistant.config_entries import (
+    ConfigEntry,
+    ConfigFlow,
+    ConfigFlowResult,
+    OptionsFlowWithReload,
+)
+from homeassistant.const import CONF_ADDRESS, UnitOfLength
+from homeassistant.core import callback
+from homeassistant.helpers.selector import (
+    NumberSelector,
+    NumberSelectorConfig,
+    NumberSelectorMode,
+)
 import voluptuous as vol
 
-from .const import DOMAIN
+from .const import (
+    CONF_STANDING_THRESHOLD,
+    DEFAULT_STANDING_THRESHOLD,
+    DOMAIN,
+    MAX_HEIGHT,
+    MIN_HEIGHT,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -22,6 +39,12 @@ class DeskyConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Desky Desk."""
 
     VERSION = 1
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry: ConfigEntry) -> DeskyOptionsFlow:
+        """Return the options flow."""
+        return DeskyOptionsFlow()
 
     def __init__(self) -> None:
         """Initialize the config flow."""
@@ -146,3 +169,36 @@ class DeskyConfigFlow(ConfigFlow, domain=DOMAIN):
             if discovery_info.address == address:
                 return discovery_info
         return None
+
+
+class DeskyOptionsFlow(OptionsFlowWithReload):
+    """Handle the options for a desk; saving them reloads the desk."""
+
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Manage the standing threshold."""
+        if user_input is not None:
+            return self.async_create_entry(data=user_input)
+
+        threshold = self.config_entry.options.get(
+            CONF_STANDING_THRESHOLD, DEFAULT_STANDING_THRESHOLD
+        )
+        return self.async_show_form(
+            step_id="init",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_STANDING_THRESHOLD, default=threshold
+                    ): NumberSelector(
+                        NumberSelectorConfig(
+                            min=MIN_HEIGHT,
+                            max=MAX_HEIGHT,
+                            step=1,
+                            unit_of_measurement=UnitOfLength.CENTIMETERS,
+                            mode=NumberSelectorMode.BOX,
+                        )
+                    ),
+                }
+            ),
+        )

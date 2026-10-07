@@ -56,6 +56,19 @@
       "led_color": {
         "default": "mdi:palette"
       },
+      "posture": {
+        "default": "mdi:human-male",
+        "state": {
+          "sitting": "mdi:chair-rolling",
+          "standing": "mdi:human-handsdown"
+        }
+      },
+      "sitting_time_today": {
+        "default": "mdi:chair-rolling"
+      },
+      "standing_time_today": {
+        "default": "mdi:human-handsdown"
+      },
       "vibration_intensity_display": {
         "default": "mdi:vibrate"
       }

@@ -30,6 +30,19 @@
       "no_devices_found": "No Desky desks found"
     }
   },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Desk options",
+        "data": {
+          "standing_threshold": "Standing threshold"
+        },
+        "data_description": {
+          "standing_threshold": "The desk counts as standing when it stops at or above this height, in cm."
+        }
+      }
+    }
+  },
   "entity": {
     "binary_sensor": {
       "collision": {
@@ -83,6 +96,19 @@
       },
       "led_color": {
         "name": "LED color"
+      },
+      "posture": {
+        "name": "Posture",
+        "state": {
+          "sitting": "Sitting",
+          "standing": "Standing"
+        }
+      },
+      "sitting_time_today": {
+        "name": "Sitting time today"
+      },
+      "standing_time_today": {
+        "name": "Standing time today"
       },
       "vibration_intensity_display": {
         "name": "Vibration intensity display"
