@@ -24,6 +24,7 @@ from homeassistant.helpers.selector import (
 )
 import voluptuous as vol
 
+from .bluetooth import DeskBLEDevice
 from .const import (
     CONF_STANDING_THRESHOLD,
     DEFAULT_STANDING_THRESHOLD,
@@ -69,17 +70,21 @@ class DeskyConfigFlow(ConfigFlow, domain=DOMAIN):
     ) -> ConfigFlowResult:
         """Confirm discovery."""
         assert self._discovery_info is not None  # set by async_step_bluetooth
+        errors: dict[str, str] = {}
         if user_input is not None:
-            return self.async_create_entry(
-                title=self._discovery_info.name or "Desky Desk",
-                data={
-                    CONF_ADDRESS: self._discovery_info.address,
-                },
-            )
+            if await _async_can_connect(self._discovery_info):
+                return self.async_create_entry(
+                    title=self._discovery_info.name or "Desky Desk",
+                    data={
+                        CONF_ADDRESS: self._discovery_info.address,
+                    },
+                )
+            errors["base"] = "cannot_connect"
 
         self._set_confirm_only()
         return self.async_show_form(
             step_id="confirm",
+            errors=errors,
             description_placeholders={
                 "name": self._discovery_info.name or "Desky Desk",
                 "address": self._discovery_info.address,
@@ -91,7 +96,8 @@ class DeskyConfigFlow(ConfigFlow, domain=DOMAIN):
     ) -> ConfigFlowResult:
         """Handle the initial step."""
         if user_input is not None:
-            address = user_input[CONF_ADDRESS]
+            # Discovery reports addresses in upper case
+            address = user_input[CONF_ADDRESS].strip().upper()
 
             # Check if already configured
             await self.async_set_unique_id(address)
@@ -99,7 +105,7 @@ class DeskyConfigFlow(ConfigFlow, domain=DOMAIN):
 
             # Try to find the device
             discovery_info = await self._async_get_device(address)
-            if discovery_info:
+            if discovery_info and await _async_can_connect(discovery_info):
                 return self.async_create_entry(
                     title=discovery_info.name or "Desky Desk",
                     data={CONF_ADDRESS: address},
@@ -137,6 +143,7 @@ class DeskyConfigFlow(ConfigFlow, domain=DOMAIN):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Handle picking a device from a list."""
+        errors: dict[str, str] = {}
         if user_input is not None:
             address = user_input[CONF_ADDRESS]
 
@@ -144,10 +151,12 @@ class DeskyConfigFlow(ConfigFlow, domain=DOMAIN):
             self._abort_if_unique_id_configured()
 
             discovery_info = self._discovered_devices[address]
-            return self.async_create_entry(
-                title=discovery_info.name or "Desky Desk",
-                data={CONF_ADDRESS: address},
-            )
+            if await _async_can_connect(discovery_info):
+                return self.async_create_entry(
+                    title=discovery_info.name or "Desky Desk",
+                    data={CONF_ADDRESS: address},
+                )
+            errors["base"] = "cannot_connect"
 
         devices = {
             address: f"{info.name} ({address})"
@@ -161,6 +170,7 @@ class DeskyConfigFlow(ConfigFlow, domain=DOMAIN):
                     vol.Required(CONF_ADDRESS): vol.In(devices),
                 }
             ),
+            errors=errors,
         )
 
     async def _async_get_device(self, address: str) -> BluetoothServiceInfoBleak | None:
@@ -202,3 +212,12 @@ class DeskyOptionsFlow(OptionsFlowWithReload):
                 }
             ),
         )
+
+
+async def _async_can_connect(discovery_info: BluetoothServiceInfoBleak) -> bool:
+    """Return whether the desk accepts a connection, then disconnect again."""
+    device = DeskBLEDevice(discovery_info.device)
+    try:
+        return await device.connect()
+    finally:
+        await device.disconnect()
