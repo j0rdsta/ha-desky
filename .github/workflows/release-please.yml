@@ -4,9 +4,10 @@ on:
   push:
     branches: [main]
 
-permissions:
-  contents: write
-  pull-requests: write
+# release-please authenticates with RELEASE_PLEASE_TOKEN, not GITHUB_TOKEN. Pull requests
+# opened with GITHUB_TOKEN don't trigger workflows, so the release PR would never get the
+# status checks main requires.
+permissions: {}
 
 jobs:
   release-please:
@@ -15,5 +16,6 @@ jobs:
     steps:
       - uses: googleapis/release-please-action@v5
         with:
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json

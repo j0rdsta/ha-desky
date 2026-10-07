@@ -78,3 +78,9 @@ Releases are automated with [release-please](https://github.com/googleapis/relea
 
 `feat:` bumps the minor version, `fix:` the patch version, and a `!` or `BREAKING CHANGE:` footer
 the major version.
+
+The workflow authenticates with the `RELEASE_PLEASE_TOKEN` repository secret: a fine-grained
+personal access token limited to this repository, with read and write access to Contents and Pull
+requests. It can't use the built-in `GITHUB_TOKEN`, because pull requests opened with that token
+don't trigger workflows, so the release PR would never get the status checks `main` requires.
+When the token expires, release-please fails until the secret is replaced.
