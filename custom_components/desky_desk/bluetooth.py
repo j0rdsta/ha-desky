@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass, field
 import logging
@@ -67,6 +68,9 @@ _LOGGER = logging.getLogger(__name__)
 
 # Connection attempts bleak-retry-connector makes before giving up
 CONNECT_MAX_ATTEMPTS = 3
+
+# Headers of this many recent notifications are kept for diagnostics
+RECENT_NOTIFICATION_HEADERS = 20
 
 # Auto-clear collision after this many seconds
 COLLISION_AUTO_CLEAR_SECONDS = 10.0
@@ -161,6 +165,8 @@ class DeskBLEDevice:
         self._last_notification_time: float = 0.0  # Time of last height notification
         self._notification_callbacks: list[Callable[[float, bool, bool], None]] = []
         self._disconnect_callbacks: list[Callable[[], None]] = []
+        # The first four bytes of recent frames, without the values they carry
+        self._recent_headers: deque[str] = deque(maxlen=RECENT_NOTIFICATION_HEADERS)
 
         # New device features
         self._light_color: int | None = None
@@ -316,6 +322,11 @@ class DeskBLEDevice:
     def software_revision(self) -> str | None:
         """Return software revision from device information service."""
         return self._software_revision
+
+    @property
+    def recent_notification_headers(self) -> list[str]:
+        """Return the headers of the most recent notifications, oldest first."""
+        return list(self._recent_headers)
 
     def register_notification_callback(
         self, callback: Callable[[float, bool, bool], None]
@@ -884,6 +895,7 @@ class DeskBLEDevice:
     ) -> None:
         """Handle notification from the desk."""
         _LOGGER.debug("Received notification: %s", data.hex())
+        self._recent_headers.append(data[:4].hex(" "))
 
         # Check for height notification (0x98 0x98 header)
         if len(data) >= 6 and bytes(data[:2]) == HEIGHT_NOTIFICATION_HEADER:

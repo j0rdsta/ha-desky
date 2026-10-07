@@ -1,0 +1,99 @@
+# serializer version: 1
+# name: test_diagnostics_connected
+  dict({
+    'connected': True,
+    'device': dict({
+      'firmware_revision': '2.1.0',
+      'hardware_revision': '1.0',
+      'manufacturer_name': 'Test Manufacturer',
+      'model_number': 'Test Model',
+      'name': 'Desky Desk',
+      'serial_number': '**REDACTED**',
+      'software_revision': '1.5.2',
+    }),
+    'entry': dict({
+      'data': dict({
+        'address': '**REDACTED**',
+      }),
+      'options': dict({
+      }),
+      'title': 'Desky Desk',
+      'unique_id': '**REDACTED**',
+    }),
+    'recent_notification_headers': list([
+      'f2 f2 01 03',
+      'f2 f2 0e 01',
+      'f2 f2 19 01',
+    ]),
+    'stale': False,
+    'state': dict({
+      'brightness': 50,
+      'collision_detected': False,
+      'height_cm': 80.0,
+      'height_limit_lower': 65.0,
+      'height_limit_upper': 120.0,
+      'is_moving': False,
+      'light_color': 1,
+      'lighting_enabled': True,
+      'limits_enabled': True,
+      'lock_status': False,
+      'movement_direction': None,
+      'posture': None,
+      'posture_changed_at': None,
+      'sensitivity_level': 2,
+      'touch_mode': 0,
+      'unit_preference': 'cm',
+      'vibration_enabled': True,
+      'vibration_intensity': 75,
+    }),
+  })
+# ---
+# name: test_diagnostics_disconnected
+  dict({
+    'connected': False,
+    'device': dict({
+      'firmware_revision': '2.1.0',
+      'hardware_revision': '1.0',
+      'manufacturer_name': 'Test Manufacturer',
+      'model_number': 'Test Model',
+      'name': 'Desky Desk',
+      'serial_number': '**REDACTED**',
+      'software_revision': '1.5.2',
+    }),
+    'entry': dict({
+      'data': dict({
+        'address': '**REDACTED**',
+      }),
+      'options': dict({
+      }),
+      'title': 'Desky Desk',
+      'unique_id': '**REDACTED**',
+    }),
+    'recent_notification_headers': list([
+      'f2 f2 01 03',
+      'f2 f2 0e 01',
+      'f2 f2 19 01',
+    ]),
+    'stale': True,
+    'state': dict({
+      'brightness': 50,
+      'collision_detected': False,
+      'height_cm': 80.0,
+      'height_limit_lower': 65.0,
+      'height_limit_upper': 120.0,
+      'is_moving': False,
+      'light_color': 1,
+      'lighting_enabled': True,
+      'limits_enabled': True,
+      'lock_status': False,
+      'movement_direction': None,
+      'posture': None,
+      'posture_changed_at': None,
+      'sensitivity_level': 2,
+      'touch_mode': 0,
+      'unit_preference': 'cm',
+      'vibration_enabled': True,
+      'vibration_intensity': 75,
+    }),
+  })
+# ---
