@@ -15,8 +15,8 @@
 
 If the setup form shows *Could not connect to the desk* (see
 [Connection check](configuration.md#connection-check)), Home Assistant either cannot see the desk
-right now or the desk refused the connection. Wake the desk, close the Desky app, check the points above and
-submit the form again.
+right now or the desk refused the connection. Wake the desk, close the Desky app, check the points
+above and submit the form again.
 
 ## Setup keeps retrying
 
