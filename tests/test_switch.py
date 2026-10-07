@@ -8,13 +8,17 @@ from homeassistant.components.switch import (
     DOMAIN as SWITCH_DOMAIN,
     SERVICE_TURN_OFF,
     SERVICE_TURN_ON,
+    SwitchEntityDescription,
 )
 from homeassistant.const import ATTR_ENTITY_ID, STATE_OFF, STATE_ON, STATE_UNAVAILABLE
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.entity_component import DATA_INSTANCES
+import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.desky_desk.const import DOMAIN
+from custom_components.desky_desk.switch import DeskSwitch
 
 
 async def setup_coordinator_data(hass, mock_config_entry):
@@ -238,3 +242,74 @@ async def test_switch_error_handling(
 
     # State should remain unchanged since command failed
     assert hass.states.get("switch.desky_desk_vibration").state == STATE_ON
+
+
+async def test_switch_is_off_when_unavailable(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    init_integration,
+):
+    """Test a switch reports off while the desk is disconnected."""
+    coordinator = await setup_coordinator_data(hass, mock_config_entry)
+    entity = hass.data[DATA_INSTANCES][SWITCH_DOMAIN].get_entity(
+        "switch.desky_desk_vibration"
+    )
+    assert entity.is_on is True
+
+    coordinator.async_set_updated_data({**coordinator.data, "is_connected": False})
+    await hass.async_block_till_done()
+
+    assert entity.is_on is False
+
+
+# Lock starts off and vibration starts on, so each call would change state
+@pytest.mark.parametrize(
+    ("service", "entity_id", "expected_state"),
+    [
+        (SERVICE_TURN_ON, "switch.desky_desk_lock", STATE_OFF),
+        (SERVICE_TURN_OFF, "switch.desky_desk_vibration", STATE_ON),
+    ],
+)
+async def test_switch_without_device(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    init_integration,
+    service: str,
+    entity_id: str,
+    expected_state: str,
+):
+    """Test switching does nothing when the BLE device is gone."""
+    coordinator = await setup_coordinator_data(hass, mock_config_entry)
+    previous_device = coordinator._device
+    previous_device.set_lock_status.reset_mock()
+    previous_device.set_vibration.reset_mock()
+    coordinator._device = None
+
+    await hass.services.async_call(
+        SWITCH_DOMAIN, service, {ATTR_ENTITY_ID: entity_id}, blocking=True
+    )
+
+    previous_device.set_lock_status.assert_not_called()
+    previous_device.set_vibration.assert_not_called()
+    assert hass.states.get(entity_id).state == expected_state
+
+
+async def test_switch_unknown_key(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    init_integration,
+):
+    """Test a switch with an unrecognised key is off and sends nothing."""
+    coordinator = await setup_coordinator_data(hass, mock_config_entry)
+    mock_device = AsyncMock()
+    coordinator._device = mock_device
+    entity = DeskSwitch(
+        coordinator, mock_config_entry, SwitchEntityDescription(key="unknown")
+    )
+
+    assert entity.is_on is False
+
+    await entity.async_turn_on()
+    await entity.async_turn_off()
+
+    assert mock_device.method_calls == []

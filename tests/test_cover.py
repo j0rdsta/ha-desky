@@ -14,6 +14,7 @@ from homeassistant.components.cover import (
 )
 from homeassistant.const import ATTR_ENTITY_ID, STATE_UNAVAILABLE
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity_component import DATA_INSTANCES
 
 from custom_components.desky_desk.const import DOMAIN, MAX_HEIGHT, MIN_HEIGHT
 
@@ -316,3 +317,72 @@ async def test_cover_movement_state(hass: HomeAssistant, init_integration):
 
     state = hass.states.get("cover.desky_desk")
     assert state.state == "open"  # Position is 28% which is > 0
+
+
+def _get_cover_entity(hass: HomeAssistant):
+    """Return the desk entity object registered with the cover component."""
+    return hass.data[DATA_INSTANCES][COVER_DOMAIN].get_entity("cover.desky_desk")
+
+
+async def test_cover_properties_without_data(hass: HomeAssistant, init_integration):
+    """Test the cover reports no position or movement when it has no data."""
+    coordinator = hass.data[DOMAIN][init_integration.entry_id]
+    cover = _get_cover_entity(hass)
+
+    coordinator.async_set_updated_data(None)
+    await hass.async_block_till_done()
+
+    assert hass.states.get("cover.desky_desk").state == STATE_UNAVAILABLE
+    assert cover.available is False
+    assert cover.current_cover_position is None
+    assert cover.is_closed is None
+    assert cover.is_opening is False
+    assert cover.is_closing is False
+
+
+async def test_cover_commands_skipped_without_device(
+    hass: HomeAssistant, init_integration
+):
+    """Test cover services do nothing when the desk device is gone."""
+    coordinator = hass.data[DOMAIN][init_integration.entry_id]
+    coordinator.async_set_updated_data(
+        {
+            "height_cm": 80.0,
+            "collision_detected": False,
+            "is_moving": False,
+            "is_connected": True,
+        }
+    )
+    await hass.async_block_till_done()
+
+    old_device = MagicMock()
+    old_device.move_up = AsyncMock()
+    old_device.move_down = AsyncMock()
+    old_device.stop = AsyncMock()
+    old_device.move_to_height = AsyncMock()
+    coordinator._device = old_device
+    # The desk drops off and the coordinator loses its device
+    coordinator._device = None
+    coordinator.async_request_refresh = AsyncMock()
+
+    for service, data in (
+        (SERVICE_OPEN_COVER, {}),
+        (SERVICE_CLOSE_COVER, {}),
+        (SERVICE_STOP_COVER, {}),
+        (SERVICE_SET_COVER_POSITION, {ATTR_POSITION: 50}),
+    ):
+        await hass.services.async_call(
+            COVER_DOMAIN,
+            service,
+            {ATTR_ENTITY_ID: "cover.desky_desk", **data},
+            blocking=True,
+        )
+
+    old_device.move_up.assert_not_called()
+    old_device.move_down.assert_not_called()
+    old_device.stop.assert_not_called()
+    old_device.move_to_height.assert_not_called()
+    coordinator.async_request_refresh.assert_not_called()
+    state = hass.states.get("cover.desky_desk")
+    assert state.state == "open"
+    assert state.attributes.get("current_position") == 28

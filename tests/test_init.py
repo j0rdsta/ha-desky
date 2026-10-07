@@ -2,14 +2,18 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
 import pytest
 
-from custom_components.desky_desk import async_setup_entry, async_unload_entry
+from custom_components.desky_desk import (
+    async_reload_entry,
+    async_setup_entry,
+    async_unload_entry,
+)
 from custom_components.desky_desk.const import DOMAIN
 
 
@@ -19,7 +23,6 @@ async def test_setup_entry_success(
     mock_bluetooth_device_from_address,
     mock_establish_connection,
     mock_bleak_client,
-    enable_custom_integrations,
 ):
     """Test successful setup of config entry."""
     mock_config_entry.add_to_hass(hass)
@@ -58,7 +61,6 @@ async def test_setup_entry_success(
 async def test_setup_entry_no_device(
     hass: HomeAssistant,
     mock_config_entry,
-    enable_custom_integrations,
 ):
     """Test setup failure when device is not found."""
     mock_config_entry.add_to_hass(hass)
@@ -74,7 +76,6 @@ async def test_setup_entry_no_device(
 async def test_unload_entry(
     hass: HomeAssistant,
     mock_config_entry,
-    enable_custom_integrations,
 ):
     """Test unloading the config entry."""
     # First setup the entry
@@ -103,7 +104,6 @@ async def test_setup_platforms(
     mock_config_entry,
     mock_bluetooth_device_from_address,
     mock_establish_connection,
-    enable_custom_integrations,
 ):
     """Test that all platforms are set up."""
     mock_config_entry.add_to_hass(hass)
@@ -138,3 +138,47 @@ async def test_setup_platforms(
             assert "switch" in [p.value for p in platforms]
             assert "select" in [p.value for p in platforms]
             assert "sensor" in [p.value for p in platforms]
+
+
+async def test_unload_entry_platforms_fail(
+    hass: HomeAssistant,
+    mock_config_entry,
+):
+    """Test the coordinator is kept when the platforms fail to unload."""
+    mock_config_entry.add_to_hass(hass)
+
+    mock_coordinator = MagicMock()
+    mock_coordinator.async_shutdown = AsyncMock()
+    hass.data.setdefault(DOMAIN, {})
+    hass.data[DOMAIN][mock_config_entry.entry_id] = mock_coordinator
+
+    with patch(
+        "homeassistant.config_entries.ConfigEntries.async_unload_platforms",
+        return_value=False,
+    ):
+        assert await async_unload_entry(hass, mock_config_entry) is False
+
+    mock_coordinator.async_shutdown.assert_not_called()
+    assert hass.data[DOMAIN][mock_config_entry.entry_id] is mock_coordinator
+
+
+async def test_reload_entry(
+    hass: HomeAssistant,
+    mock_config_entry,
+):
+    """Test reloading unloads the entry and then sets it up again."""
+    mock_config_entry.add_to_hass(hass)
+    calls = MagicMock()
+    calls.unload = AsyncMock(return_value=True)
+    calls.setup = AsyncMock(return_value=True)
+
+    with (
+        patch("custom_components.desky_desk.async_unload_entry", calls.unload),
+        patch("custom_components.desky_desk.async_setup_entry", calls.setup),
+    ):
+        assert await async_reload_entry(hass, mock_config_entry) is None
+
+    assert calls.mock_calls == [
+        call.unload(hass, mock_config_entry),
+        call.setup(hass, mock_config_entry),
+    ]

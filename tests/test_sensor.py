@@ -2,12 +2,23 @@
 
 from __future__ import annotations
 
-from homeassistant.const import PERCENTAGE, STATE_UNAVAILABLE, UnitOfLength
+from homeassistant.components.sensor import (
+    DOMAIN as SENSOR_DOMAIN,
+    SensorEntityDescription,
+)
+from homeassistant.const import (
+    PERCENTAGE,
+    STATE_UNAVAILABLE,
+    STATE_UNKNOWN,
+    UnitOfLength,
+)
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.entity_component import DATA_INSTANCES
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.desky_desk.const import DOMAIN, LIGHT_COLORS
+from custom_components.desky_desk.sensor import DeskSensor
 
 
 async def setup_coordinator_data(hass, mock_config_entry):
@@ -225,3 +236,53 @@ async def test_height_sensor_precision(
 
         state = hass.states.get("sensor.desky_desk_height_display")
         assert state.state == expected
+
+
+async def test_sensor_native_value_when_unavailable(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    init_integration,
+):
+    """Test a sensor reports no value while the desk is disconnected."""
+    coordinator = await setup_coordinator_data(hass, mock_config_entry)
+    entity = hass.data[DATA_INSTANCES][SENSOR_DOMAIN].get_entity(
+        "sensor.desky_desk_led_color"
+    )
+
+    coordinator.async_set_updated_data({**coordinator.data, "is_connected": False})
+    await hass.async_block_till_done()
+
+    assert entity.native_value is None
+
+
+async def test_height_display_without_height(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    init_integration,
+):
+    """Test the height display is unknown when no height has been reported."""
+    coordinator = await setup_coordinator_data(hass, mock_config_entry)
+
+    data = dict(coordinator.data)
+    del data["height_cm"]
+    coordinator.async_set_updated_data(data)
+    await hass.async_block_till_done()
+
+    state = hass.states.get("sensor.desky_desk_height_display")
+    assert state.state == STATE_UNKNOWN
+    assert state.attributes["height_cm"] is None
+
+
+async def test_sensor_unknown_key(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    init_integration,
+):
+    """Test a sensor with an unrecognised key has no value or extra attributes."""
+    coordinator = await setup_coordinator_data(hass, mock_config_entry)
+    entity = DeskSensor(
+        coordinator, mock_config_entry, SensorEntityDescription(key="unknown")
+    )
+
+    assert entity.native_value is None
+    assert entity.extra_state_attributes == {"connected": True}
