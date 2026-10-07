@@ -126,6 +126,14 @@ class DeskUpdateCoordinator(DataUpdateCoordinator[DeskData]):
         assert self._device is not None  # entities exist only after connecting
         return self._device
 
+    @property
+    def _wants_connection(self) -> bool:
+        """Return whether a lost connection should be logged and re-established.
+
+        Home Assistant shutting down drops the connection on purpose.
+        """
+        return self._expected_connected and not self.hass.is_stopping
+
     async def async_connect(self) -> None:
         """Find the desk and connect to it before the first refresh.
 
@@ -376,11 +384,7 @@ class DeskUpdateCoordinator(DataUpdateCoordinator[DeskData]):
     @callback
     def _async_request_reconnect(self) -> None:
         """Start a reconnect unless one is running, waiting or not wanted."""
-        if (
-            not self._expected_connected
-            or self.device.is_connected
-            or self.hass.is_stopping
-        ):
+        if not self._wants_connection or self.device.is_connected:
             return
         if self._reconnect_task is not None and not self._reconnect_task.done():
             return
@@ -454,8 +458,7 @@ class DeskUpdateCoordinator(DataUpdateCoordinator[DeskData]):
     def _handle_disconnect(self, device: DeskBLEDevice) -> None:
         """Handle disconnection from the desk."""
         self.async_set_updated_data(self._build_data(device))
-        # Home Assistant shutting down drops the connection on purpose
-        if not self._expected_connected or self.hass.is_stopping:
+        if not self._wants_connection:
             return
         if not self._unavailable_logged:
             _LOGGER.warning("The desk at %s is unavailable", self._address)
