@@ -18,8 +18,8 @@ from homeassistant.components.bluetooth import (
     BluetoothServiceInfoBleak,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_ADDRESS
-from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
+from homeassistant.const import CONF_ADDRESS, EVENT_HOMEASSISTANT_STOP
+from homeassistant.core import CALLBACK_TYPE, Event, HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.event import async_call_later
@@ -104,7 +104,8 @@ class DeskUpdateCoordinator(DataUpdateCoordinator[DeskData]):
         )
         self._address: str = entry.data[CONF_ADDRESS]
         self._device: DeskBLEDevice | None = None
-        # True while the entry is loaded, so a lost connection is re-established
+        # True while the entry is loaded and Home Assistant is not stopping, so
+        # a lost connection is logged and re-established
         self._expected_connected = False
         # True once the outage is logged, so it is logged once, not per retry
         self._unavailable_logged = False
@@ -158,6 +159,13 @@ class DeskUpdateCoordinator(DataUpdateCoordinator[DeskData]):
         self._expected_connected = True
         self._recheck_settings = True
         entry = self.config_entry
+        # Not async_listen_once: removing a listener that already fired on
+        # unload logs an error
+        entry.async_on_unload(
+            self.hass.bus.async_listen(
+                EVENT_HOMEASSISTANT_STOP, self._async_handle_home_assistant_stop
+            )
+        )
         # Every advertisement hands over the route the desk is heard on now, and
         # one from a desk that is not connected starts a reconnect
         entry.async_on_unload(
@@ -333,6 +341,16 @@ class DeskUpdateCoordinator(DataUpdateCoordinator[DeskData]):
         await device.get_status()
 
     @callback
+    def _async_handle_home_assistant_stop(self, _event: Event) -> None:
+        """Stop reconnecting once Home Assistant starts shutting down.
+
+        Shutdown drops the connection on purpose. Bluetooth is torn down late,
+        once the state is not_running again, so hass.is_stopping cannot tell.
+        """
+        self._expected_connected = False
+        self._async_cancel_retry()
+
+    @callback
     def _async_handle_advertisement(
         self, service_info: BluetoothServiceInfoBleak, change: BluetoothChange
     ) -> None:
@@ -394,6 +412,8 @@ class DeskUpdateCoordinator(DataUpdateCoordinator[DeskData]):
         """Try to reconnect once, scheduling a retry with backoff if it fails."""
         device = self.device
         if not await device.connect():
+            if not self._expected_connected:
+                return
             self._failed_attempts += 1
             delay = min(
                 RECONNECT_BACKOFF_MIN_SECONDS * 2 ** (self._failed_attempts - 1),
