@@ -2545,3 +2545,219 @@ async def test_failed_handshake_fails_the_command(
         WRITE_CHARACTERISTIC_UUID, COMMAND_HANDSHAKE
     )
     assert device._movement is None
+
+
+# Preset 2 run captured in inch mode: 27.0 in -> 37.4 in, about 0.65 s after the command
+INCH_MODE_PRESET_RUN = [
+    (0.650, "f2f20103010f071b7e"), (0.859, "f2f201030110071c7e"),
+    (1.048, "f2f201030112071e7e"), (1.258, "f2f20103011507217e"),
+    (1.469, "f2f20103011807247e"), (1.679, "f2f20103011b07277e"),
+    (1.885, "f2f20103011e072a7e"), (2.087, "f2f201030120072c7e"),
+    (2.285, "f2f201030123072f7e"), (2.448, "f2f20103012607327e"),
+    (2.667, "f2f20103012907357e"), (2.873, "f2f20103012c07387e"),
+    (3.095, "f2f20103012e073a7e"), (3.299, "f2f201030131073d7e"),
+    (3.491, "f2f20103013407407e"), (3.677, "f2f20103013707437e"),
+    (3.882, "f2f20103013a07467e"), (4.099, "f2f20103013d07497e"),
+    (4.333, "f2f201030140074c7e"), (4.599, "f2f201030143074f7e"),
+    (4.749, "f2f20103014507517e"), (5.044, "f2f20103014907557e"),
+    (5.163, "f2f20103014b07577e"), (5.360, "f2f20103014f075b7e"),
+    (5.640, "f2f201030151075d7e"), (6.075, "f2f20103015407607e"),
+    (6.173, "f2f20103015707637e"), (6.236, "f2f20103015a07667e"),
+    (6.594, "f2f20103015d07697e"), (6.693, "f2f201030160076c7e"),
+    (6.979, "f2f201030163076f7e"), (7.103, "f2f20103016607727e"),
+    (7.303, "f2f20103016907757e"), (7.517, "f2f20103016c07787e"),
+    (7.694, "f2f20103016f077b7e"), (7.916, "f2f201030171077d7e"),
+    (8.424, "f2f201030172077e7e"), (8.437, "f2f20103017407807e"),
+    (8.592, "f2f20103017507817e"), (8.830, "f2f20103017607827e"),
+]  # fmt: skip
+
+INCH_REPORT = bytearray.fromhex("f2f20e0101107e")
+CM_REPORT = bytearray.fromhex("f2f20e01000f7e")
+
+
+@pytest.mark.parametrize(
+    ("unit_report", "frame", "expected"),
+    [
+        # Frames from #21, captured at the same desk height in both units
+        (CM_REPORT, "f2f2010302ba07c77e", 69.8),
+        (INCH_REPORT, "f2f201030112071e7e", 69.6),  # 27.4 in
+    ],
+)
+def test_status_frame_is_decoded_in_the_display_unit(
+    mock_ble_device, unit_report, frame, expected
+):
+    """A status frame carries tenths of the display unit; heights are always cm."""
+    device = DeskBLEDevice(mock_ble_device)
+    device._handle_notification(None, unit_report)
+
+    device._handle_notification(None, bytearray.fromhex(frame))
+
+    assert device.height_cm == expected
+
+
+@patch("time.time")
+def test_unit_switched_while_connected(mock_time, mock_ble_device):
+    """Switching cm to inches mid-session changes the height by under 0.5 cm (#21)."""
+    device = DeskBLEDevice(mock_ble_device)
+    callback = MagicMock()
+    device.register_notification_callback(callback)
+    device._handle_notification(None, CM_REPORT)
+    mock_time.return_value = 0.0
+    device._handle_notification(None, bytearray.fromhex("f2f2010302ba07c77e"))
+
+    # The switch from Home Assistant: the desk reports the new unit, then heights
+    device._handle_notification(None, INCH_REPORT)
+    mock_time.return_value = 4.0
+    device._handle_notification(None, bytearray.fromhex("f2f201030112071e7e"))
+
+    assert abs(device.height_cm - 69.8) < 0.5
+    assert device.is_moving is False
+    assert device.collision_detected is False
+    assert all(not moving for _, _, moving in (c.args for c in callback.call_args_list))
+
+
+def test_first_frame_before_the_unit_report(mock_ble_device):
+    """A desk in inches whose first height arrives before its unit report reads right."""
+    device = DeskBLEDevice(mock_ble_device)
+    callback = MagicMock()
+    device.register_notification_callback(callback)
+
+    device._handle_notification(None, bytearray.fromhex("f2f20103017607827e"))
+    device._handle_notification(None, INCH_REPORT)
+
+    assert device.height_cm == 95.0  # 37.4 in
+    # No reading below the desk's minimum height was ever exposed
+    assert all(c.args[0] >= MIN_HEIGHT for c in callback.call_args_list)
+
+
+def test_first_frame_new_unit_before_its_report(mock_ble_device):
+    """A unit change on the hand controller sends the new-unit height before the report."""
+    device = DeskBLEDevice(mock_ble_device)
+    device._handle_notification(None, INCH_REPORT)
+    device._handle_notification(None, bytearray.fromhex("f2f201030162076e7e"))
+    assert device.height_cm == 89.9  # 35.4 in
+
+    # Captured: raw 900 arrives 0.46 s before the desk reports cm
+    device._handle_notification(None, bytearray.fromhex("f2f20103038407927e"))
+    assert device.height_cm == 90.0
+    device._handle_notification(None, CM_REPORT)
+    assert device.unit_preference == "cm"
+    assert device.height_cm == 90.0
+
+
+async def test_reconnect_after_unit_change_on_the_hand_controller(
+    mock_ble_device, mock_bleak_client
+):
+    """A unit changed while disconnected is not decoded under the stale unit."""
+    device = DeskBLEDevice(mock_ble_device)
+    device._client = mock_bleak_client
+    device._handle_notification(None, CM_REPORT)
+    device._handle_notification(None, bytearray.fromhex("f2f2010302ba07c77e"))
+    device._handle_disconnect(mock_bleak_client)
+
+    # Switched to inches on the hand controller; the first height after
+    # reconnecting arrives before the unit report
+    device._client = mock_bleak_client
+    device._handle_notification(None, bytearray.fromhex("f2f201030112071e7e"))
+
+    assert device.height_cm == 69.6
+
+
+def test_implausible_height_is_logged(mock_ble_device, caplog):
+    """A height that fits neither unit is still decoded, and logged with its frame."""
+    device = DeskBLEDevice(mock_ble_device)
+    caplog.set_level("DEBUG", logger="custom_components.desky_desk.bluetooth")
+    device._handle_notification(None, CM_REPORT)
+
+    device._handle_notification(None, bytearray.fromhex("f2f20103057807887e"))
+
+    assert device.height_cm == 140.0
+    assert "fits neither unit (frame f2f20103057807887e)" in caplog.text
+
+
+@pytest.mark.parametrize("frame", [_status_frame, _movement_frame])
+@patch("time.time")
+async def test_inch_mode_movement_reports_physical_heights(
+    mock_time, frame, mock_ble_device, mock_bleak_client
+):
+    """A movement captured in inch mode is tracked in cm, whichever frame type it uses."""
+    device = DeskBLEDevice(mock_ble_device)
+    device._client = mock_bleak_client
+    device._handle_notification(None, INCH_REPORT)
+    mock_time.return_value = 0.0
+    device._handle_notification(None, bytearray.fromhex("f2f20103010e071a7e"))
+    assert device.height_cm == 68.6  # 27.0 in
+    callback = MagicMock()
+    device.register_notification_callback(callback)
+
+    await device.move_to_preset(2)
+    for when, captured in INCH_MODE_PRESET_RUN:
+        mock_time.return_value = when
+        raw = int(captured[8:12], 16)
+        device._handle_notification(None, frame(raw / 10.0))
+    for when in (9.0, 9.2, 9.4):
+        mock_time.return_value = when
+        device._handle_notification(None, frame(37.4))
+
+    heights = [c.args[0] for c in callback.call_args_list]
+    assert all(MIN_HEIGHT <= height <= MAX_HEIGHT for height in heights)
+    assert heights[-1] == 95.0  # 37.4 in
+    assert any(c.args[2] for c in callback.call_args_list)  # it moved
+    assert device.is_moving is False
+    assert device.collision_detected is False
+
+
+@pytest.mark.parametrize("unit_report", [CM_REPORT, INCH_REPORT])
+async def test_move_to_height_target_is_always_mm(
+    mock_ble_device, mock_bleak_client, unit_report
+):
+    """The move-to-height target is in mm, whatever the display unit."""
+    device = DeskBLEDevice(mock_ble_device)
+    device._client = mock_bleak_client
+    device._handle_notification(None, unit_report)
+    device._handle_notification(None, bytearray.fromhex("f2f2010302ba07c77e"))
+
+    await device.move_to_height(85.0)
+
+    # 850 mm = 0x0352
+    mock_bleak_client.write_gatt_char.assert_called_with(
+        WRITE_CHARACTERISTIC_UUID,
+        bytes([0xF1, 0xF1, 0x1B, 0x02, 0x03, 0x52, 0x72, 0x7E]),
+    )
+
+
+@pytest.mark.parametrize(
+    ("unit_report", "height_frame", "sent", "response", "read_back"),
+    [
+        # cm: tenths of a cm (mm)
+        (CM_REPORT, "f2f2010302ba07c77e", 1100, "f2f22102044c737e", 110.0),
+        # inches: 110 cm is sent as 43.3 in; the desk reports 43.2 in back
+        (INCH_REPORT, "f2f201030112071e7e", 433, "f2f2210201b0d47e", 109.7),
+    ],
+)
+async def test_height_limits_round_trip_in_cm(
+    mock_ble_device,
+    mock_bleak_client,
+    unit_report,
+    height_frame,
+    sent,
+    response,
+    read_back,
+):
+    """Height limits are in the display unit on the wire and in cm everywhere else."""
+    device = DeskBLEDevice(mock_ble_device)
+    device._client = mock_bleak_client
+    device._handle_notification(None, unit_report)
+    device._handle_notification(None, bytearray.fromhex(height_frame))
+
+    await device.set_height_limit_upper(110.0)
+    await device.set_height_limit_lower(70.0)
+
+    writes = [c.args[1] for c in mock_bleak_client.write_gatt_char.call_args_list]
+    assert writes[1] == device._create_command_with_word_param(0x21, sent)
+    lower = 700 if unit_report is CM_REPORT else 276  # 70 cm = 27.6 in
+    assert writes[3] == device._create_command_with_word_param(0x22, lower)
+
+    # The desk truncates the stored limit, so in inches it reads back a step low
+    device._handle_notification(None, bytearray.fromhex(response))
+    assert device.height_limit_upper == read_back

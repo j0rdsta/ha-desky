@@ -72,7 +72,7 @@ This is a Home Assistant custom integration that follows the standard component 
    - Commands are typically 6-8 byte arrays with checksum
    - Handshake command (0xFE) must be sent after connection to enable movement
    - Height notifications can have different headers depending on firmware version
-   - Height calculation: `(byte4 | (byte5 << 8)) / 10.0` cm
+   - Height frames carry tenths of the desk's display unit (cm or inches); `_decode_height()` converts them to cm, so everything downstream works in cm (see BLE Notification Formats)
 
 3. **Entity Implementation**:
    - Cover entity: Main control interface (0-100% position mapping) with proper direction tracking
@@ -148,16 +148,20 @@ The desk can send height updates in two different formats depending on firmware 
    - Height data: bytes 4-5 (little-endian)
    - Typically sent during desk movement
    - Example: `98 98 00 00 52 03` = 85.0 cm (0x0352 = 850 / 10.0)
-   - Calculation: `(byte4 | (byte5 << 8)) / 10.0` cm
+   - Value: `(byte4 | (byte5 << 8)) / 10.0`, in the display unit
+   - Not seen from the L-BTMEB95 desk (firmware Rev01), which reports movement in status frames
 
 2. **Status Response Notification** (0xF2 0xF2 0x01 0x03):
    - Header: `0xF2 0xF2 0x01 0x03` (bytes 0-3)
    - Height data: bytes 4-5 (big-endian)
    - Sent in response to GET_STATUS command
    - Example: `F2 F2 01 03 02 D0` = 72.0 cm (0x02D0 = 720 / 10.0)
-   - Calculation: `((byte4 << 8) | byte5) / 10.0` cm
+   - Value: `((byte4 << 8) | byte5) / 10.0`, in the display unit
+   - Sent during movement too, about every 200 ms
 
 Note: The two formats use different byte orders for height data - movement notifications use little-endian while status notifications use big-endian.
+
+**Display units.** Both formats carry tenths of the desk's display unit. While the desk shows inches, `f2 f2 01 03 01 12 …` is 27.4 in, which is 69.6 cm, not 27.4 cm. `_decode_height()` reads a frame in the unit the desk reported (`0x0E` response), converting inches with 2.54 and rounding to 0.1 cm. The desk's physical range (60-130 cm, about 23.6-51.2 in) does not overlap between units, so a value impossible in the reported unit but plausible in the other is read in the other unit (a frame in the new unit arrives before the unit report when the unit changes on the hand controller), and before the desk has reported a unit a value below 55.0 is inches. Height limit responses (`0x21`/`0x22`) are decoded the same way, and the limit setters send display units. The move-to-height target (`0x1B`) is always in mm, whatever the display unit.
 
 ### Advanced Feature Response Formats
 
@@ -201,9 +205,10 @@ If height updates aren't working:
    ```
 
 2. Check logs for "Received notification:" entries
-3. Look for either "Height notification (0x98 0x98):" or "Status notification (0xF2 0xF2 0x01 0x03):"
-4. Verify which format your desk uses
-5. Report the notification format in issues for debugging
+3. Look for either "Height notification (0x98 0x98):" or "Status notification (0xF2 0xF2 0x01 0x03):"; both log the decoded height in cm
+4. Look for "Display unit response:" (cm or in) after connecting. If heights look 2.54 times off, check that line and the raw frame next to it
+5. Verify which format your desk uses
+6. Report the notification format in issues for debugging
 
 ### Service Implementations
 

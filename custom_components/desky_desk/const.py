@@ -70,6 +70,7 @@ STATUS_NOTIFICATION_HEADER: Final = bytes(
 )  # Status response notifications
 
 # Desk height limits (in cm)
+CM_PER_INCH: Final = 2.54
 MIN_HEIGHT: Final = 60.0
 MAX_HEIGHT: Final = 130.0
 DEFAULT_HEIGHT: Final = 75.0

@@ -10,7 +10,7 @@ from homeassistant.const import PERCENTAGE, EntityCategory, UnitOfLength
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import LIGHT_COLORS
+from .const import CM_PER_INCH, LIGHT_COLORS
 from .coordinator import DeskUpdateCoordinator, DeskyConfigEntry
 from .entity import DeskEntity
 
@@ -18,8 +18,6 @@ _LOGGER = logging.getLogger(__name__)
 
 # State comes from the coordinator, so there are no updates to limit
 PARALLEL_UPDATES = 0
-
-CM_PER_INCH = 2.54
 
 SENSOR_DESCRIPTIONS = [
     SensorEntityDescription(

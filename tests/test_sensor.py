@@ -178,3 +178,31 @@ async def test_sensor_unknown_key(init_integration: MockConfigEntry) -> None:
     assert entity.native_value is None
     assert entity.native_unit_of_measurement is None
     assert entity.extra_state_attributes is None
+
+
+async def test_height_display_while_unit_unreported(
+    hass: HomeAssistant, init_integration: MockConfigEntry
+) -> None:
+    """Test the height display uses centimetres until the desk reports a unit."""
+    await set_desk_state(hass, init_integration, unit_preference=None, height_cm=69.8)
+
+    state = hass.states.get(HEIGHT_DISPLAY)
+    assert state is not None
+    assert state.state == "69.8"
+    assert state.attributes[ATTR_UNIT_OF_MEASUREMENT] == UnitOfLength.CENTIMETERS
+
+
+async def test_height_display_unit_changed_while_connected(
+    hass: HomeAssistant, init_integration: MockConfigEntry
+) -> None:
+    """Test a switch to inches at 69.8 cm shows about 27.4 in, keeping height_cm."""
+    await set_desk_state(hass, init_integration, unit_preference="cm", height_cm=69.8)
+    assert hass.states.get(HEIGHT_DISPLAY).state == "69.8"
+
+    # The desk reports inches; its next height (27.4 in) decodes to 69.6 cm
+    await set_desk_state(hass, init_integration, unit_preference="in", height_cm=69.6)
+
+    state = hass.states.get(HEIGHT_DISPLAY)
+    assert state.state == "27.4"
+    assert state.attributes[ATTR_UNIT_OF_MEASUREMENT] == UnitOfLength.INCHES
+    assert abs(state.attributes["height_cm"] - 69.8) < 0.5

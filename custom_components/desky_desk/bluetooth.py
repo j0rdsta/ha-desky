@@ -16,6 +16,7 @@ from bleak_retry_connector import establish_connection
 
 from .const import (
     BRIGHTNESS_RESPONSE_HEADER,
+    CM_PER_INCH,
     COMMAND_CLEAR_LIMITS,
     COMMAND_GET_BRIGHTNESS,
     COMMAND_GET_LIGHT_COLOR,
@@ -82,6 +83,13 @@ COMMAND_EXPIRY_SECONDS = 5.0
 # A movement has ended after this many readings without a height change
 UNCHANGED_READINGS_TO_STOP = 3
 
+# Heights the desk reports, in tenths of its display unit, are physically
+# 60-130 cm or about 23.6-51.2 in. The ranges do not overlap, so a value below
+# this split is in inches and one above it in centimetres.
+UNIT_SPLIT = 55.0
+# A decoded height outside this range fits neither unit
+PLAUSIBLE_HEIGHT_CM = (MIN_HEIGHT - 5.0, MAX_HEIGHT + 5.0)
+
 
 @dataclass(slots=True)
 class _Movement:
@@ -105,6 +113,17 @@ class _Movement:
         if not self.velocities:
             return 0.0
         return sum(self.velocities) / len(self.velocities)
+
+
+def _to_cm(value: float, unit: str) -> float:
+    """Convert a height in the given display unit to centimetres."""
+    return round(value * CM_PER_INCH, 1) if unit == "in" else value
+
+
+def _plausible(height_cm: float) -> bool:
+    """Return if a height is one the desk can physically report."""
+    low, high = PLAUSIBLE_HEIGHT_CM
+    return low <= height_cm <= high
 
 
 class DeskBLEDevice:
@@ -141,7 +160,9 @@ class DeskBLEDevice:
         self._height_limit_lower: float | None = None
         self._limits_enabled: bool = False
         self._touch_mode: int | None = None
-        self._unit_preference: str | None = None  # "cm" or "in"
+        self._unit_preference: str | None = None  # "cm" or "in", as the desk reports
+        # The unit the last height was actually in, for heights sent to the desk
+        self._effective_unit: str | None = None
 
         # Device information from BLE Device Information Service (0x180A)
         self._manufacturer_name: str | None = None
@@ -539,7 +560,7 @@ class DeskBLEDevice:
 
     async def move_to_height(self, height_cm: float) -> bool:
         """Move desk to a specific height in cm."""
-        # Convert cm to mm
+        # The target is always in mm, whatever the desk's display unit
         height_mm = int(height_cm * 10)
 
         # Ensure height is within valid range
@@ -688,8 +709,10 @@ class DeskBLEDevice:
                 MAX_HEIGHT,
             )
             return False
-        height_mm = int(height_cm * 10)
-        command = self._create_command_with_word_param(0x21, height_mm)
+        # Limits are in the desk's display unit, unlike move-to-height targets
+        command = self._create_command_with_word_param(
+            0x21, self._encode_height(height_cm)
+        )
         return await self._send_awake_command(command)
 
     async def set_height_limit_lower(self, height_cm: float) -> bool:
@@ -702,8 +725,10 @@ class DeskBLEDevice:
                 MAX_HEIGHT,
             )
             return False
-        height_mm = int(height_cm * 10)
-        command = self._create_command_with_word_param(0x22, height_mm)
+        # Limits are in the desk's display unit, unlike move-to-height targets
+        command = self._create_command_with_word_param(
+            0x22, self._encode_height(height_cm)
+        )
         return await self._send_awake_command(command)
 
     async def clear_height_limits(self) -> bool:
@@ -910,18 +935,18 @@ class DeskBLEDevice:
         # Check for height notification (0x98 0x98 header)
         if len(data) >= 6 and bytes(data[:2]) == HEIGHT_NOTIFICATION_HEADER:
             # Extract height from bytes 4-5 (little-endian)
-            height_raw = data[4] | (data[5] << 8)
-            _LOGGER.debug("Height notification (0x98 0x98): %.1f cm", height_raw / 10.0)
-            self._process_height(height_raw / 10.0)
+            height_cm = self._decode_height(data[4] | (data[5] << 8), data)
+            _LOGGER.debug("Height notification (0x98 0x98): %.1f cm", height_cm)
+            self._process_height(height_cm)
 
         # Check for status notification (0xF2 0xF2 0x01 0x03 header)
         elif len(data) >= 6 and bytes(data[:4]) == STATUS_NOTIFICATION_HEADER:
             # Extract height from bytes 4-5 (big-endian for status notifications)
-            height_raw = (data[4] << 8) | data[5]
+            height_cm = self._decode_height((data[4] << 8) | data[5], data)
             _LOGGER.debug(
-                "Status notification (0xF2 0xF2 0x01 0x03): %.1f cm", height_raw / 10.0
+                "Status notification (0xF2 0xF2 0x01 0x03): %.1f cm", height_cm
             )
-            self._process_height(height_raw / 10.0)
+            self._process_height(height_cm)
 
         # Check for light color response
         elif len(data) >= 6 and bytes(data[:4]) == LIGHT_COLOR_RESPONSE_HEADER:
@@ -970,16 +995,18 @@ class DeskBLEDevice:
             _LOGGER.debug("Touch mode response: %s", self._touch_mode)
             self._notify_callbacks()
 
-        # Check for upper limit response
+        # Check for upper limit response (in display units, like heights)
         elif len(data) >= 7 and bytes(data[:4]) == LIMIT_UPPER_RESPONSE_HEADER:
-            height_raw = (data[4] << 8) | data[5]
-            self._height_limit_upper = height_raw / 10.0
+            self._height_limit_upper = self._decode_height(
+                (data[4] << 8) | data[5], data
+            )
             _LOGGER.debug("Upper limit response: %.1f cm", self._height_limit_upper)
 
-        # Check for lower limit response
+        # Check for lower limit response (in display units, like heights)
         elif len(data) >= 7 and bytes(data[:4]) == LIMIT_LOWER_RESPONSE_HEADER:
-            height_raw = (data[4] << 8) | data[5]
-            self._height_limit_lower = height_raw / 10.0
+            self._height_limit_lower = self._decode_height(
+                (data[4] << 8) | data[5], data
+            )
             _LOGGER.debug("Lower limit response: %.1f cm", self._height_limit_lower)
 
         # Check for limit status response (0xF2 0xF2 0x20 0x01)
@@ -1010,6 +1037,37 @@ class DeskBLEDevice:
 
         else:
             _LOGGER.debug("Unknown notification format: %s", data.hex())
+
+    def _decode_height(self, raw: int, data: bytearray) -> float:
+        """Turn a height in tenths of the display unit into centimetres.
+
+        The frame is read in the unit the desk reported, unless its value is
+        impossible in that unit but plausible in the other one, which happens
+        while a unit change is under way. Before the desk reports its unit, the
+        value's range decides.
+        """
+        value = raw / 10.0
+        unit = self._unit_preference
+        if unit is None:
+            unit = "in" if value < UNIT_SPLIT else "cm"
+        else:
+            other = "cm" if unit == "in" else "in"
+            if not _plausible(_to_cm(value, unit)) and _plausible(_to_cm(value, other)):
+                unit = other
+
+        height_cm = _to_cm(value, unit)
+        if not _plausible(height_cm):
+            _LOGGER.debug(
+                "Height %.1f cm fits neither unit (frame %s)", height_cm, data.hex()
+            )
+        self._effective_unit = unit
+        return height_cm
+
+    def _encode_height(self, height_cm: float) -> int:
+        """Turn centimetres into tenths of the unit the desk currently uses."""
+        if (self._effective_unit or self._unit_preference) == "in":
+            return round(height_cm / CM_PER_INCH * 10)
+        return round(height_cm * 10)
 
     def _process_height(self, height_cm: float) -> None:
         """Take a new height reading, track the movement in flight and notify."""
@@ -1352,6 +1410,7 @@ class DeskBLEDevice:
         # Settings can change on the hand controller while disconnected, so they
         # are read from the desk again on reconnecting
         self._unit_preference = None
+        self._effective_unit = None
         self._touch_mode = None
 
         # Notify callbacks
