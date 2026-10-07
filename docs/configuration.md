@@ -1,0 +1,52 @@
+# Configuration
+
+The desk is added through the Home Assistant UI. There is nothing to add to
+`configuration.yaml`.
+
+## Add the desk
+
+Power on the desk and make sure it is in range of a Bluetooth adapter or proxy. The desk accepts
+one Bluetooth connection at a time, so if Home Assistant cannot connect, close the Desky app on
+your phone.
+
+### When Home Assistant discovers the desk
+
+Home Assistant discovers desks whose Bluetooth name starts with `Desky`. A discovered desk shows
+up under **Settings → Devices & services** as a new device to set up.
+
+1. Select **Add** on the discovered desk.
+2. Confirm that you want to set up the desk shown, with its name and Bluetooth address.
+
+### Adding the desk yourself
+
+1. Go to **Settings → Devices & services** and select **Add integration**.
+2. Search for **Desky Standing Desk**.
+3. If Home Assistant can see one or more desks, select yours from the list. Each entry shows the
+   desk's Bluetooth name and address.
+4. If it cannot see any desk, enter the desk's Bluetooth address, for example
+   `AA:BB:CC:DD:EE:FF`. Home Assistant must be able to see a device at that address right now,
+   otherwise setup fails with **Failed to connect to device**.
+
+Each desk can only be added once. Adding the same desk again stops with **Device is already
+configured**.
+
+## What happens after setup
+
+The integration connects to the desk and keeps the connection open. The device is named after
+the desk's Bluetooth name, and its manufacturer, model, serial number and versions come from the
+desk's Device Information service where the desk reports them. A desk that reports nothing useful
+is shown as a Desky Standing Desk.
+
+If the desk cannot be found or does not accept the connection, setup fails with one of these
+messages, and Home Assistant retries it in the background:
+
+- *Could not find the desk at AA:BB:CC:DD:EE:FF. Make sure it is powered on and in Bluetooth
+  range*
+- *Could not connect to the desk at AA:BB:CC:DD:EE:FF*
+
+See [Troubleshooting](troubleshooting.md) if it does not recover.
+
+## More than one desk
+
+Add each desk separately. Every desk gets its own device, connection and entities, and holds its
+own Bluetooth connection slot.
