@@ -105,11 +105,10 @@ class DeskSelect(DeskEntity, SelectEntity):
                     mode = key
                     break
 
-            if mode is not None:
-                await self._device.set_touch_mode(mode)
-                # Note: There's no get_touch_mode command in the Android app
+            # The desk does not confirm a change, so read its settings back
+            if mode is not None and await self._device.set_touch_mode(mode):
+                await self._device.get_settings()
 
         elif self.entity_description.key == "unit":
-            if option in ["cm", "in"]:
-                await self._device.set_unit(option)
-                # Note: Unit preference is auto-detected from height value
+            if option in ["cm", "in"] and await self._device.set_unit(option):
+                await self._device.get_settings()

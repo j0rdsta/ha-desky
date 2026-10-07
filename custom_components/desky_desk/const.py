@@ -70,6 +70,7 @@ STATUS_NOTIFICATION_HEADER: Final = bytes(
 )  # Status response notifications
 
 # Desk height limits (in cm)
+CM_PER_INCH: Final = 2.54
 MIN_HEIGHT: Final = 60.0
 MAX_HEIGHT: Final = 130.0
 DEFAULT_HEIGHT: Final = 75.0
@@ -104,6 +105,10 @@ SENSITIVITY_RESPONSE_HEADER: Final = bytes([0xF2, 0xF2, 0x1D, 0x01])
 LIMIT_UPPER_RESPONSE_HEADER: Final = bytes([0xF2, 0xF2, 0x21, 0x02])
 LIMIT_LOWER_RESPONSE_HEADER: Final = bytes([0xF2, 0xF2, 0x22, 0x02])
 LIMIT_STATUS_RESPONSE_HEADER: Final = bytes([0xF2, 0xF2, 0x20, 0x01])
+# Sent with the settings block after a handshake and a status request, and
+# unprompted when the setting changes on the hand controller
+UNIT_RESPONSE_HEADER: Final = bytes([0xF2, 0xF2, 0x0E, 0x01])
+TOUCH_MODE_RESPONSE_HEADER: Final = bytes([0xF2, 0xF2, 0x19, 0x01])
 
 # Light color options
 LIGHT_COLORS: Final = {
@@ -121,3 +126,6 @@ SENSITIVITY_LEVELS: Final = {1: "High", 2: "Medium", 3: "Low"}
 
 # Touch modes
 TOUCH_MODES: Final = {0: "One press", 1: "Press and hold"}
+
+# Display units, as reported in the unit response
+DISPLAY_UNITS: Final = {0: "cm", 1: "in"}

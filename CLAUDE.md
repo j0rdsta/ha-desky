@@ -65,14 +65,14 @@ This is a Home Assistant custom integration that follows the standard component 
    - Periodic status polling (30-second intervals)
    - Automatic reconnection attempts
    - Data distribution to all entities
-   - Movement direction tracking for proper cover state
+   - Movement tracking for the cover state and collision detection (see Movement Tracking below)
 
 2. **Bluetooth Communication**:
    - Uses characteristic UUIDs for write (0xfe61) and notify (0xfe62)
    - Commands are typically 6-8 byte arrays with checksum
    - Handshake command (0xFE) must be sent after connection to enable movement
    - Height notifications can have different headers depending on firmware version
-   - Height calculation: `(byte4 | (byte5 << 8)) / 10.0` cm
+   - Height frames carry tenths of the desk's display unit (cm or inches); `_decode_height()` converts them to cm, so everything downstream works in cm (see BLE Notification Formats)
 
 3. **Entity Implementation**:
    - Cover entity: Main control interface (0-100% position mapping) with proper direction tracking
@@ -148,16 +148,20 @@ The desk can send height updates in two different formats depending on firmware 
    - Height data: bytes 4-5 (little-endian)
    - Typically sent during desk movement
    - Example: `98 98 00 00 52 03` = 85.0 cm (0x0352 = 850 / 10.0)
-   - Calculation: `(byte4 | (byte5 << 8)) / 10.0` cm
+   - Value: `(byte4 | (byte5 << 8)) / 10.0`, in the display unit
+   - Not seen from the L-BTMEB95 desk (firmware Rev01), which reports movement in status frames
 
 2. **Status Response Notification** (0xF2 0xF2 0x01 0x03):
    - Header: `0xF2 0xF2 0x01 0x03` (bytes 0-3)
    - Height data: bytes 4-5 (big-endian)
    - Sent in response to GET_STATUS command
    - Example: `F2 F2 01 03 02 D0` = 72.0 cm (0x02D0 = 720 / 10.0)
-   - Calculation: `((byte4 << 8) | byte5) / 10.0` cm
+   - Value: `((byte4 << 8) | byte5) / 10.0`, in the display unit
+   - Sent during movement too, about every 200 ms
 
 Note: The two formats use different byte orders for height data - movement notifications use little-endian while status notifications use big-endian.
+
+**Display units.** Both formats carry tenths of the desk's display unit. While the desk shows inches, `f2 f2 01 03 01 12 …` is 27.4 in, which is 69.6 cm, not 27.4 cm. `_decode_height()` reads a frame in the unit the desk reported (`0x0E` response), converting inches with 2.54 and rounding to 0.1 cm. The desk's physical range (60-130 cm, about 23.6-51.2 in) does not overlap between units, so a value impossible in the reported unit but plausible in the other is read in the other unit (a frame in the new unit arrives before the unit report when the unit changes on the hand controller), and before the desk has reported a unit a value below 55.0 is inches. Height limit responses (`0x21`/`0x22`) are decoded the same way, and the limit setters send display units. The move-to-height target (`0x1B`) is always in mm, whatever the display unit.
 
 ### Advanced Feature Response Formats
 
@@ -175,7 +179,15 @@ Additional device features send responses with specific headers:
 4. **Sensitivity Response** (0xF2 0xF2 0x1D 0x01):
    - Values: 1=High, 2=Medium, 3=Low
 
-5. **Height Limit Responses**:
+5. **Display Unit Response** (0xF2 0xF2 0x0E 0x01):
+   - Values: 0=cm (`f2 f2 0e 01 00 0f 7e`), 1=inches (`f2 f2 0e 01 01 10 7e`)
+
+6. **Touch Mode Response** (0xF2 0xF2 0x19 0x01):
+   - Values: 0=One press (`f2 f2 19 01 00 1a 7e`), 1=Press and hold (`f2 f2 19 01 01 1b 7e`)
+
+   The desk has no query for a single setting. It sends a settings block (presets `0x25`-`0x28`, unit `0x0E`, touch mode `0x19`, `0x17`, sensitivity `0x1D`) for a status request (`0x07`) that follows a handshake, which the integration sends on connect and after changing the unit or touch mode (`get_settings()`). It also sends the block unprompted when the unit is changed on the hand controller. It does not confirm a unit or touch-mode change by itself.
+
+7. **Height Limit Responses**:
    - Upper limit (0xF2 0xF2 0x21 0x02): Height in mm (big-endian)
    - Lower limit (0xF2 0xF2 0x22 0x02): Height in mm (big-endian)
    - Limit status (0xF2 0xF2 0x20 0x01): 0x00=No limits, 0x01=Upper only, 0x10=Lower only, 0x11=Both
@@ -193,9 +205,10 @@ If height updates aren't working:
    ```
 
 2. Check logs for "Received notification:" entries
-3. Look for either "Height notification (0x98 0x98):" or "Status notification (0xF2 0xF2 0x01 0x03):"
-4. Verify which format your desk uses
-5. Report the notification format in issues for debugging
+3. Look for either "Height notification (0x98 0x98):" or "Status notification (0xF2 0xF2 0x01 0x03):"; both log the decoded height in cm
+4. Look for "Display unit response:" (cm or in) after connecting. If heights look 2.54 times off, check that line and the raw frame next to it
+5. Verify which format your desk uses
+6. Report the notification format in issues for debugging
 
 ### Service Implementations
 
@@ -209,7 +222,7 @@ The integration provides these custom services:
 
 ### Connection Management
 
-- Handshake command sent after connection to enable movement controls
+- Handshake command sent after connection to enable movement controls, and again before every command that moves the desk or changes a setting: the controller ignores commands while its display is asleep (about a minute after the last touch), and the handshake wakes it. `stop()` is sent without it
 - Automatic reconnection every 30 seconds when disconnected
 - Connection state tracked in coordinator data
 - All entities become unavailable when disconnected
@@ -222,6 +235,12 @@ The integration provides these custom services:
 3. **Error Handling**: Connection errors trigger reconnection; command errors are logged but don't crash
 4. **Bluetooth Proxies**: Fully supported through Home Assistant's bluetooth component
 5. **Multi-desk Support**: Each desk gets its own coordinator instance
-6. **Movement Tracking**: Direction tracking prevents cover UI issues; auto-stop detection when desk reaches target
+6. **Movement Tracking** (`bluetooth.py`, one `_Movement` object, `None` when nothing is in flight):
+   - A movement exists only after a command (Move up/down, preset, move to height). It starts once the height has moved from the height at command time by more than `HEIGHT_JITTER_CM` (0.5 cm) in the commanded direction (either direction for presets). Height changes with no command in flight, including hand-controller moves, update the height but never start a movement.
+   - A command that has not moved the desk within `COMMAND_EXPIRY_SECONDS` (5 s) is dropped, checked on the next reading.
+   - A movement ends, and all its state is forgotten through `_end_movement()`, on auto-stop (three readings without a change), `stop()`, a bounce-back, a new command or a disconnect.
+   - A bounce-back is a reversal of more than `HEIGHT_JITTER_CM` from the furthest point reached in the commanded direction; it is reported as one collision and ends the movement. Presets have no direction, so they get no bounce check.
+   - Auto-stop judges a collision from the active part of the movement (first to last height change), not from when the stop is confirmed.
+   - Both height frame types feed the same `_process_height()`, so movement behaviour does not depend on the frame type.
 7. **Manual Controls**: Move Up/Down buttons bypass any cover entity restrictions
 8. **Feature Detection**: Device capabilities are queried on connection; not all desks support all features

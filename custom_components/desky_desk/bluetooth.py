@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
+from dataclasses import dataclass, field
 import logging
 import time
 from typing import Any
@@ -15,6 +16,7 @@ from bleak_retry_connector import establish_connection
 
 from .const import (
     BRIGHTNESS_RESPONSE_HEADER,
+    CM_PER_INCH,
     COMMAND_CLEAR_LIMITS,
     COMMAND_GET_BRIGHTNESS,
     COMMAND_GET_LIGHT_COLOR,
@@ -36,6 +38,7 @@ from .const import (
     DEVICE_INFORMATION_SERVICE_UUID,
     DIRECT_CONNECTION_TIMEOUT,
     DIRECT_MAX_ATTEMPTS,
+    DISPLAY_UNITS,
     FIRMWARE_REVISION_CHAR_UUID,
     HARDWARE_REVISION_CHAR_UUID,
     HEIGHT_NOTIFICATION_HEADER,
@@ -55,6 +58,9 @@ from .const import (
     SERIAL_NUMBER_CHAR_UUID,
     SOFTWARE_REVISION_CHAR_UUID,
     STATUS_NOTIFICATION_HEADER,
+    TOUCH_MODE_RESPONSE_HEADER,
+    TOUCH_MODES,
+    UNIT_RESPONSE_HEADER,
     VIBRATION_INTENSITY_RESPONSE_HEADER,
     VIBRATION_RESPONSE_HEADER,
     WRITE_CHARACTERISTIC_UUID,
@@ -64,6 +70,60 @@ _LOGGER = logging.getLogger(__name__)
 
 # Auto-clear collision after this many seconds
 COLLISION_AUTO_CLEAR_SECONDS = 10.0
+
+# A height change within this band is reading jitter: it never starts a movement
+# and never counts as a reversal. Measured on hardware: no drift at all while
+# idle, up to 0.3 cm of settling after a move, and one inch-mode count is 0.254 cm.
+HEIGHT_JITTER_CM = 0.5
+
+# A command that has not moved the desk within this time is dropped. Measured on
+# hardware: 0.4-0.7 s from a command to the first height change.
+COMMAND_EXPIRY_SECONDS = 5.0
+
+# A movement has ended after this many readings without a height change
+UNCHANGED_READINGS_TO_STOP = 3
+
+# Heights the desk reports, in tenths of its display unit, are physically
+# 60-130 cm or about 23.6-51.2 in. The ranges do not overlap, so a value below
+# this split is in inches and one above it in centimetres.
+UNIT_SPLIT = 55.0
+# A decoded height outside this range fits neither unit
+PLAUSIBLE_HEIGHT_CM = (MIN_HEIGHT - 5.0, MAX_HEIGHT + 5.0)
+
+
+@dataclass(slots=True)
+class _Movement:
+    """A movement command in flight and, once the desk responds, its progress."""
+
+    kind: str  # "continuous", "targeted" or "preset"
+    direction: str | None  # commanded direction; unknown for presets
+    target_height: float | None
+    command_time: float
+    command_height: float
+    started: bool = False
+    start_time: float = 0.0
+    last_change_time: float = 0.0
+    last_height: float = 0.0
+    furthest_height: float = 0.0  # furthest point reached in the commanded direction
+    unchanged_readings: int = 0
+    velocities: list[float] = field(default_factory=list)  # recent speeds in cm/s
+
+    def average_velocity(self) -> float:
+        """Return the average of the recent velocity measurements."""
+        if not self.velocities:
+            return 0.0
+        return sum(self.velocities) / len(self.velocities)
+
+
+def _to_cm(value: float, unit: str) -> float:
+    """Convert a height in the given display unit to centimetres."""
+    return round(value * CM_PER_INCH, 1) if unit == "in" else value
+
+
+def _plausible(height_cm: float) -> bool:
+    """Return if a height is one the desk can physically report."""
+    low, high = PLAUSIBLE_HEIGHT_CM
+    return low <= height_cm <= high
 
 
 class DeskBLEDevice:
@@ -78,32 +138,12 @@ class DeskBLEDevice:
         self._client: BleakClient | None = None
         self._height_cm: float = 0.0
         self._collision_detected: bool = False
-        self._is_moving: bool = False
-        self._movement_direction: str | None = None  # "up", "down", or None
-        self._last_height_cm: float = 0.0  # Track last height for auto-stop detection
-        self._height_unchanged_count: int = (
-            0  # Count notifications with unchanged height
-        )
-        self._movement_start_time: float = 0.0  # Track when movement started
-        self._commanded_direction: str | None = (
-            None  # What user commanded ("up" or "down")
-        )
-        self._recent_heights: list[
-            tuple[float, float]
-        ] = []  # Track recent (time, height) for bounce detection
-        self._bounce_detected: bool = False  # Track if bounce-back was detected
         self._collision_time: float | None = None  # When collision was detected
         self._auto_clear_task: asyncio.Task | None = (
             None  # Task for auto-clearing collision
         )
-        self._target_height: float | None = (
-            None  # Target height for movement (if known)
-        )
-        self._movement_type: str | None = None  # "targeted", "preset", or "continuous"
-        self._movement_start_height: float | None = None  # Height when movement started
-        self._recent_velocities: list[
-            float
-        ] = []  # Track recent movement velocities (cm/s)
+        # The movement command in flight, if any; None once the movement ends
+        self._movement: _Movement | None = None
         self._last_notification_time: float = 0.0  # Time of last height notification
         self._notification_callbacks: list[Callable[[float, bool, bool], None]] = []
         self._disconnect_callbacks: list[Callable[[], None]] = []
@@ -120,7 +160,9 @@ class DeskBLEDevice:
         self._height_limit_lower: float | None = None
         self._limits_enabled: bool = False
         self._touch_mode: int | None = None
-        self._unit_preference: str | None = None  # "cm" or "in"
+        self._unit_preference: str | None = None  # "cm" or "in", as the desk reports
+        # The unit the last height was actually in, for heights sent to the desk
+        self._effective_unit: str | None = None
 
         # Device information from BLE Device Information Service (0x180A)
         self._manufacturer_name: str | None = None
@@ -152,13 +194,13 @@ class DeskBLEDevice:
 
     @property
     def is_moving(self) -> bool:
-        """Return if desk is currently moving."""
-        return self._is_moving
+        """Return if the desk is moving in response to a command."""
+        return self._movement is not None and self._movement.started
 
     @property
     def movement_direction(self) -> str | None:
-        """Return the current movement direction ('up', 'down', or None)."""
-        return self._movement_direction
+        """Return the commanded movement direction ('up', 'down', or None)."""
+        return self._movement.direction if self._movement else None
 
     @property
     def is_connected(self) -> bool:
@@ -424,49 +466,65 @@ class DeskBLEDevice:
             _LOGGER.error("Failed to send command: %s", err)
             return False
 
+    def _begin_movement(
+        self, kind: str, direction: str | None, target_height: float | None = None
+    ) -> None:
+        """Record a movement command; the movement starts once the desk responds."""
+        self._movement = _Movement(
+            kind=kind,
+            direction=direction,
+            target_height=target_height,
+            command_time=time.time(),
+            command_height=self._height_cm,
+        )
+
+    def _end_movement(self) -> None:
+        """Forget the current movement, so no later reading is attributed to it."""
+        self._movement = None
+
+    async def _send_awake_command(self, command: bytes) -> bool:
+        """Wake the desk with the handshake, then send a command.
+
+        The desk's controller ignores commands while its display is asleep.
+        """
+        if not await self._send_command(COMMAND_HANDSHAKE):
+            return False
+        return await self._send_command(command)
+
+    async def _send_movement_command(self, command: bytes) -> bool:
+        """Send a movement command, dropping the movement if the write fails."""
+        if await self._send_awake_command(command):
+            return True
+        self._end_movement()
+        return False
+
     async def move_up(self) -> bool:
         """Start moving the desk up."""
-        # Set movement intent but don't start collision detection until actual movement is detected
-        self._movement_direction = "up"
-        self._commanded_direction = "up"  # Track what user commanded
-        self._target_height = None  # No specific target for continuous movement
-        self._movement_type = "continuous"
-        self._bounce_detected = False  # Reset bounce detection
-        self._recent_heights = []  # Clear recent heights
-        self._movement_start_height = None  # Reset starting height for new movement
-        self._recent_velocities = []  # Clear velocity measurements for new movement
-        # Note: _is_moving, _movement_start_time, and collision detection will be set when actual movement is detected
-        return await self._send_command(COMMAND_MOVE_UP)
+        self._begin_movement("continuous", "up")
+        return await self._send_movement_command(COMMAND_MOVE_UP)
 
     async def move_down(self) -> bool:
         """Start moving the desk down."""
-        # Set movement intent but don't start collision detection until actual movement is detected
-        self._movement_direction = "down"
-        self._commanded_direction = "down"  # Track what user commanded
-        self._target_height = None  # No specific target for continuous movement
-        self._movement_type = "continuous"
-        self._bounce_detected = False  # Reset bounce detection
-        self._recent_heights = []  # Clear recent heights
-        self._movement_start_height = None  # Reset starting height for new movement
-        self._recent_velocities = []  # Clear velocity measurements for new movement
-        # Note: _is_moving, _movement_start_time, and collision detection will be set when actual movement is detected
-        return await self._send_command(COMMAND_MOVE_DOWN)
+        self._begin_movement("continuous", "down")
+        return await self._send_movement_command(COMMAND_MOVE_DOWN)
 
     async def stop(self) -> bool:
         """Stop desk movement."""
-        self._is_moving = False
-        self._movement_direction = None
-        self._commanded_direction = None
-        self._height_unchanged_count = 0
-        self._bounce_detected = False
-        self._target_height = None
-        self._movement_type = None
-        self._movement_start_height = None
+        self._end_movement()
+        # Sent at once: a moving desk is awake, and a sleeping one has nothing to stop
         return await self._send_command(COMMAND_STOP)
 
     async def get_status(self) -> bool:
         """Request current desk status."""
         return await self._send_command(COMMAND_GET_STATUS)
+
+    async def get_settings(self) -> bool:
+        """Ask the desk to report its settings, including unit and touch mode.
+
+        The desk sends its settings block for a status request that follows a
+        handshake; it has no query for a single setting.
+        """
+        return await self._send_awake_command(COMMAND_GET_STATUS)
 
     async def move_to_preset(self, preset: int) -> bool:
         """Move desk to a preset position (1-4)."""
@@ -482,20 +540,9 @@ class DeskBLEDevice:
             _LOGGER.error("Invalid preset number: %s", preset)
             return False
 
-        # Set movement intent but don't start collision detection until actual movement is detected
-        # We don't know the preset height, so can't set direction
-        self._movement_direction = None
-        self._commanded_direction = (
-            None  # Clear previous movement direction for presets
-        )
-        self._target_height = None  # We don't know preset heights
-        self._movement_type = "preset"
-        self._bounce_detected = False  # Reset bounce detection
-        self._recent_heights = []  # Clear recent heights
-        self._movement_start_height = None  # Reset starting height for new movement
-        self._recent_velocities = []  # Clear velocity measurements for new movement
-        # Note: _is_moving, _movement_start_time, and collision detection will be set when actual movement is detected
-        return await self._send_command(command)
+        # The preset height is unknown, so the direction is too
+        self._begin_movement("preset", None)
+        return await self._send_movement_command(command)
 
     def _create_command_with_byte_param(self, command_byte: int, param: int) -> bytes:
         """Create a command with a single byte parameter."""
@@ -513,7 +560,7 @@ class DeskBLEDevice:
 
     async def move_to_height(self, height_cm: float) -> bool:
         """Move desk to a specific height in cm."""
-        # Convert cm to mm
+        # The target is always in mm, whatever the desk's display unit
         height_mm = int(height_cm * 10)
 
         # Ensure height is within valid range
@@ -527,18 +574,9 @@ class DeskBLEDevice:
             )
             return False
 
-        # Determine movement direction based on current height
-        if height_cm > self._height_cm:
-            self._movement_direction = "up"
-            self._commanded_direction = "up"
-        elif height_cm < self._height_cm:
-            self._movement_direction = "down"
-            self._commanded_direction = "down"
-        else:
+        if height_cm == self._height_cm:
             # Already at target height
-            self._movement_direction = None
-            self._commanded_direction = None
-            self._is_moving = False
+            self._end_movement()
             return True
 
         # Build move-to-height command
@@ -555,17 +593,9 @@ class DeskBLEDevice:
             "Moving to height %.1f cm (command: %s)", height_cm, command.hex()
         )
 
-        # Set movement intent but don't start collision detection until actual movement is detected
-        self._movement_direction = "up" if height_cm > self._height_cm else "down"
-        self._commanded_direction = self._movement_direction
-        self._target_height = height_cm  # Store the target height
-        self._movement_type = "targeted"
-        self._bounce_detected = False  # Reset bounce detection
-        self._recent_heights = []  # Clear recent heights
-        self._movement_start_height = None  # Reset starting height for new movement
-        self._recent_velocities = []  # Clear velocity measurements for new movement
-        # Note: _is_moving, _movement_start_time, and collision detection will be set when actual movement is detected
-        return await self._send_command(command)
+        direction = "up" if height_cm > self._height_cm else "down"
+        self._begin_movement("targeted", direction, height_cm)
+        return await self._send_movement_command(command)
 
     # Get device status methods
     async def get_light_color(self) -> bool:
@@ -607,7 +637,7 @@ class DeskBLEDevice:
             _LOGGER.error("Invalid light color: %s (must be 1-7)", color)
             return False
         command = self._create_command_with_byte_param(0xB4, color)
-        return await self._send_command(command)
+        return await self._send_awake_command(command)
 
     async def set_brightness(self, level: int) -> bool:
         """Set brightness level (0-100)."""
@@ -615,19 +645,19 @@ class DeskBLEDevice:
             _LOGGER.error("Invalid brightness level: %s (must be 0-100)", level)
             return False
         command = self._create_command_with_byte_param(0xB6, level)
-        return await self._send_command(command)
+        return await self._send_awake_command(command)
 
     async def set_lighting(self, enabled: bool) -> bool:
         """Enable or disable lighting."""
         value = 1 if enabled else 0
         command = self._create_command_with_byte_param(0xB5, value)
-        return await self._send_command(command)
+        return await self._send_awake_command(command)
 
     async def set_vibration(self, enabled: bool) -> bool:
         """Enable or disable vibration."""
         value = 1 if enabled else 0
         command = self._create_command_with_byte_param(0xB3, value)
-        return await self._send_command(command)
+        return await self._send_awake_command(command)
 
     async def set_vibration_intensity(self, level: int) -> bool:
         """Set vibration intensity level."""
@@ -635,14 +665,14 @@ class DeskBLEDevice:
             _LOGGER.error("Invalid vibration intensity: %s (must be 0-100)", level)
             return False
         command = self._create_command_with_byte_param(0xA4, level)
-        return await self._send_command(command)
+        return await self._send_awake_command(command)
 
     async def set_lock_status(self, locked: bool) -> bool:
         """Lock or unlock desk controls."""
         value = 1 if locked else 0
         command = self._create_command_with_byte_param(0xB2, value)
         self._lock_status = locked  # Update local state immediately
-        return await self._send_command(command)
+        return await self._send_awake_command(command)
 
     async def set_sensitivity(self, level: int) -> bool:
         """Set collision sensitivity level (1=High, 2=Medium, 3=Low)."""
@@ -650,7 +680,7 @@ class DeskBLEDevice:
             _LOGGER.error("Invalid sensitivity level: %s (must be 1-3)", level)
             return False
         command = self._create_command_with_byte_param(0x1D, level)
-        return await self._send_command(command)
+        return await self._send_awake_command(command)
 
     async def set_touch_mode(self, mode: int) -> bool:
         """Set touch mode (0=One press, 1=Press and hold)."""
@@ -658,7 +688,7 @@ class DeskBLEDevice:
             _LOGGER.error("Invalid touch mode: %s (must be 0 or 1)", mode)
             return False
         command = self._create_command_with_byte_param(0x19, mode)
-        return await self._send_command(command)
+        return await self._send_awake_command(command)
 
     async def set_unit(self, unit: str) -> bool:
         """Set display unit preference."""
@@ -667,7 +697,7 @@ class DeskBLEDevice:
             return False
         value = 0 if unit == "cm" else 1
         command = self._create_command_with_byte_param(0x0E, value)
-        return await self._send_command(command)
+        return await self._send_awake_command(command)
 
     async def set_height_limit_upper(self, height_cm: float) -> bool:
         """Set upper height limit in cm."""
@@ -679,9 +709,11 @@ class DeskBLEDevice:
                 MAX_HEIGHT,
             )
             return False
-        height_mm = int(height_cm * 10)
-        command = self._create_command_with_word_param(0x21, height_mm)
-        return await self._send_command(command)
+        # Limits are in the desk's display unit, unlike move-to-height targets
+        command = self._create_command_with_word_param(
+            0x21, self._encode_height(height_cm)
+        )
+        return await self._send_awake_command(command)
 
     async def set_height_limit_lower(self, height_cm: float) -> bool:
         """Set lower height limit in cm."""
@@ -693,13 +725,15 @@ class DeskBLEDevice:
                 MAX_HEIGHT,
             )
             return False
-        height_mm = int(height_cm * 10)
-        command = self._create_command_with_word_param(0x22, height_mm)
-        return await self._send_command(command)
+        # Limits are in the desk's display unit, unlike move-to-height targets
+        command = self._create_command_with_word_param(
+            0x22, self._encode_height(height_cm)
+        )
+        return await self._send_awake_command(command)
 
     async def clear_height_limits(self) -> bool:
         """Clear all height limits."""
-        return await self._send_command(COMMAND_CLEAR_LIMITS)
+        return await self._send_awake_command(COMMAND_CLEAR_LIMITS)
 
     async def _query_device_capabilities(self) -> None:
         """Query device capabilities to determine supported features."""
@@ -901,270 +935,18 @@ class DeskBLEDevice:
         # Check for height notification (0x98 0x98 header)
         if len(data) >= 6 and bytes(data[:2]) == HEIGHT_NOTIFICATION_HEADER:
             # Extract height from bytes 4-5 (little-endian)
-            height_raw = data[4] | (data[5] << 8)
-            new_height = height_raw / 10.0
-
-            # Calculate velocity if we have previous data
-            current_time = time.time()
-            if self._last_notification_time > 0 and self._height_cm != new_height:
-                time_diff = current_time - self._last_notification_time
-                height_diff = new_height - self._height_cm
-                if time_diff > 0:
-                    velocity = height_diff / time_diff  # cm/s
-                    self._recent_velocities.append(velocity)
-                    # Keep only last 10 velocity measurements
-                    if len(self._recent_velocities) > 10:
-                        self._recent_velocities.pop(0)
-
-            self._height_cm = new_height
-            self._last_notification_time = current_time
-
-            # Check for collision flag (this needs to be determined from actual data)
-            # For now, we'll assume no collision detection in basic notifications
-            # NOTE: Don't clear collision here - it should only be cleared by auto-clear or successful movement
-
-            _LOGGER.debug("Height notification (0x98 0x98): %.1f cm", self._height_cm)
-
-            # Detect actual movement start
-            if (
-                not self._is_moving
-                and self._movement_type
-                and abs(self._height_cm - self._last_height_cm) > 0.1
-            ):
-                # Movement has actually started - begin collision detection
-                self._is_moving = True
-                self._movement_start_time = time.time()
-                self._movement_start_height = (
-                    self._last_height_cm
-                )  # Record starting height
-                self._height_unchanged_count = 0
-                _LOGGER.debug("Movement started - collision detection enabled")
-
-            # Track recent heights for bounce detection
-            if self._is_moving:
-                current_time = time.time()
-                self._recent_heights.append((current_time, self._height_cm))
-                # Keep only last 10 heights (about 3 seconds of data)
-                if len(self._recent_heights) > 10:
-                    self._recent_heights.pop(0)
-
-                # Bounce detection: check if direction reversed
-                if self._commanded_direction and len(self._recent_heights) >= 3:
-                    # Check if we've changed direction from commanded direction
-                    recent_direction = self._detect_movement_direction()
-                    if (
-                        recent_direction
-                        and recent_direction != self._commanded_direction
-                    ):
-                        self._bounce_detected = True
-                        self._set_collision_detected(True)
-                        _LOGGER.info(
-                            "Bounce-back detected! Commanded %s but now moving %s at %.1f cm",
-                            self._commanded_direction,
-                            recent_direction,
-                            self._height_cm,
-                        )
-                        self._is_moving = False
-                        self._movement_direction = None
-                        self._commanded_direction = None
-                        self._height_unchanged_count = 0
-                        self._movement_start_height = (
-                            None  # Reset after collision analysis
-                        )
-                        # Don't reset _movement_start_height here - it's needed for collision analysis
-
-            # Auto-stop detection: check if height hasn't changed
-            if self._is_moving and not self._bounce_detected:
-                if (
-                    abs(self._height_cm - self._last_height_cm) < 0.1
-                ):  # Less than 1mm change
-                    self._height_unchanged_count += 1
-                    if (
-                        self._height_unchanged_count >= 3
-                    ):  # 3 notifications without change
-                        _LOGGER.debug(
-                            "Auto-stop detected: height unchanged for 3 notifications"
-                        )
-                        # Check if movement has been going on for minimum duration
-                        movement_duration = time.time() - self._movement_start_time
-                        if (
-                            movement_duration > 1.0
-                        ):  # Require at least 1 second of movement
-                            # Check if this is a collision based on movement type
-                            is_collision = self._is_collision_stop()
-                            if is_collision:
-                                self._set_collision_detected(True)
-                                _LOGGER.info(
-                                    "Collision detected at %.1f cm after %.1f seconds",
-                                    self._height_cm,
-                                    movement_duration,
-                                )
-                            else:
-                                _LOGGER.debug(
-                                    "Normal stop at %.1f cm after %.1f seconds",
-                                    self._height_cm,
-                                    movement_duration,
-                                )
-                        else:
-                            _LOGGER.debug(
-                                "Auto-stop after %.1f seconds - too short for collision",
-                                movement_duration,
-                            )
-                        self._is_moving = False
-                        self._movement_direction = None
-                        self._height_unchanged_count = 0
-                else:
-                    self._height_unchanged_count = 0
-                    self._last_height_cm = self._height_cm
-
-                    # Clear collision if we've been moving successfully for a while AFTER collision was detected
-                    if self._collision_detected and self._collision_time:
-                        time_since_collision = time.time() - self._collision_time
-                        if time_since_collision > 2.0:
-                            _LOGGER.info(
-                                "Clearing collision state after %.1f seconds of successful movement",
-                                time_since_collision,
-                            )
-                            self._set_collision_detected(False)
-
-            # Notify callbacks
-            for callback in self._notification_callbacks:
-                callback(self._height_cm, self._collision_detected, self._is_moving)
+            height_cm = self._decode_height(data[4] | (data[5] << 8), data)
+            _LOGGER.debug("Height notification (0x98 0x98): %.1f cm", height_cm)
+            self._process_height(height_cm)
 
         # Check for status notification (0xF2 0xF2 0x01 0x03 header)
         elif len(data) >= 6 and bytes(data[:4]) == STATUS_NOTIFICATION_HEADER:
             # Extract height from bytes 4-5 (big-endian for status notifications)
-            height_raw = (data[4] << 8) | data[5]
-            new_height = height_raw / 10.0
-
-            # Calculate velocity if we have previous data
-            current_time = time.time()
-            if self._last_notification_time > 0 and self._height_cm != new_height:
-                time_diff = current_time - self._last_notification_time
-                height_diff = new_height - self._height_cm
-                if time_diff > 0:
-                    velocity = height_diff / time_diff  # cm/s
-                    self._recent_velocities.append(velocity)
-                    # Keep only last 10 velocity measurements
-                    if len(self._recent_velocities) > 10:
-                        self._recent_velocities.pop(0)
-
-            self._height_cm = new_height
-            self._last_notification_time = current_time
-
-            # Check for collision flag (this needs to be determined from actual data)
-            # For now, we'll assume no collision detection in basic notifications
-            # NOTE: Don't clear collision here - it should only be cleared by auto-clear or successful movement
-
+            height_cm = self._decode_height((data[4] << 8) | data[5], data)
             _LOGGER.debug(
-                "Status notification (0xF2 0xF2 0x01 0x03): %.1f cm", self._height_cm
+                "Status notification (0xF2 0xF2 0x01 0x03): %.1f cm", height_cm
             )
-
-            # Detect actual movement start
-            if (
-                not self._is_moving
-                and self._movement_type
-                and abs(self._height_cm - self._last_height_cm) > 0.1
-            ):
-                # Movement has actually started - begin collision detection
-                self._is_moving = True
-                self._movement_start_time = time.time()
-                self._movement_start_height = (
-                    self._last_height_cm
-                )  # Record starting height
-                self._height_unchanged_count = 0
-                _LOGGER.debug("Movement started - collision detection enabled")
-
-            # Track recent heights for bounce detection
-            if self._is_moving:
-                current_time = time.time()
-                self._recent_heights.append((current_time, self._height_cm))
-                # Keep only last 10 heights
-                if len(self._recent_heights) > 10:
-                    self._recent_heights.pop(0)
-
-                # Bounce detection: check if direction reversed
-                if self._commanded_direction and len(self._recent_heights) >= 3:
-                    # Check if we've changed direction from commanded direction
-                    recent_direction = self._detect_movement_direction()
-                    if (
-                        recent_direction
-                        and recent_direction != self._commanded_direction
-                    ):
-                        self._bounce_detected = True
-                        self._set_collision_detected(True)
-                        _LOGGER.info(
-                            "Bounce-back detected! Commanded %s but now moving %s at %.1f cm",
-                            self._commanded_direction,
-                            recent_direction,
-                            self._height_cm,
-                        )
-                        self._is_moving = False
-                        self._movement_direction = None
-                        self._commanded_direction = None
-                        self._height_unchanged_count = 0
-                        self._movement_start_height = (
-                            None  # Reset after collision analysis
-                        )
-                        # Don't reset _movement_start_height here - it's needed for collision analysis
-
-            # Auto-stop detection for status notifications too
-            if self._is_moving and not self._bounce_detected:
-                if (
-                    abs(self._height_cm - self._last_height_cm) < 0.1
-                ):  # Less than 1mm change
-                    self._height_unchanged_count += 1
-                    if (
-                        self._height_unchanged_count >= 3
-                    ):  # 3 notifications without change
-                        _LOGGER.debug(
-                            "Auto-stop detected: height unchanged for 3 notifications"
-                        )
-                        # Check if movement has been going on for minimum duration
-                        movement_duration = time.time() - self._movement_start_time
-                        if (
-                            movement_duration > 1.0
-                        ):  # Require at least 1 second of movement
-                            # Check if this is a collision based on movement type
-                            is_collision = self._is_collision_stop()
-                            if is_collision:
-                                self._set_collision_detected(True)
-                                _LOGGER.info(
-                                    "Collision detected at %.1f cm after %.1f seconds",
-                                    self._height_cm,
-                                    movement_duration,
-                                )
-                            else:
-                                _LOGGER.debug(
-                                    "Normal stop at %.1f cm after %.1f seconds",
-                                    self._height_cm,
-                                    movement_duration,
-                                )
-                        else:
-                            _LOGGER.debug(
-                                "Auto-stop after %.1f seconds - too short for collision",
-                                movement_duration,
-                            )
-                        self._is_moving = False
-                        self._movement_direction = None
-                        self._height_unchanged_count = 0
-                else:
-                    self._height_unchanged_count = 0
-                    self._last_height_cm = self._height_cm
-
-                    # Clear collision if we've been moving successfully for a while AFTER collision was detected
-                    if self._collision_detected and self._collision_time:
-                        time_since_collision = time.time() - self._collision_time
-                        if time_since_collision > 2.0:
-                            _LOGGER.info(
-                                "Clearing collision state after %.1f seconds of successful movement",
-                                time_since_collision,
-                            )
-                            self._set_collision_detected(False)
-
-            # Notify callbacks
-            for callback in self._notification_callbacks:
-                callback(self._height_cm, self._collision_detected, self._is_moving)
+            self._process_height(height_cm)
 
         # Check for light color response
         elif len(data) >= 6 and bytes(data[:4]) == LIGHT_COLOR_RESPONSE_HEADER:
@@ -1201,16 +983,30 @@ class DeskBLEDevice:
             self._sensitivity_level = data[4]
             _LOGGER.debug("Sensitivity level response: %s", self._sensitivity_level)
 
-        # Check for upper limit response
+        # Check for display unit response
+        elif len(data) >= 6 and bytes(data[:4]) == UNIT_RESPONSE_HEADER:
+            self._unit_preference = DISPLAY_UNITS.get(data[4])
+            _LOGGER.debug("Display unit response: %s", self._unit_preference)
+            self._notify_callbacks()
+
+        # Check for touch mode response
+        elif len(data) >= 6 and bytes(data[:4]) == TOUCH_MODE_RESPONSE_HEADER:
+            self._touch_mode = data[4] if data[4] in TOUCH_MODES else None
+            _LOGGER.debug("Touch mode response: %s", self._touch_mode)
+            self._notify_callbacks()
+
+        # Check for upper limit response (in display units, like heights)
         elif len(data) >= 7 and bytes(data[:4]) == LIMIT_UPPER_RESPONSE_HEADER:
-            height_raw = (data[4] << 8) | data[5]
-            self._height_limit_upper = height_raw / 10.0
+            self._height_limit_upper = self._decode_height(
+                (data[4] << 8) | data[5], data
+            )
             _LOGGER.debug("Upper limit response: %.1f cm", self._height_limit_upper)
 
-        # Check for lower limit response
+        # Check for lower limit response (in display units, like heights)
         elif len(data) >= 7 and bytes(data[:4]) == LIMIT_LOWER_RESPONSE_HEADER:
-            height_raw = (data[4] << 8) | data[5]
-            self._height_limit_lower = height_raw / 10.0
+            self._height_limit_lower = self._decode_height(
+                (data[4] << 8) | data[5], data
+            )
             _LOGGER.debug("Lower limit response: %.1f cm", self._height_limit_lower)
 
         # Check for limit status response (0xF2 0xF2 0x20 0x01)
@@ -1242,139 +1038,234 @@ class DeskBLEDevice:
         else:
             _LOGGER.debug("Unknown notification format: %s", data.hex())
 
-    def _detect_movement_direction(self) -> str | None:
-        """Detect movement direction from recent height changes."""
-        if len(self._recent_heights) < 2:
-            return None
+    def _decode_height(self, raw: int, data: bytearray) -> float:
+        """Turn a height in tenths of the display unit into centimetres.
 
-        # Compare last few heights to determine direction
-        recent_changes = []
-        for i in range(1, min(4, len(self._recent_heights))):
-            if i < len(self._recent_heights):
-                height_diff = (
-                    self._recent_heights[-1][1] - self._recent_heights[-(i + 1)][1]
+        The frame is read in the unit the desk reported, unless its value is
+        impossible in that unit but plausible in the other one, which happens
+        while a unit change is under way. Before the desk reports its unit, the
+        value's range decides.
+        """
+        value = raw / 10.0
+        unit = self._unit_preference
+        if unit is None:
+            unit = "in" if value < UNIT_SPLIT else "cm"
+        else:
+            other = "cm" if unit == "in" else "in"
+            if not _plausible(_to_cm(value, unit)) and _plausible(_to_cm(value, other)):
+                unit = other
+
+        height_cm = _to_cm(value, unit)
+        if not _plausible(height_cm):
+            _LOGGER.debug(
+                "Height %.1f cm fits neither unit (frame %s)", height_cm, data.hex()
+            )
+        self._effective_unit = unit
+        return height_cm
+
+    def _encode_height(self, height_cm: float) -> int:
+        """Turn centimetres into tenths of the unit the desk currently uses."""
+        if (self._effective_unit or self._unit_preference) == "in":
+            return round(height_cm / CM_PER_INCH * 10)
+        return round(height_cm * 10)
+
+    def _process_height(self, height_cm: float) -> None:
+        """Take a new height reading, track the movement in flight and notify."""
+        now = time.time()
+        previous_height = self._height_cm
+        previous_time = self._last_notification_time
+        self._height_cm = height_cm
+        self._last_notification_time = now
+
+        movement = self._movement
+        if movement is not None and not movement.started:
+            if now - movement.command_time > COMMAND_EXPIRY_SECONDS:
+                _LOGGER.debug("Command expired without the desk moving")
+                self._end_movement()
+            else:
+                self._check_movement_start(movement, now)
+        elif movement is not None:
+            self._track_movement(movement, previous_height, previous_time, now)
+
+        self._notify_callbacks()
+
+    def _check_movement_start(self, movement: _Movement, now: float) -> None:
+        """Start the movement once the height has left the jitter band."""
+        change = self._height_cm - movement.command_height
+        if movement.direction == "up":
+            moved = change > HEIGHT_JITTER_CM
+        elif movement.direction == "down":
+            moved = -change > HEIGHT_JITTER_CM
+        else:
+            moved = abs(change) > HEIGHT_JITTER_CM
+        if not moved:
+            return
+
+        movement.started = True
+        movement.start_time = now
+        movement.last_change_time = now
+        movement.last_height = self._height_cm
+        movement.furthest_height = self._height_cm
+        _LOGGER.debug("Movement started - collision detection enabled")
+
+    def _track_movement(
+        self,
+        movement: _Movement,
+        previous_height: float,
+        previous_time: float,
+        now: float,
+    ) -> None:
+        """Follow a started movement: detect its stop and any bounce-back."""
+        height = self._height_cm
+        if abs(height - movement.last_height) < 0.05:
+            movement.unchanged_readings += 1
+            if movement.unchanged_readings >= UNCHANGED_READINGS_TO_STOP:
+                self._finish_movement(movement)
+            return
+
+        if previous_time > 0 and now > previous_time:
+            movement.velocities.append(
+                (height - previous_height) / (now - previous_time)
+            )
+            # Keep only the last 10 velocity measurements
+            del movement.velocities[:-10]
+        movement.unchanged_readings = 0
+        movement.last_height = height
+        movement.last_change_time = now
+
+        # A bounce is a reversal from the furthest point reached in the
+        # commanded direction; presets have no known direction to reverse
+        if movement.direction == "up":
+            movement.furthest_height = max(movement.furthest_height, height)
+            reversal = movement.furthest_height - height
+        elif movement.direction == "down":
+            movement.furthest_height = min(movement.furthest_height, height)
+            reversal = height - movement.furthest_height
+        else:
+            reversal = 0.0
+        if reversal > HEIGHT_JITTER_CM:
+            self._set_collision_detected(True)
+            _LOGGER.info(
+                "Bounce-back detected! Commanded %s but reversed %.1f cm to %.1f cm",
+                movement.direction,
+                reversal,
+                height,
+            )
+            self._end_movement()
+            return
+
+        # Clear a collision once the desk has moved successfully for a while after it
+        if self._collision_detected and self._collision_time:
+            time_since_collision = now - self._collision_time
+            if time_since_collision > 2.0:
+                _LOGGER.info(
+                    "Clearing collision state after %.1f seconds of successful movement",
+                    time_since_collision,
                 )
-                if abs(height_diff) > 0.1:  # More than 1mm change
-                    recent_changes.append(height_diff)
+                self._set_collision_detected(False)
 
-        if not recent_changes:
-            return None
+    def _finish_movement(self, movement: _Movement) -> None:
+        """End a movement whose height stopped changing, judging if it collided."""
+        # Measure the active part of the movement, not the wait for the stop
+        duration = movement.last_change_time - movement.start_time
+        _LOGGER.debug(
+            "Auto-stop detected: height unchanged for %d notifications",
+            UNCHANGED_READINGS_TO_STOP,
+        )
+        if duration > 1.0:  # Require at least 1 second of movement
+            if self._is_collision_stop(movement, duration):
+                self._set_collision_detected(True)
+                _LOGGER.info(
+                    "Collision detected at %.1f cm after %.1f seconds",
+                    self._height_cm,
+                    duration,
+                )
+            else:
+                _LOGGER.debug(
+                    "Normal stop at %.1f cm after %.1f seconds",
+                    self._height_cm,
+                    duration,
+                )
+        else:
+            _LOGGER.debug(
+                "Auto-stop after %.1f seconds - too short for collision", duration
+            )
+        self._end_movement()
 
-        # Determine overall direction from recent changes
-        avg_change = sum(recent_changes) / len(recent_changes)
-        if avg_change > 0.1:
-            return "up"
-        if avg_change < -0.1:
-            return "down"
-        return None
+    def _notify_callbacks(self) -> None:
+        """Pass the current height, collision and moving state to every listener."""
+        for callback in self._notification_callbacks:
+            callback(self._height_cm, self._collision_detected, self.is_moving)
 
-    def _get_average_velocity(self) -> float:
-        """Get average velocity from recent measurements."""
-        if not self._recent_velocities:
-            return 0.0
-        return sum(self._recent_velocities) / len(self._recent_velocities)
+    def _is_collision_stop(self, movement: _Movement, duration: float) -> bool:
+        """Determine if a stop was a collision, from the movement type and context."""
+        distance_moved = abs(self._height_cm - movement.command_height)
+        avg_overall_speed = distance_moved / duration if duration > 0 else 0
+        avg_recent_velocity = abs(movement.average_velocity())
 
-    def _is_collision_stop(self) -> bool:
-        """Determine if current stop is a collision based on movement type and context."""
-        if self._movement_type == "continuous":
+        if movement.kind == "continuous":
             # For manual up/down movements, analyze movement patterns like presets
-            movement_duration = time.time() - self._movement_start_time
+            _LOGGER.debug(
+                "Continuous movement: %.1f cm in %.1f seconds (overall: %.2f cm/s, recent: %.2f cm/s)",
+                distance_moved,
+                duration,
+                avg_overall_speed,
+                avg_recent_velocity,
+            )
 
-            # Calculate movement distance and average speed
-            if (
-                hasattr(self, "_movement_start_height")
-                and self._movement_start_height is not None
-            ):
-                distance_moved = abs(self._height_cm - self._movement_start_height)
-                avg_overall_speed = (
-                    distance_moved / movement_duration if movement_duration > 0 else 0
-                )
-                avg_recent_velocity = abs(
-                    self._get_average_velocity()
-                )  # Get recent velocity magnitude
-
+            # If minimal movement occurred, likely a collision
+            if distance_moved < 0.5:  # Less than 5mm movement
                 _LOGGER.debug(
-                    "Continuous movement: %.1f cm in %.1f seconds (overall: %.2f cm/s, recent: %.2f cm/s)",
-                    distance_moved,
-                    movement_duration,
-                    avg_overall_speed,
-                    avg_recent_velocity,
-                )
-
-                # If minimal movement occurred, likely a collision
-                if distance_moved < 0.5:  # Less than 5mm movement
-                    _LOGGER.debug(
-                        "Continuous collision: minimal movement (%.1f cm)",
-                        distance_moved,
-                    )
-                    return True
-
-                # Check recent velocity for signs of collision (very slow recent movement)
-                if len(self._recent_velocities) >= 3 and avg_recent_velocity < 0.3:
-                    _LOGGER.debug(
-                        "Continuous collision: recent velocity too slow (%.2f cm/s)",
-                        avg_recent_velocity,
-                    )
-                    return True
-
-                # If overall movement was too slow, likely hit an obstacle
-                if avg_overall_speed < 0.5:  # Less than 0.5 cm/s average speed
-                    _LOGGER.debug(
-                        "Continuous collision: abnormally slow overall movement (%.2f cm/s)",
-                        avg_overall_speed,
-                    )
-                    return True
-
-                # For normal continuous movements (reasonable distance and speed), not a collision
-                if distance_moved >= 0.5 and avg_overall_speed >= 0.5:
-                    _LOGGER.debug(
-                        "Normal continuous stop: %.1f cm at %.2f cm/s",
-                        distance_moved,
-                        avg_overall_speed,
-                    )
-                    return False
-
-            # Fallback: very short movements (< 0.5s) are likely user releasing button, not collisions
-            if movement_duration < 0.5:
-                _LOGGER.debug(
-                    "Very short continuous movement (%.1f s) - likely user released button",
-                    movement_duration,
-                )
-                return False
-            if movement_duration > 10.0:  # Very long movement might indicate collision
-                _LOGGER.debug(
-                    "Very long continuous movement (%.1f s) - possible collision",
-                    movement_duration,
+                    "Continuous collision: minimal movement (%.1f cm)", distance_moved
                 )
                 return True
+
+            # Check recent velocity for signs of collision (very slow recent movement)
+            if len(movement.velocities) >= 3 and avg_recent_velocity < 0.3:
+                _LOGGER.debug(
+                    "Continuous collision: recent velocity too slow (%.2f cm/s)",
+                    avg_recent_velocity,
+                )
+                return True
+
+            # If overall movement was too slow, likely hit an obstacle
+            if avg_overall_speed < 0.5:  # Less than 0.5 cm/s average speed
+                _LOGGER.debug(
+                    "Continuous collision: abnormally slow overall movement (%.2f cm/s)",
+                    avg_overall_speed,
+                )
+                return True
+
+            # Reasonable distance and speed: the user released the button
             _LOGGER.debug(
-                "Normal duration continuous movement (%.1f s) - likely user released button",
-                movement_duration,
+                "Normal continuous stop: %.1f cm at %.2f cm/s",
+                distance_moved,
+                avg_overall_speed,
             )
             return False
 
-        if self._movement_type == "targeted" and self._target_height is not None:
+        if movement.kind == "targeted" and movement.target_height is not None:
+            target_height = movement.target_height
             # First check if we hit a physical height limit
-
             height_limit_tolerance = 3.0  # Allow 3cm tolerance for height limits
 
             # Check if we're near the minimum height limit
             if (
                 self._height_cm <= MIN_HEIGHT + height_limit_tolerance
-                and self._target_height < self._height_cm  # Was trying to go down
+                and target_height < self._height_cm  # Was trying to go down
             ):
                 _LOGGER.debug(
                     "Hit minimum height limit at %.1f cm (target: %.1f cm)",
                     self._height_cm,
-                    self._target_height,
+                    target_height,
                 )
                 return False
 
             # Check if we're near the maximum height limit
             # This handles cases where desk can't reach the configured maximum
             if (
-                self._target_height >= MAX_HEIGHT - 1.0  # Target was near max height
-                and self._target_height > self._height_cm  # Was trying to go up
+                target_height >= MAX_HEIGHT - 1.0  # Target was near max height
+                and target_height > self._height_cm  # Was trying to go up
             ):
                 # If we stopped within reasonable range of maximum, likely hit physical limit
                 distance_from_max = MAX_HEIGHT - self._height_cm
@@ -1382,112 +1273,78 @@ class DeskBLEDevice:
                     _LOGGER.debug(
                         "Hit maximum height limit at %.1f cm (target: %.1f cm, %.1f cm from max)",
                         self._height_cm,
-                        self._target_height,
+                        target_height,
                         distance_from_max,
                     )
                     return False
 
             # For targeted movements, check if we're close to the target
             height_tolerance = 1.0  # Allow 1cm tolerance
-            at_target = abs(self._height_cm - self._target_height) <= height_tolerance
-            if at_target:
+            if abs(self._height_cm - target_height) <= height_tolerance:
                 _LOGGER.debug(
                     "Reached target height %.1f cm (current: %.1f cm)",
-                    self._target_height,
+                    target_height,
                     self._height_cm,
                 )
                 return False
             _LOGGER.debug(
                 "Stopped at %.1f cm, away from target %.1f cm",
                 self._height_cm,
-                self._target_height,
+                target_height,
             )
             return True
 
-        if self._movement_type == "preset":
+        if movement.kind == "preset":
             # For preset movements, analyze movement patterns instead of arbitrary time threshold
-            movement_duration = time.time() - self._movement_start_time
+            _LOGGER.debug(
+                "Preset movement: %.1f cm in %.1f seconds (overall: %.2f cm/s, recent: %.2f cm/s)",
+                distance_moved,
+                duration,
+                avg_overall_speed,
+                avg_recent_velocity,
+            )
 
-            # Calculate movement distance and average speed
-            if (
-                hasattr(self, "_movement_start_height")
-                and self._movement_start_height is not None
-            ):
-                distance_moved = abs(self._height_cm - self._movement_start_height)
-                avg_overall_speed = (
-                    distance_moved / movement_duration if movement_duration > 0 else 0
-                )
-                avg_recent_velocity = abs(
-                    self._get_average_velocity()
-                )  # Get recent velocity magnitude
-
+            # If minimal movement occurred, likely a collision
+            if distance_moved < 0.5:  # Less than 5mm movement
                 _LOGGER.debug(
-                    "Preset movement: %.1f cm in %.1f seconds (overall: %.2f cm/s, recent: %.2f cm/s)",
-                    distance_moved,
-                    movement_duration,
-                    avg_overall_speed,
+                    "Preset collision: minimal movement (%.1f cm)", distance_moved
+                )
+                return True
+
+            # Check recent velocity for signs of collision (very slow recent movement)
+            if len(movement.velocities) >= 3 and avg_recent_velocity < 0.3:
+                _LOGGER.debug(
+                    "Preset collision: recent velocity too slow (%.2f cm/s)",
                     avg_recent_velocity,
                 )
+                return True
 
-                # If minimal movement occurred, likely a collision
-                if distance_moved < 0.5:  # Less than 5mm movement
-                    _LOGGER.debug(
-                        "Preset collision: minimal movement (%.1f cm)", distance_moved
-                    )
-                    return True
-
-                # Check recent velocity for signs of collision (very slow recent movement)
-                if len(self._recent_velocities) >= 3 and avg_recent_velocity < 0.3:
-                    _LOGGER.debug(
-                        "Preset collision: recent velocity too slow (%.2f cm/s)",
-                        avg_recent_velocity,
-                    )
-                    return True
-
-                # If overall movement was too slow, likely hit an obstacle
-                if avg_overall_speed < 0.5:  # Less than 0.5 cm/s average speed
-                    _LOGGER.debug(
-                        "Preset collision: abnormally slow overall movement (%.2f cm/s)",
-                        avg_overall_speed,
-                    )
-                    return True
-
-                # Check for abnormally short movement duration with significant distance
-                # This indicates the desk reached its preset position normally
-                if movement_duration < 0.5 and distance_moved > 2.0:
-                    _LOGGER.debug(
-                        "Preset reached quickly: %.1f cm in %.1f seconds",
-                        distance_moved,
-                        movement_duration,
-                    )
-                    return False
-
-                # For normal preset movements (reasonable distance and speed), not a collision
-                if distance_moved >= 1.0 and avg_overall_speed >= 1.0:
-                    _LOGGER.debug(
-                        "Normal preset completion: %.1f cm at %.2f cm/s",
-                        distance_moved,
-                        avg_overall_speed,
-                    )
-                    return False
-
-            # Fallback: if we can't calculate distance, use improved time-based logic
-            # Very short movements are likely preset completions, very long ones might be collisions
-            if movement_duration < 1.0:
+            # If overall movement was too slow, likely hit an obstacle
+            if avg_overall_speed < 0.5:  # Less than 0.5 cm/s average speed
                 _LOGGER.debug(
-                    "Short preset movement (%.1f s) - likely reached preset",
-                    movement_duration,
+                    "Preset collision: abnormally slow overall movement (%.2f cm/s)",
+                    avg_overall_speed,
+                )
+                return True
+
+            # For normal preset movements (reasonable distance and speed), not a collision
+            if distance_moved >= 1.0 and avg_overall_speed >= 1.0:
+                _LOGGER.debug(
+                    "Normal preset completion: %.1f cm at %.2f cm/s",
+                    distance_moved,
+                    avg_overall_speed,
                 )
                 return False
-            if movement_duration > 10.0:  # Much longer threshold than before
+
+            # Otherwise fall back to duration: very long preset movements might be collisions
+            if duration > 10.0:
                 _LOGGER.debug(
-                    "Very long preset movement (%.1f s) - possible collision",
-                    movement_duration,
+                    "Very long preset movement (%.1f s) - possible collision", duration
                 )
                 return True
             _LOGGER.debug(
                 "Normal duration preset movement (%.1f s) - likely completed normally",
-                movement_duration,
+                duration,
             )
             return False
 
@@ -1524,8 +1381,7 @@ class DeskBLEDevice:
                 self._collision_detected = False
                 self._collision_time = None
                 # Notify callbacks about the state change
-                for callback in self._notification_callbacks:
-                    callback(self._height_cm, self._collision_detected, self._is_moving)
+                self._notify_callbacks()
 
         # Schedule the task only if there's a running event loop
         try:
@@ -1545,11 +1401,17 @@ class DeskBLEDevice:
         """Handle disconnection from the desk."""
         _LOGGER.warning("Disconnected from Desky desk")
         self._client = None
-        self._is_moving = False
-        self._movement_direction = None
 
-        # Cancel any pending auto-clear task
-        self._cancel_collision_auto_clear()
+        # The movement ends with the connection, and a collision from before the
+        # drop is not shown again after reconnecting
+        self._end_movement()
+        self._set_collision_detected(False)
+
+        # Settings can change on the hand controller while disconnected, so they
+        # are read from the desk again on reconnecting
+        self._unit_preference = None
+        self._effective_unit = None
+        self._touch_mode = None
 
         # Notify callbacks
         for callback in self._disconnect_callbacks:
