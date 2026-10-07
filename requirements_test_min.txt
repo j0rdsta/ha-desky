@@ -1,0 +1,6 @@
+# Minimum supported Home Assistant (2025.10). Install HA component requirements afterwards with:
+#   pip install -r <(python script/ha_test_requirements.py)
+-r requirements_dev.txt
+pytest-homeassistant-custom-component==0.13.285
+# aiodns 3.5 (pinned by HA 2025.10) is incompatible with pycares 5
+pycares<5
