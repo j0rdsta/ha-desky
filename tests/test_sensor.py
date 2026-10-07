@@ -2,27 +2,35 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
 from unittest.mock import MagicMock
 
-from homeassistant.components.sensor import SensorEntityDescription
+from freezegun.api import FrozenDateTimeFactory
+
+from homeassistant.components.sensor import ATTR_OPTIONS, SensorEntityDescription
 from homeassistant.const import (
     ATTR_UNIT_OF_MEASUREMENT,
     PERCENTAGE,
     STATE_UNAVAILABLE,
+    STATE_UNKNOWN,
     UnitOfLength,
 )
 from homeassistant.core import HomeAssistant
 import pytest
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant_custom_component.common import (
+    MockConfigEntry,
+    async_fire_time_changed,
+)
 
-from custom_components.desky_desk.const import LIGHT_COLORS
+from custom_components.desky_desk.const import LIGHT_COLORS, POSTURE_SETTLE_SECONDS
 from custom_components.desky_desk.sensor import DeskSensor
 
-from . import disconnect_desk, set_desk_state
+from . import disconnect_desk, notify_desk, set_desk_state
 
 HEIGHT_DISPLAY = "sensor.desky_desk_height_display"
 LED_COLOR = "sensor.desky_desk_led_color"
 VIBRATION_INTENSITY = "sensor.desky_desk_vibration_intensity_display"
+POSTURE = "sensor.desky_desk_posture"
 
 
 async def test_sensor_states(
@@ -206,3 +214,37 @@ async def test_height_display_unit_changed_while_connected(
     assert state.state == "27.4"
     assert state.attributes[ATTR_UNIT_OF_MEASUREMENT] == UnitOfLength.INCHES
     assert abs(state.attributes["height_cm"] - 69.8) < 0.5
+
+
+async def test_posture_sensor(
+    hass: HomeAssistant,
+    freezer: FrozenDateTimeFactory,
+    init_integration: MockConfigEntry,
+    mock_desk: MagicMock,
+) -> None:
+    """Test the posture sensor follows the desk, and is unknown until it settles."""
+    state = hass.states.get(POSTURE)
+    assert state is not None
+    assert state.state == STATE_UNKNOWN
+    assert state.attributes[ATTR_OPTIONS] == ["sitting", "standing"]
+
+    freezer.tick(timedelta(seconds=POSTURE_SETTLE_SECONDS))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+    state = hass.states.get(POSTURE)
+    assert state is not None
+    assert state.state == "sitting"
+
+    notify_desk(mock_desk, height_cm=110.0)
+    freezer.tick(timedelta(seconds=POSTURE_SETTLE_SECONDS))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+    state = hass.states.get(POSTURE)
+    assert state is not None
+    assert state.state == "standing"
+
+    disconnect_desk(mock_desk)
+    await hass.async_block_till_done()
+    state = hass.states.get(POSTURE)
+    assert state is not None
+    assert state.state == STATE_UNAVAILABLE

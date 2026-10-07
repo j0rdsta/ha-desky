@@ -97,6 +97,13 @@
       "led_color": {
         "name": "LED color"
       },
+      "posture": {
+        "name": "Posture",
+        "state": {
+          "sitting": "Sitting",
+          "standing": "Standing"
+        }
+      },
       "vibration_intensity_display": {
         "name": "Vibration intensity display"
       }

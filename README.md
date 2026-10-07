@@ -42,6 +42,7 @@ versions keep their existing entity IDs.
 | Sensor | Height display | `sensor.desky_desk_height_display` | Height in the desk's display unit |
 | Sensor | LED color | `sensor.desky_desk_led_color` | Current LED colour |
 | Sensor | Vibration intensity display | `sensor.desky_desk_vibration_intensity_display` | Current vibration strength |
+| Sensor | Posture | `sensor.desky_desk_posture` | Sitting or Standing, from the height the desk stops at (see [Options](#options)) |
 
 Not every desk supports every feature. All entities are unavailable while the desk is not
 connected.

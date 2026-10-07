@@ -296,6 +296,24 @@
       'translation_key': 'led_color',
       'unique_id': 'AA:BB:CC:DD:EE:FF_led_color',
     }),
+    'sensor.desky_desk_posture': dict({
+      'attributes': dict({
+        'device_class': 'enum',
+        'friendly_name': 'Desky Desk Posture',
+        'options': list([
+          'sitting',
+          'standing',
+        ]),
+      }),
+      'disabled_by': None,
+      'entity_category': None,
+      'original_device_class': 'enum',
+      'original_name': 'Posture',
+      'platform': 'desky_desk',
+      'state': 'unknown',
+      'translation_key': 'posture',
+      'unique_id': 'AA:BB:CC:DD:EE:FF_posture',
+    }),
     'sensor.desky_desk_vibration_intensity_display': dict({
       'attributes': dict({
         'friendly_name': 'Desky Desk Vibration intensity display',

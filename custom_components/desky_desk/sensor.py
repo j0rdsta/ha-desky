@@ -5,12 +5,16 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from homeassistant.components.sensor import SensorEntity, SensorEntityDescription
+from homeassistant.components.sensor import (
+    SensorDeviceClass,
+    SensorEntity,
+    SensorEntityDescription,
+)
 from homeassistant.const import PERCENTAGE, EntityCategory, UnitOfLength
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import CM_PER_INCH, LIGHT_COLORS
+from .const import CM_PER_INCH, LIGHT_COLORS, POSTURE_SITTING, POSTURE_STANDING
 from .coordinator import DeskUpdateCoordinator, DeskyConfigEntry
 from .entity import DeskEntity
 
@@ -34,6 +38,12 @@ SENSOR_DESCRIPTIONS = [
         translation_key="vibration_intensity_display",
         native_unit_of_measurement=PERCENTAGE,
         entity_category=EntityCategory.DIAGNOSTIC,
+    ),
+    SensorEntityDescription(
+        key="posture",
+        translation_key="posture",
+        device_class=SensorDeviceClass.ENUM,
+        options=[POSTURE_SITTING, POSTURE_STANDING],
     ),
 ]
 
@@ -79,6 +89,9 @@ class DeskSensor(DeskEntity, SensorEntity):
         if self.entity_description.key == "vibration_intensity_display":
             intensity = data.vibration_intensity
             return intensity if intensity is not None else 0
+
+        if self.entity_description.key == "posture":
+            return data.posture
 
         return None
 
