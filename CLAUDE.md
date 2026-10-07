@@ -65,7 +65,7 @@ This is a Home Assistant custom integration that follows the standard component 
    - Periodic status polling (30-second intervals)
    - Automatic reconnection attempts
    - Data distribution to all entities
-   - Movement direction tracking for proper cover state
+   - Movement tracking for the cover state and collision detection (see Movement Tracking below)
 
 2. **Bluetooth Communication**:
    - Uses characteristic UUIDs for write (0xfe61) and notify (0xfe62)
@@ -222,6 +222,12 @@ The integration provides these custom services:
 3. **Error Handling**: Connection errors trigger reconnection; command errors are logged but don't crash
 4. **Bluetooth Proxies**: Fully supported through Home Assistant's bluetooth component
 5. **Multi-desk Support**: Each desk gets its own coordinator instance
-6. **Movement Tracking**: Direction tracking prevents cover UI issues; auto-stop detection when desk reaches target
+6. **Movement Tracking** (`bluetooth.py`, one `_Movement` object, `None` when nothing is in flight):
+   - A movement exists only after a command (Move up/down, preset, move to height). It starts once the height has moved from the height at command time by more than `HEIGHT_JITTER_CM` (0.5 cm) in the commanded direction (either direction for presets). Height changes with no command in flight, including hand-controller moves, update the height but never start a movement.
+   - A command that has not moved the desk within `COMMAND_EXPIRY_SECONDS` (5 s) is dropped, checked on the next reading.
+   - A movement ends, and all its state is forgotten through `_end_movement()`, on auto-stop (three readings without a change), `stop()`, a bounce-back, a new command or a disconnect.
+   - A bounce-back is a reversal of more than `HEIGHT_JITTER_CM` from the furthest point reached in the commanded direction; it is reported as one collision and ends the movement. Presets have no direction, so they get no bounce check.
+   - Auto-stop judges a collision from the active part of the movement (first to last height change), not from when the stop is confirmed.
+   - Both height frame types feed the same `_process_height()`, so movement behaviour does not depend on the frame type.
 7. **Manual Controls**: Move Up/Down buttons bypass any cover entity restrictions
 8. **Feature Detection**: Device capabilities are queried on connection; not all desks support all features
