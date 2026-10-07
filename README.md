@@ -174,7 +174,7 @@ Saving the options reloads the desk. Today's sitting and standing times are kept
 
 ## Removing the integration
 
-Removing the integration needs no steps on the desk.
+Removing the integration needs no steps on the desk, though you may want to clear its height limits first (see below).
 
 1. Go to Settings → Devices & Services and select **Desky Standing Desk**
 2. Open the three dots menu on the desk's entry and select **Delete**
