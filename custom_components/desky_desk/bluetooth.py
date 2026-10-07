@@ -9,6 +9,7 @@ import time
 from typing import Any
 
 from bleak import BleakClient
+from bleak.backends.characteristic import BleakGATTCharacteristic
 from bleak.backends.device import BLEDevice
 from bleak_retry_connector import establish_connection
 
@@ -273,9 +274,6 @@ class DeskBLEDevice:
         # Log details for debugging
         _LOGGER.debug("BLE device details: %s", ble_device.details)
 
-        # Check for proxy indicators in details
-        details_str = str(ble_device.details).lower()
-
         # Primary indicators
         if "via_device" in ble_device.details:
             _LOGGER.debug("Detected ESPHome proxy via 'via_device' indicator")
@@ -332,7 +330,7 @@ class DeskBLEDevice:
                 max_attempts=max_attempts,
                 use_services_cache=True,  # Improves proxy performance
                 # Callback for device updates during connection
-                ble_device_callback=lambda: self._get_updated_device(),
+                ble_device_callback=self._get_updated_device,
             )
 
             # Discover services to verify characteristics
@@ -392,7 +390,7 @@ class DeskBLEDevice:
             self._client = None
             return False
 
-    def _get_updated_device(self) -> BLEDevice | None:
+    def _get_updated_device(self) -> BLEDevice:
         """Get updated device during connection attempts."""
         # This callback is used by bleak_retry_connector to get
         # fresh device information during reconnection attempts
@@ -417,6 +415,7 @@ class DeskBLEDevice:
         if not self.is_connected:
             _LOGGER.warning("Cannot send command: not connected")
             return False
+        assert self._client is not None  # guaranteed by is_connected
 
         try:
             await self._client.write_gatt_char(WRITE_CHARACTERISTIC_UUID, command)
@@ -518,7 +517,6 @@ class DeskBLEDevice:
         height_mm = int(height_cm * 10)
 
         # Ensure height is within valid range
-        from .const import MAX_HEIGHT, MIN_HEIGHT
 
         if height_cm < MIN_HEIGHT or height_cm > MAX_HEIGHT:
             _LOGGER.error(
@@ -758,6 +756,7 @@ class DeskBLEDevice:
         if not self.is_connected:
             _LOGGER.debug("Not connected - cannot read device information")
             return
+        assert self._client is not None  # guaranteed by is_connected
 
         _LOGGER.info(
             "Starting device information read from Device Information Service..."
@@ -893,7 +892,9 @@ class DeskBLEDevice:
         else:
             _LOGGER.debug("No device information characteristics found or readable")
 
-    def _handle_notification(self, sender: int, data: bytearray) -> None:
+    def _handle_notification(
+        self, sender: BleakGATTCharacteristic | None, data: bytearray
+    ) -> None:
         """Handle notification from the desk."""
         _LOGGER.debug("Received notification: %s", data.hex())
 
@@ -1354,34 +1355,37 @@ class DeskBLEDevice:
 
         if self._movement_type == "targeted" and self._target_height is not None:
             # First check if we hit a physical height limit
-            from .const import MAX_HEIGHT, MIN_HEIGHT
 
             height_limit_tolerance = 3.0  # Allow 3cm tolerance for height limits
 
             # Check if we're near the minimum height limit
-            if self._height_cm <= MIN_HEIGHT + height_limit_tolerance:
-                if self._target_height < self._height_cm:  # Was trying to go down
-                    _LOGGER.debug(
-                        "Hit minimum height limit at %.1f cm (target: %.1f cm)",
-                        self._height_cm,
-                        self._target_height,
-                    )
-                    return False
+            if (
+                self._height_cm <= MIN_HEIGHT + height_limit_tolerance
+                and self._target_height < self._height_cm  # Was trying to go down
+            ):
+                _LOGGER.debug(
+                    "Hit minimum height limit at %.1f cm (target: %.1f cm)",
+                    self._height_cm,
+                    self._target_height,
+                )
+                return False
 
             # Check if we're near the maximum height limit
             # This handles cases where desk can't reach the configured maximum
-            if self._target_height >= MAX_HEIGHT - 1.0:  # Target was near max height
-                if self._target_height > self._height_cm:  # Was trying to go up
-                    # If we stopped within reasonable range of maximum, likely hit physical limit
-                    distance_from_max = MAX_HEIGHT - self._height_cm
-                    if distance_from_max <= 8.0:  # Within 8cm of configured maximum
-                        _LOGGER.debug(
-                            "Hit maximum height limit at %.1f cm (target: %.1f cm, %.1f cm from max)",
-                            self._height_cm,
-                            self._target_height,
-                            distance_from_max,
-                        )
-                        return False
+            if (
+                self._target_height >= MAX_HEIGHT - 1.0  # Target was near max height
+                and self._target_height > self._height_cm  # Was trying to go up
+            ):
+                # If we stopped within reasonable range of maximum, likely hit physical limit
+                distance_from_max = MAX_HEIGHT - self._height_cm
+                if distance_from_max <= 8.0:  # Within 8cm of configured maximum
+                    _LOGGER.debug(
+                        "Hit maximum height limit at %.1f cm (target: %.1f cm, %.1f cm from max)",
+                        self._height_cm,
+                        self._target_height,
+                        distance_from_max,
+                    )
+                    return False
 
             # For targeted movements, check if we're close to the target
             height_tolerance = 1.0  # Allow 1cm tolerance
@@ -1525,7 +1529,7 @@ class DeskBLEDevice:
 
         # Schedule the task only if there's a running event loop
         try:
-            loop = asyncio.get_running_loop()
+            asyncio.get_running_loop()
             self._auto_clear_task = asyncio.create_task(auto_clear())
         except RuntimeError:
             # No event loop running (e.g., in sync tests)

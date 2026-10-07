@@ -18,6 +18,7 @@ exclude_also = [
 [tool.ruff]
 target-version = "py313"
 line-length = 88
+extend-exclude = ["*.md"]
 
 [tool.ruff.lint]
 select = [
@@ -49,10 +50,11 @@ ignore = [
     "PLR0913", # too many arguments
     "PLR0915", # too many statements
     "PLR2004", # magic values are protocol bytes in this integration
+    "RUF012",  # HA entities declare _attr_ collections as class attributes
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["PLC0415", "SIM117"]
+"tests/**" = ["PLC0415", "PLR0917", "SIM105", "SIM117"]
 
 [tool.ruff.lint.isort]
 force-sort-within-sections = true

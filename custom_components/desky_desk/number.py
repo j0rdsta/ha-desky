@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 from homeassistant.components.number import (
     NumberEntity,
@@ -13,6 +12,7 @@ from homeassistant.components.number import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import PERCENTAGE, EntityCategory, UnitOfLength
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -71,7 +71,7 @@ async def async_setup_entry(
     """Set up Desky Desk number entities based on a config entry."""
     coordinator: DeskUpdateCoordinator = hass.data[DOMAIN][entry.entry_id]
 
-    entities = [DeskyHeightNumber(coordinator)]
+    entities: list[NumberEntity] = [DeskyHeightNumber(coordinator)]
 
     # Add additional number entities
     for description in NUMBER_DESCRIPTIONS:
@@ -97,7 +97,7 @@ class DeskyHeightNumber(CoordinatorEntity[DeskUpdateCoordinator], NumberEntity):
         self._attr_unique_id = f"{coordinator.entry.unique_id}_height"
 
     @property
-    def device_info(self) -> dict[str, Any]:
+    def device_info(self) -> DeviceInfo:
         """Return device information."""
         return self.coordinator.get_device_info()
 
@@ -137,12 +137,6 @@ class DeskNumber(DeskEntity, NumberEntity):
         super().__init__(coordinator, config_entry)
         self.entity_description = description
         self._attr_unique_id = f"{config_entry.unique_id}_{description.key}"
-        self._attr_name = description.name
-        self._attr_native_min_value = description.native_min_value
-        self._attr_native_max_value = description.native_max_value
-        self._attr_native_step = description.native_step
-        self._attr_native_unit_of_measurement = description.native_unit_of_measurement
-        self._attr_mode = description.mode
 
     @property
     def native_value(self) -> float | None:

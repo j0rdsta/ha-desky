@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from datetime import timedelta
 import logging
-from typing import Any
+from typing import Any, cast
 
 from homeassistant.components import bluetooth
 from homeassistant.config_entries import ConfigEntry
@@ -41,7 +42,7 @@ class DeskUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Return the BLE device."""
         return self._device
 
-    def get_device_info(self) -> dict[str, Any]:
+    def get_device_info(self) -> dr.DeviceInfo:
         """Return device information for Home Assistant device registry."""
         # Get device information from coordinator data with fallbacks
         data = self.data or {}
@@ -50,8 +51,8 @@ class DeskUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         manufacturer = data.get("manufacturer_name") or "Desky"
         model = data.get("model_number") or "Standing Desk"
 
-        device_info = {
-            "identifiers": {(DOMAIN, self.entry.unique_id)},
+        device_info: dr.DeviceInfo = {
+            "identifiers": {(DOMAIN, cast(str, self.entry.unique_id))},
             "name": self.device.name if self.device else "Desky Desk",
             "manufacturer": manufacturer,
             "model": model,
@@ -91,23 +92,29 @@ class DeskUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # Prepare update kwargs - only include non-None values
             update_kwargs = {}
 
-            if self.data.get("manufacturer_name"):
-                # Only update if it's not the generic placeholder
-                if self.data["manufacturer_name"] != "Manufacturer Name":
-                    update_kwargs["manufacturer"] = self.data["manufacturer_name"]
+            # Only update if it's not the generic placeholder
+            if (
+                self.data.get("manufacturer_name")
+                and self.data["manufacturer_name"] != "Manufacturer Name"
+            ):
+                update_kwargs["manufacturer"] = self.data["manufacturer_name"]
 
             if self.data.get("model_number"):
                 update_kwargs["model"] = self.data["model_number"]
 
-            if self.data.get("serial_number"):
-                # Only update if it's not the generic placeholder
-                if self.data["serial_number"] != "Serial Number":
-                    update_kwargs["serial_number"] = self.data["serial_number"]
+            # Only update if it's not the generic placeholder
+            if (
+                self.data.get("serial_number")
+                and self.data["serial_number"] != "Serial Number"
+            ):
+                update_kwargs["serial_number"] = self.data["serial_number"]
 
-            if self.data.get("hardware_revision"):
-                # Only update if it's not the generic placeholder
-                if self.data["hardware_revision"] != "Hardware Revision":
-                    update_kwargs["hw_version"] = self.data["hardware_revision"]
+            # Only update if it's not the generic placeholder
+            if (
+                self.data.get("hardware_revision")
+                and self.data["hardware_revision"] != "Hardware Revision"
+            ):
+                update_kwargs["hw_version"] = self.data["hardware_revision"]
 
             if self.data.get("firmware_revision"):
                 update_kwargs["sw_version"] = self.data["firmware_revision"]
@@ -122,7 +129,7 @@ class DeskUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 # discarding the information as the old lookup did.
                 device_registry.async_get_or_create(
                     config_entry_id=self.entry.entry_id,
-                    identifiers={(DOMAIN, self.entry.unique_id)},
+                    identifiers={(DOMAIN, cast(str, self.entry.unique_id))},
                     name=self.device.name if self.device else "Desky Desk",
                     **update_kwargs,
                 )
@@ -397,10 +404,8 @@ class DeskUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         if self._reconnect_task and not self._reconnect_task.done():
             self._reconnect_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._reconnect_task
-            except asyncio.CancelledError:
-                pass
 
         if self._device:
             await self._device.disconnect()

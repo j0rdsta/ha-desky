@@ -13,6 +13,7 @@ from homeassistant.components.cover import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -51,7 +52,7 @@ class DeskyCover(CoordinatorEntity[DeskUpdateCoordinator], CoverEntity):
         self._attr_unique_id = f"{coordinator.entry.unique_id}_cover"
 
     @property
-    def device_info(self) -> dict[str, Any]:
+    def device_info(self) -> DeviceInfo:
         """Return device information."""
         return self.coordinator.get_device_info()
 

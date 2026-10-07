@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 from homeassistant.components.button import ButtonEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -50,7 +50,7 @@ class DeskyPresetButton(CoordinatorEntity[DeskUpdateCoordinator], ButtonEntity):
         self._attr_unique_id = f"{coordinator.entry.unique_id}_preset_{preset_number}"
 
     @property
-    def device_info(self) -> dict[str, Any]:
+    def device_info(self) -> DeviceInfo:
         """Return device information."""
         return self.coordinator.get_device_info()
 
@@ -82,7 +82,7 @@ class DeskyMoveUpButton(CoordinatorEntity[DeskUpdateCoordinator], ButtonEntity):
         self._attr_unique_id = f"{coordinator.entry.unique_id}_move_up"
 
     @property
-    def device_info(self) -> dict[str, Any]:
+    def device_info(self) -> DeviceInfo:
         """Return device information."""
         return self.coordinator.get_device_info()
 
@@ -114,7 +114,7 @@ class DeskyMoveDownButton(CoordinatorEntity[DeskUpdateCoordinator], ButtonEntity
         self._attr_unique_id = f"{coordinator.entry.unique_id}_move_down"
 
     @property
-    def device_info(self) -> dict[str, Any]:
+    def device_info(self) -> DeviceInfo:
         """Return device information."""
         return self.coordinator.get_device_info()
 

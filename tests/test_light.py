@@ -146,7 +146,7 @@ async def test_light_brightness(
     # Check that set_brightness was called
     assert mock_device.set_brightness.called
     # Get the actual call arguments
-    args, kwargs = mock_device.set_brightness.call_args
+    args, _ = mock_device.set_brightness.call_args
     # 191/255 * 100 = 74.9, which rounds to 74
     assert args[0] == 74
 

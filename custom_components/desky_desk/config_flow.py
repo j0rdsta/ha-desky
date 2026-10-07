@@ -11,7 +11,6 @@ from homeassistant.components.bluetooth import (
     async_discovered_service_info,
 )
 from homeassistant.const import CONF_ADDRESS
-from homeassistant.data_entry_flow import FlowResult
 import voluptuous as vol
 
 from .const import DOMAIN
@@ -31,7 +30,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def async_step_bluetooth(
         self, discovery_info: BluetoothServiceInfoBleak
-    ) -> FlowResult:
+    ) -> config_entries.ConfigFlowResult:
         """Handle the bluetooth discovery step."""
         _LOGGER.debug("Discovered Desky desk: %s", discovery_info)
 
@@ -44,8 +43,9 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def async_step_confirm(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> config_entries.ConfigFlowResult:
         """Confirm discovery."""
+        assert self._discovery_info is not None  # set by async_step_bluetooth
         if user_input is not None:
             return self.async_create_entry(
                 title=self._discovery_info.name or "Desky Desk",
@@ -65,7 +65,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> config_entries.ConfigFlowResult:
         """Handle the initial step."""
         if user_input is not None:
             address = user_input[CONF_ADDRESS]
@@ -112,7 +112,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def async_step_pick_device(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> config_entries.ConfigFlowResult:
         """Handle picking a device from a list."""
         if user_input is not None:
             address = user_input[CONF_ADDRESS]
