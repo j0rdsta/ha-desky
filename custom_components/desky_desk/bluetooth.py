@@ -12,7 +12,7 @@ from typing import Any
 from bleak import BleakClient
 from bleak.backends.characteristic import BleakGATTCharacteristic
 from bleak.backends.device import BLEDevice
-from bleak_retry_connector import establish_connection
+from bleak_retry_connector import BleakClientWithServiceCache, establish_connection
 
 from .const import (
     BRIGHTNESS_RESPONSE_HEADER,
@@ -36,8 +36,6 @@ from .const import (
     COMMAND_MOVE_UP,
     COMMAND_STOP,
     DEVICE_INFORMATION_SERVICE_UUID,
-    DIRECT_CONNECTION_TIMEOUT,
-    DIRECT_MAX_ATTEMPTS,
     DISPLAY_UNITS,
     FIRMWARE_REVISION_CHAR_UUID,
     HARDWARE_REVISION_CHAR_UUID,
@@ -52,8 +50,6 @@ from .const import (
     MIN_HEIGHT,
     MODEL_NUMBER_CHAR_UUID,
     NOTIFY_CHARACTERISTIC_UUID,
-    PROXY_CONNECTION_TIMEOUT,
-    PROXY_MAX_ATTEMPTS,
     SENSITIVITY_RESPONSE_HEADER,
     SERIAL_NUMBER_CHAR_UUID,
     SOFTWARE_REVISION_CHAR_UUID,
@@ -67,6 +63,9 @@ from .const import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+# Connection attempts bleak-retry-connector makes before giving up
+CONNECT_MAX_ATTEMPTS = 3
 
 # Auto-clear collision after this many seconds
 COLLISION_AUTO_CLEAR_SECONDS = 10.0
@@ -89,6 +88,18 @@ UNCHANGED_READINGS_TO_STOP = 3
 UNIT_SPLIT = 55.0
 # A decoded height outside this range fits neither unit
 PLAUSIBLE_HEIGHT_CM = (MIN_HEIGHT - 5.0, MAX_HEIGHT + 5.0)
+
+
+class DeskError(Exception):
+    """A command could not be sent to the desk."""
+
+
+class DeskNotConnectedError(DeskError):
+    """The desk is not connected."""
+
+
+class DeskCommandError(DeskError):
+    """Writing a command to the desk failed."""
 
 
 @dataclass(slots=True)
@@ -136,6 +147,8 @@ class DeskBLEDevice:
         self._ble_device = ble_device
         self._advertisement_data = advertisement_data
         self._client: BleakClient | None = None
+        # Commands go out one at a time, so concurrent callers never interleave
+        self._write_lock = asyncio.Lock()
         self._height_cm: float = 0.0
         self._collision_detected: bool = False
         self._collision_time: float | None = None  # When collision was detected
@@ -307,72 +320,27 @@ class DeskBLEDevice:
         """Register a callback for disconnection events."""
         self._disconnect_callbacks.append(callback)
 
-    def _is_esphome_proxy(self, ble_device: BLEDevice) -> bool:
-        """Detect if connection will use ESPHome proxy."""
-        if not ble_device.details:
-            _LOGGER.debug("No device details available for proxy detection")
-            return False
-
-        # Log details for debugging
-        _LOGGER.debug("BLE device details: %s", ble_device.details)
-
-        # Primary indicators
-        if "via_device" in ble_device.details:
-            _LOGGER.debug("Detected ESPHome proxy via 'via_device' indicator")
-            return True
-
-        # Check source field
-        source = ble_device.details.get("source", "").lower()
-        if any(indicator in source for indicator in ["esphome", "proxy", "esp32"]):
-            _LOGGER.debug("Detected ESPHome proxy via source: %s", source)
-            return True
-
-        # Check for ESPHome specific keys
-        esphome_keys = ["esp_platform", "esphome_version", "scanner"]
-        if any(key in ble_device.details for key in esphome_keys):
-            scanner = str(ble_device.details.get("scanner", "")).lower()
-            if "esp" in scanner:
-                _LOGGER.debug("Detected ESPHome proxy via scanner: %s", scanner)
-                return True
-
-        # Check adapter/path information
-        if "path" in ble_device.details:
-            path = str(ble_device.details.get("path", "")).lower()
-            if "esphome" in path or "proxy" in path:
-                _LOGGER.debug("Detected ESPHome proxy via path: %s", path)
-                return True
-
-        _LOGGER.debug("No ESPHome proxy indicators found")
-        return False
-
     async def connect(self) -> bool:
-        """Connect to the desk."""
+        """Connect to the desk.
+
+        Returns False when the desk could not be reached; the caller decides how
+        loudly to report it.
+        """
         if self.is_connected:
             return True
 
-        # Detect if using ESPHome proxy
-        is_proxy = self._is_esphome_proxy(self._ble_device)
-        timeout = PROXY_CONNECTION_TIMEOUT if is_proxy else DIRECT_CONNECTION_TIMEOUT
-        max_attempts = PROXY_MAX_ATTEMPTS if is_proxy else DIRECT_MAX_ATTEMPTS
-
-        _LOGGER.debug(
-            "Connecting to Desky desk at %s (proxy: %s, timeout: %s)",
-            self.address,
-            is_proxy,
-            timeout,
-        )
+        _LOGGER.debug("Connecting to Desky desk at %s", self.address)
 
         try:
+            # bleak-retry-connector picks the adapter or proxy that currently
+            # hears the desk and waits for a free connection slot
             self._client = await establish_connection(
-                BleakClient,
+                BleakClientWithServiceCache,
                 self._ble_device,
                 self.name,
                 disconnected_callback=self._handle_disconnect,
-                timeout=timeout,
-                max_attempts=max_attempts,
-                use_services_cache=True,  # Improves proxy performance
-                # Callback for device updates during connection
-                ble_device_callback=self._get_updated_device,
+                max_attempts=CONNECT_MAX_ATTEMPTS,
+                ble_device_callback=self._get_ble_device,
             )
 
             # Discover services to verify characteristics
@@ -394,13 +362,7 @@ class DeskBLEDevice:
 
             # Send handshake command to enable movement controls
             _LOGGER.debug("Sending handshake command...")
-            handshake_result = await self._send_command(COMMAND_HANDSHAKE)
-            if not handshake_result:
-                _LOGGER.warning(
-                    "Handshake command failed, movement controls may not work"
-                )
-            else:
-                _LOGGER.debug("Handshake command sent successfully")
+            await self._send_command(COMMAND_HANDSHAKE)
 
             # Get initial status
             await self.get_status()
@@ -414,29 +376,21 @@ class DeskBLEDevice:
             # Read device information from Device Information Service (0x180A)
             await self._read_device_information()
 
-            _LOGGER.info(
-                "Connected to Desky desk at %s via %s",
-                self.address,
-                "ESPHome proxy" if is_proxy else "direct Bluetooth",
-            )
+            _LOGGER.debug("Connected to Desky desk at %s", self.address)
             return True
 
-        except TimeoutError:
-            _LOGGER.error(
-                "Connection timeout after %ss to desk at %s", timeout, self.address
-            )
-            self._client = None
-            return False
         except Exception as err:
-            _LOGGER.error("Failed to connect to desk: %s", err)
+            _LOGGER.debug("Failed to connect to desk at %s: %s", self.address, err)
             self._client = None
             return False
 
-    def _get_updated_device(self) -> BLEDevice:
-        """Get updated device during connection attempts."""
-        # This callback is used by bleak_retry_connector to get
-        # fresh device information during reconnection attempts
+    def _get_ble_device(self) -> BLEDevice:
+        """Return the latest BLE device, for retries during a connection attempt."""
         return self._ble_device
+
+    def set_ble_device(self, ble_device: BLEDevice) -> None:
+        """Use a newly seen BLE device, so the next connection takes its route."""
+        self._ble_device = ble_device
 
     async def disconnect(self) -> None:
         """Disconnect from the desk."""
@@ -452,19 +406,27 @@ class DeskBLEDevice:
             finally:
                 self._client = None
 
-    async def _send_command(self, command: bytes) -> bool:
-        """Send a command to the desk."""
-        if not self.is_connected:
-            _LOGGER.warning("Cannot send command: not connected")
-            return False
-        assert self._client is not None  # guaranteed by is_connected
+    async def _write(self, *commands: bytes) -> None:
+        """Write commands to the desk in order, with no other write in between.
 
-        try:
-            await self._client.write_gatt_char(WRITE_CHARACTERISTIC_UUID, command)
-            return True
-        except Exception as err:
-            _LOGGER.error("Failed to send command: %s", err)
-            return False
+        The lock is held only for the writes, never while waiting on
+        notifications, so a stop is never held up behind a running move.
+        """
+        async with self._write_lock:
+            if not self.is_connected:
+                raise DeskNotConnectedError("The desk is not connected")
+            assert self._client is not None  # guaranteed by is_connected
+            for command in commands:
+                try:
+                    await self._client.write_gatt_char(
+                        WRITE_CHARACTERISTIC_UUID, command
+                    )
+                except Exception as err:
+                    raise DeskCommandError(str(err) or type(err).__name__) from err
+
+    async def _send_command(self, command: bytes) -> None:
+        """Send a command to the desk."""
+        await self._write(command)
 
     def _begin_movement(
         self, kind: str, direction: str | None, target_height: float | None = None
@@ -482,51 +444,50 @@ class DeskBLEDevice:
         """Forget the current movement, so no later reading is attributed to it."""
         self._movement = None
 
-    async def _send_awake_command(self, command: bytes) -> bool:
+    async def _send_awake_command(self, command: bytes) -> None:
         """Wake the desk with the handshake, then send a command.
 
         The desk's controller ignores commands while its display is asleep.
         """
-        if not await self._send_command(COMMAND_HANDSHAKE):
-            return False
-        return await self._send_command(command)
+        await self._write(COMMAND_HANDSHAKE, command)
 
-    async def _send_movement_command(self, command: bytes) -> bool:
+    async def _send_movement_command(self, command: bytes) -> None:
         """Send a movement command, dropping the movement if the write fails."""
-        if await self._send_awake_command(command):
-            return True
-        self._end_movement()
-        return False
+        try:
+            await self._send_awake_command(command)
+        except DeskError:
+            self._end_movement()
+            raise
 
-    async def move_up(self) -> bool:
+    async def move_up(self) -> None:
         """Start moving the desk up."""
         self._begin_movement("continuous", "up")
-        return await self._send_movement_command(COMMAND_MOVE_UP)
+        await self._send_movement_command(COMMAND_MOVE_UP)
 
-    async def move_down(self) -> bool:
+    async def move_down(self) -> None:
         """Start moving the desk down."""
         self._begin_movement("continuous", "down")
-        return await self._send_movement_command(COMMAND_MOVE_DOWN)
+        await self._send_movement_command(COMMAND_MOVE_DOWN)
 
-    async def stop(self) -> bool:
+    async def stop(self) -> None:
         """Stop desk movement."""
         self._end_movement()
         # Sent at once: a moving desk is awake, and a sleeping one has nothing to stop
-        return await self._send_command(COMMAND_STOP)
+        await self._send_command(COMMAND_STOP)
 
-    async def get_status(self) -> bool:
+    async def get_status(self) -> None:
         """Request current desk status."""
-        return await self._send_command(COMMAND_GET_STATUS)
+        await self._send_command(COMMAND_GET_STATUS)
 
-    async def get_settings(self) -> bool:
+    async def get_settings(self) -> None:
         """Ask the desk to report its settings, including unit and touch mode.
 
         The desk sends its settings block for a status request that follows a
         handshake; it has no query for a single setting.
         """
-        return await self._send_awake_command(COMMAND_GET_STATUS)
+        await self._send_awake_command(COMMAND_GET_STATUS)
 
-    async def move_to_preset(self, preset: int) -> bool:
+    async def move_to_preset(self, preset: int) -> None:
         """Move desk to a preset position (1-4)."""
         if preset == 1:
             command = COMMAND_MEMORY_1
@@ -537,12 +498,11 @@ class DeskBLEDevice:
         elif preset == 4:
             command = COMMAND_MEMORY_4
         else:
-            _LOGGER.error("Invalid preset number: %s", preset)
-            return False
+            raise ValueError(f"Invalid preset number: {preset}")
 
         # The preset height is unknown, so the direction is too
         self._begin_movement("preset", None)
-        return await self._send_movement_command(command)
+        await self._send_movement_command(command)
 
     def _create_command_with_byte_param(self, command_byte: int, param: int) -> bytes:
         """Create a command with a single byte parameter."""
@@ -558,7 +518,7 @@ class DeskBLEDevice:
             [0xF1, 0xF1, command_byte, 0x02, high_byte, low_byte, checksum, 0x7E]
         )
 
-    async def move_to_height(self, height_cm: float) -> bool:
+    async def move_to_height(self, height_cm: float) -> None:
         """Move desk to a specific height in cm."""
         # The target is always in mm, whatever the desk's display unit
         height_mm = int(height_cm * 10)
@@ -566,18 +526,15 @@ class DeskBLEDevice:
         # Ensure height is within valid range
 
         if height_cm < MIN_HEIGHT or height_cm > MAX_HEIGHT:
-            _LOGGER.error(
-                "Height %.1f cm is out of range (%.1f-%.1f cm)",
-                height_cm,
-                MIN_HEIGHT,
-                MAX_HEIGHT,
+            raise ValueError(
+                f"Height {height_cm:.1f} cm is out of range "
+                f"({MIN_HEIGHT:.1f}-{MAX_HEIGHT:.1f} cm)"
             )
-            return False
 
         if height_cm == self._height_cm:
             # Already at target height
             self._end_movement()
-            return True
+            return
 
         # Build move-to-height command
         # Command structure: [0xF1, 0xF1, 0x1B, 0x02, height_high, height_low, checksum, 0x7E]
@@ -595,145 +552,134 @@ class DeskBLEDevice:
 
         direction = "up" if height_cm > self._height_cm else "down"
         self._begin_movement("targeted", direction, height_cm)
-        return await self._send_movement_command(command)
+        await self._send_movement_command(command)
 
     # Get device status methods
-    async def get_light_color(self) -> bool:
+    async def get_light_color(self) -> None:
         """Request current light color setting."""
-        return await self._send_command(COMMAND_GET_LIGHT_COLOR)
+        await self._send_command(COMMAND_GET_LIGHT_COLOR)
 
-    async def get_brightness(self) -> bool:
+    async def get_brightness(self) -> None:
         """Request current brightness level."""
-        return await self._send_command(COMMAND_GET_BRIGHTNESS)
+        await self._send_command(COMMAND_GET_BRIGHTNESS)
 
-    async def get_lighting_status(self) -> bool:
+    async def get_lighting_status(self) -> None:
         """Request current lighting on/off status."""
-        return await self._send_command(COMMAND_GET_LIGHTING)
+        await self._send_command(COMMAND_GET_LIGHTING)
 
-    async def get_vibration_status(self) -> bool:
+    async def get_vibration_status(self) -> None:
         """Request current vibration on/off status."""
-        return await self._send_command(COMMAND_GET_VIBRATION)
+        await self._send_command(COMMAND_GET_VIBRATION)
 
-    async def get_vibration_intensity(self) -> bool:
+    async def get_vibration_intensity(self) -> None:
         """Request current vibration intensity."""
-        return await self._send_command(COMMAND_GET_VIBRATION_INTENSITY)
+        await self._send_command(COMMAND_GET_VIBRATION_INTENSITY)
 
-    async def get_lock_status(self) -> bool:
+    async def get_lock_status(self) -> None:
         """Request current lock status."""
-        return await self._send_command(COMMAND_GET_LOCK_STATUS)
+        await self._send_command(COMMAND_GET_LOCK_STATUS)
 
-    async def get_sensitivity(self) -> bool:
+    async def get_sensitivity(self) -> None:
         """Request current collision sensitivity level."""
-        return await self._send_command(COMMAND_GET_SENSITIVITY)
+        await self._send_command(COMMAND_GET_SENSITIVITY)
 
-    async def get_limits(self) -> bool:
+    async def get_limits(self) -> None:
         """Request current height limit settings."""
-        return await self._send_command(COMMAND_GET_LIMITS)
+        await self._send_command(COMMAND_GET_LIMITS)
 
     # Set device configuration methods
-    async def set_light_color(self, color: int) -> bool:
+    async def set_light_color(self, color: int) -> None:
         """Set light color (1-7)."""
         if color < 1 or color > 7:
-            _LOGGER.error("Invalid light color: %s (must be 1-7)", color)
-            return False
+            raise ValueError(f"Invalid light color: {color} (must be 1-7)")
         command = self._create_command_with_byte_param(0xB4, color)
-        return await self._send_awake_command(command)
+        await self._send_awake_command(command)
 
-    async def set_brightness(self, level: int) -> bool:
+    async def set_brightness(self, level: int) -> None:
         """Set brightness level (0-100)."""
         if level < 0 or level > 100:
-            _LOGGER.error("Invalid brightness level: %s (must be 0-100)", level)
-            return False
+            raise ValueError(f"Invalid brightness level: {level} (must be 0-100)")
         command = self._create_command_with_byte_param(0xB6, level)
-        return await self._send_awake_command(command)
+        await self._send_awake_command(command)
 
-    async def set_lighting(self, enabled: bool) -> bool:
+    async def set_lighting(self, enabled: bool) -> None:
         """Enable or disable lighting."""
         value = 1 if enabled else 0
         command = self._create_command_with_byte_param(0xB5, value)
-        return await self._send_awake_command(command)
+        await self._send_awake_command(command)
 
-    async def set_vibration(self, enabled: bool) -> bool:
+    async def set_vibration(self, enabled: bool) -> None:
         """Enable or disable vibration."""
         value = 1 if enabled else 0
         command = self._create_command_with_byte_param(0xB3, value)
-        return await self._send_awake_command(command)
+        await self._send_awake_command(command)
 
-    async def set_vibration_intensity(self, level: int) -> bool:
+    async def set_vibration_intensity(self, level: int) -> None:
         """Set vibration intensity level."""
         if level < 0 or level > 100:
-            _LOGGER.error("Invalid vibration intensity: %s (must be 0-100)", level)
-            return False
+            raise ValueError(f"Invalid vibration intensity: {level} (must be 0-100)")
         command = self._create_command_with_byte_param(0xA4, level)
-        return await self._send_awake_command(command)
+        await self._send_awake_command(command)
 
-    async def set_lock_status(self, locked: bool) -> bool:
+    async def set_lock_status(self, locked: bool) -> None:
         """Lock or unlock desk controls."""
         value = 1 if locked else 0
         command = self._create_command_with_byte_param(0xB2, value)
-        self._lock_status = locked  # Update local state immediately
-        return await self._send_awake_command(command)
+        await self._send_awake_command(command)
+        # Shown at once; the desk confirms it in its next lock status report
+        self._lock_status = locked
 
-    async def set_sensitivity(self, level: int) -> bool:
+    async def set_sensitivity(self, level: int) -> None:
         """Set collision sensitivity level (1=High, 2=Medium, 3=Low)."""
         if level < 1 or level > 3:
-            _LOGGER.error("Invalid sensitivity level: %s (must be 1-3)", level)
-            return False
+            raise ValueError(f"Invalid sensitivity level: {level} (must be 1-3)")
         command = self._create_command_with_byte_param(0x1D, level)
-        return await self._send_awake_command(command)
+        await self._send_awake_command(command)
 
-    async def set_touch_mode(self, mode: int) -> bool:
+    async def set_touch_mode(self, mode: int) -> None:
         """Set touch mode (0=One press, 1=Press and hold)."""
         if mode not in [0, 1]:
-            _LOGGER.error("Invalid touch mode: %s (must be 0 or 1)", mode)
-            return False
+            raise ValueError(f"Invalid touch mode: {mode} (must be 0 or 1)")
         command = self._create_command_with_byte_param(0x19, mode)
-        return await self._send_awake_command(command)
+        await self._send_awake_command(command)
 
-    async def set_unit(self, unit: str) -> bool:
+    async def set_unit(self, unit: str) -> None:
         """Set display unit preference."""
         if unit not in ["cm", "in"]:
-            _LOGGER.error("Invalid unit: %s (must be 'cm' or 'in')", unit)
-            return False
+            raise ValueError(f"Invalid unit: {unit} (must be 'cm' or 'in')")
         value = 0 if unit == "cm" else 1
         command = self._create_command_with_byte_param(0x0E, value)
-        return await self._send_awake_command(command)
+        await self._send_awake_command(command)
 
-    async def set_height_limit_upper(self, height_cm: float) -> bool:
+    async def set_height_limit_upper(self, height_cm: float) -> None:
         """Set upper height limit in cm."""
         if not MIN_HEIGHT <= height_cm <= MAX_HEIGHT:
-            _LOGGER.error(
-                "Invalid upper height limit: %.1f (must be %.1f-%.1f)",
-                height_cm,
-                MIN_HEIGHT,
-                MAX_HEIGHT,
+            raise ValueError(
+                f"Invalid upper height limit: {height_cm:.1f} "
+                f"(must be {MIN_HEIGHT:.1f}-{MAX_HEIGHT:.1f})"
             )
-            return False
         # Limits are in the desk's display unit, unlike move-to-height targets
         command = self._create_command_with_word_param(
             0x21, self._encode_height(height_cm)
         )
-        return await self._send_awake_command(command)
+        await self._send_awake_command(command)
 
-    async def set_height_limit_lower(self, height_cm: float) -> bool:
+    async def set_height_limit_lower(self, height_cm: float) -> None:
         """Set lower height limit in cm."""
         if not MIN_HEIGHT <= height_cm <= MAX_HEIGHT:
-            _LOGGER.error(
-                "Invalid lower height limit: %.1f (must be %.1f-%.1f)",
-                height_cm,
-                MIN_HEIGHT,
-                MAX_HEIGHT,
+            raise ValueError(
+                f"Invalid lower height limit: {height_cm:.1f} "
+                f"(must be {MIN_HEIGHT:.1f}-{MAX_HEIGHT:.1f})"
             )
-            return False
         # Limits are in the desk's display unit, unlike move-to-height targets
         command = self._create_command_with_word_param(
             0x22, self._encode_height(height_cm)
         )
-        return await self._send_awake_command(command)
+        await self._send_awake_command(command)
 
-    async def clear_height_limits(self) -> bool:
+    async def clear_height_limits(self) -> None:
         """Clear all height limits."""
-        return await self._send_awake_command(COMMAND_CLEAR_LIMITS)
+        await self._send_awake_command(COMMAND_CLEAR_LIMITS)
 
     async def _query_device_capabilities(self) -> None:
         """Query device capabilities to determine supported features."""
@@ -792,7 +738,7 @@ class DeskBLEDevice:
             return
         assert self._client is not None  # guaranteed by is_connected
 
-        _LOGGER.info(
+        _LOGGER.debug(
             "Starting device information read from Device Information Service..."
         )
 
@@ -814,7 +760,7 @@ class DeskBLEDevice:
                 # Check if this is the Device Information Service
                 if service.uuid.lower() == DEVICE_INFORMATION_SERVICE_UUID.lower():
                     device_info_service = service
-                    _LOGGER.info("Found Device Information Service: %s", service.uuid)
+                    _LOGGER.debug("Found Device Information Service: %s", service.uuid)
 
                 # Also log characteristics for debugging
                 for char in service.characteristics:
@@ -827,11 +773,11 @@ class DeskBLEDevice:
             _LOGGER.debug("Total services discovered: %d", service_count)
 
         except Exception as e:
-            _LOGGER.error("Error discovering services: %s", e)
+            _LOGGER.debug("Error discovering services: %s", e)
             return
 
         if not device_info_service:
-            _LOGGER.warning(
+            _LOGGER.debug(
                 "Device Information Service (0x180A) not found in %d services",
                 service_count,
             )
@@ -884,7 +830,7 @@ class DeskBLEDevice:
                                 )
                                 if value:  # Only store non-empty values
                                     setattr(self, attr_name, value)
-                                    _LOGGER.info(
+                                    _LOGGER.debug(
                                         "Device info - %s: %s", prop_name, value
                                     )
                                 else:
@@ -897,13 +843,13 @@ class DeskBLEDevice:
                                     "Device info - %s: (no data returned)", prop_name
                                 )
                         else:
-                            _LOGGER.warning(
+                            _LOGGER.debug(
                                 "Device info - %s: characteristic not readable (properties: %s)",
                                 prop_name,
                                 char.properties,
                             )
                     except Exception as e:
-                        _LOGGER.error("Failed to read %s: %s", prop_name, e)
+                        _LOGGER.debug("Failed to read %s: %s", prop_name, e)
                     break
 
         # Log summary of what was read
@@ -922,7 +868,7 @@ class DeskBLEDevice:
             device_info_summary.append(f"SW: {self._software_revision}")
 
         if device_info_summary:
-            _LOGGER.info("Device information: %s", ", ".join(device_info_summary))
+            _LOGGER.debug("Device information: %s", ", ".join(device_info_summary))
         else:
             _LOGGER.debug("No device information characteristics found or readable")
 
@@ -1399,7 +1345,8 @@ class DeskBLEDevice:
 
     def _handle_disconnect(self, client: BleakClient) -> None:
         """Handle disconnection from the desk."""
-        _LOGGER.warning("Disconnected from Desky desk")
+        # The coordinator logs the outage once; this repeats on every drop
+        _LOGGER.debug("Disconnected from Desky desk")
         self._client = None
 
         # The movement ends with the connection, and a collision from before the

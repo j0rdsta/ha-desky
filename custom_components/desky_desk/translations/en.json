@@ -101,8 +101,14 @@
     "cannot_connect": {
       "message": "Could not connect to the desk at {address}"
     },
+    "command_failed": {
+      "message": "Could not send the command to the desk: {error}"
+    },
     "device_not_found": {
       "message": "Could not find the desk at {address}. Make sure it is powered on and in Bluetooth range"
+    },
+    "not_connected": {
+      "message": "The desk is not connected"
     }
   }
 }

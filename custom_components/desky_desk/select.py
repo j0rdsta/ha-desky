@@ -11,7 +11,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import SENSITIVITY_LEVELS, TOUCH_MODES
 from .coordinator import DeskUpdateCoordinator, DeskyConfigEntry
-from .entity import DeskEntity
+from .entity import DeskEntity, desk_command
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -80,11 +80,9 @@ class DeskSelect(DeskEntity, SelectEntity):
 
         return None
 
+    @desk_command
     async def async_select_option(self, option: str) -> None:
         """Select an option."""
-        if not self.available or not self._device:
-            return
-
         if self.entity_description.key == "sensitivity":
             # Find the level key for the selected option
             level = None
@@ -106,9 +104,11 @@ class DeskSelect(DeskEntity, SelectEntity):
                     break
 
             # The desk does not confirm a change, so read its settings back
-            if mode is not None and await self._device.set_touch_mode(mode):
+            if mode is not None:
+                await self._device.set_touch_mode(mode)
                 await self._device.get_settings()
 
         elif self.entity_description.key == "unit":
-            if option in ["cm", "in"] and await self._device.set_unit(option):
+            if option in ["cm", "in"]:
+                await self._device.set_unit(option)
                 await self._device.get_settings()

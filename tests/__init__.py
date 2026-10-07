@@ -1,10 +1,13 @@
 """Tests for the Desky Desk integration."""
 
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from typing import Any
 from unittest.mock import MagicMock
 
-from homeassistant.components.bluetooth import BluetoothServiceInfoBleak
+from homeassistant.components.bluetooth import (
+    BluetoothChange,
+    BluetoothServiceInfoBleak,
+)
 from homeassistant.core import HomeAssistant
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -66,7 +69,7 @@ def disconnect_desk(desk: MagicMock) -> None:
 
 
 def make_service_info(
-    address: str = "AA:BB:CC:DD:EE:FF", name: str = "Desky"
+    address: str = "AA:BB:CC:DD:EE:FF", name: str = "Desky", device: Any = None
 ) -> BluetoothServiceInfoBleak:
     """Build Bluetooth service info for a discovered desk."""
     return BluetoothServiceInfoBleak(
@@ -77,10 +80,27 @@ def make_service_info(
         service_data={},
         service_uuids=[],
         source="local",
-        device=MagicMock(),
+        device=device if device is not None else MagicMock(),
         advertisement=MagicMock(),
         connectable=True,
         time=0,
         tx_power=None,
         raw=None,
     )
+
+
+@dataclass
+class BluetoothCallbacks:
+    """The desk's Bluetooth stack callbacks, registered through patched helpers."""
+
+    register: MagicMock
+    track_unavailable: MagicMock
+
+    def advertise(self, ble_device: Any = None) -> None:
+        """Deliver an advertisement from the desk, optionally via a given route."""
+        callback = self.register.call_args.args[1]
+        callback(make_service_info(device=ble_device), BluetoothChange.ADVERTISEMENT)
+
+    def lose_sight(self) -> None:
+        """Report that the Bluetooth stack no longer sees the desk."""
+        self.track_unavailable.call_args.args[1](make_service_info())

@@ -2,9 +2,15 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable, Coroutine
+from functools import wraps
+from typing import Any, Concatenate
+
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .bluetooth import DeskBLEDevice
+from .bluetooth import DeskBLEDevice, DeskCommandError, DeskNotConnectedError
+from .const import DOMAIN
 from .coordinator import DeskUpdateCoordinator
 
 
@@ -28,6 +34,33 @@ class DeskEntity(CoordinatorEntity[DeskUpdateCoordinator]):
         return super().available and self.coordinator.data.is_connected
 
     @property
-    def _device(self) -> DeskBLEDevice | None:
+    def _device(self) -> DeskBLEDevice:
         """Return the BLE device."""
         return self.coordinator.device
+
+
+def desk_command[EntityT: DeskEntity, **P](
+    func: Callable[Concatenate[EntityT, P], Coroutine[Any, Any, None]],
+) -> Callable[Concatenate[EntityT, P], Coroutine[Any, Any, None]]:
+    """Raise a translated error when a command does not reach the desk.
+
+    Home Assistant skips unavailable entities, but the connection can drop
+    before the entity hears about it, and a write can fail on its own.
+    """
+
+    @wraps(func)
+    async def wrapper(self: EntityT, *args: P.args, **kwargs: P.kwargs) -> None:
+        try:
+            await func(self, *args, **kwargs)
+        except DeskNotConnectedError as err:
+            raise HomeAssistantError(
+                translation_domain=DOMAIN, translation_key="not_connected"
+            ) from err
+        except DeskCommandError as err:
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="command_failed",
+                translation_placeholders={"error": str(err)},
+            ) from err
+
+    return wrapper

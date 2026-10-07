@@ -5,22 +5,34 @@ from __future__ import annotations
 import asyncio
 import contextlib
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta
 from functools import partial
 import logging
 from typing import cast
 
 from homeassistant.components import bluetooth
+from homeassistant.components.bluetooth import (
+    BluetoothCallbackMatcher,
+    BluetoothChange,
+    BluetoothScanningMode,
+    BluetoothServiceInfoBleak,
+)
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_ADDRESS
-from homeassistant.core import HomeAssistant
+from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.typing import UNDEFINED
-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
-from .bluetooth import DeskBLEDevice
-from .const import DOMAIN, RECONNECT_INTERVAL_SECONDS, UPDATE_INTERVAL_SECONDS
+from .bluetooth import DeskBLEDevice, DeskError
+from .const import (
+    DOMAIN,
+    RECONNECT_BACKOFF_MAX_SECONDS,
+    RECONNECT_BACKOFF_MIN_SECONDS,
+    UPDATE_INTERVAL_SECONDS,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -84,12 +96,18 @@ class DeskUpdateCoordinator(DataUpdateCoordinator[DeskData]):
         )
         self._address: str = entry.data[CONF_ADDRESS]
         self._device: DeskBLEDevice | None = None
+        # True while the entry is loaded, so a lost connection is re-established
+        self._expected_connected = False
+        # True once the outage is logged, so it is logged once, not per retry
+        self._unavailable_logged = False
+        self._failed_attempts = 0
+        self._cancel_retry: CALLBACK_TYPE | None = None
         self._reconnect_task: asyncio.Task[None] | None = None
-        self._shutdown = False
 
     @property
-    def device(self) -> DeskBLEDevice | None:
-        """Return the BLE device."""
+    def device(self) -> DeskBLEDevice:
+        """Return the BLE device, which async_connect() creates."""
+        assert self._device is not None  # entities exist only after connecting
         return self._device
 
     async def async_connect(self) -> None:
@@ -120,6 +138,27 @@ class DeskUpdateCoordinator(DataUpdateCoordinator[DeskData]):
                 translation_key="cannot_connect",
                 translation_placeholders={"address": self._address},
             )
+
+        self._expected_connected = True
+        entry = self.config_entry
+        # Every advertisement hands over the route the desk is heard on now, and
+        # one from a desk that is not connected starts a reconnect
+        entry.async_on_unload(
+            bluetooth.async_register_callback(
+                self.hass,
+                self._async_handle_advertisement,
+                BluetoothCallbackMatcher(address=self._address, connectable=True),
+                BluetoothScanningMode.ACTIVE,
+            )
+        )
+        entry.async_on_unload(
+            bluetooth.async_track_unavailable(
+                self.hass,
+                self._async_handle_unavailable,
+                self._address,
+                connectable=True,
+            )
+        )
 
     @staticmethod
     def _build_data(device: DeskBLEDevice) -> DeskData:
@@ -211,7 +250,7 @@ class DeskUpdateCoordinator(DataUpdateCoordinator[DeskData]):
                 hw_version=update_kwargs.get("hw_version", UNDEFINED),
                 sw_version=update_kwargs.get("sw_version", UNDEFINED),
             )
-            _LOGGER.info(
+            _LOGGER.debug(
                 "Updated device registry with BLE device information: %s",
                 update_kwargs,
             )
@@ -220,68 +259,136 @@ class DeskUpdateCoordinator(DataUpdateCoordinator[DeskData]):
             _LOGGER.error("Failed to update device registry: %s", err)
 
     async def _async_update_data(self) -> DeskData:
-        """Update data via BLE."""
-        if self._device is None or not self._device.is_connected:
-            self._start_reconnect()
-            raise UpdateFailed("Not connected to desk")
+        """Update data via BLE.
 
-        # Request current status
-        await self._device.get_status()
+        A disconnected desk is not an update failure: its entities report
+        unavailable from the data, and reconnecting is driven by advertisements.
+        """
+        device = self.device
+        if device.is_connected:
+            try:
+                await device.get_status()
+            except DeskError:
+                # A write that fails on an open connection means the desk is gone
+                await self._async_drop_connection()
 
-        # Log device info for debugging
-        if any(
-            [
-                self._device.manufacturer_name,
-                self._device.model_number,
-                self._device.serial_number,
-            ]
-        ):
-            _LOGGER.info(
-                "Device info in coordinator - Manufacturer: %s, Model: %s, Serial: %s",
-                self._device.manufacturer_name,
-                self._device.model_number,
-                self._device.serial_number,
+            if any(
+                [device.manufacturer_name, device.model_number, device.serial_number]
+            ):
+                _LOGGER.debug(
+                    "Device info in coordinator - Manufacturer: %s, Model: %s, Serial: %s",
+                    device.manufacturer_name,
+                    device.model_number,
+                    device.serial_number,
+                )
+            else:
+                _LOGGER.debug("No device information available in coordinator")
+
+        return self._build_data(device)
+
+    @callback
+    def _async_handle_advertisement(
+        self, service_info: BluetoothServiceInfoBleak, change: BluetoothChange
+    ) -> None:
+        """Reconnect through whichever adapter or proxy heard the desk."""
+        self.device.set_ble_device(service_info.device)
+        self._async_request_reconnect()
+
+    @callback
+    def _async_handle_unavailable(
+        self, service_info: BluetoothServiceInfoBleak
+    ) -> None:
+        """Handle the Bluetooth stack no longer seeing the desk."""
+        if self.device.is_connected:
+            # The desk may stop advertising while connected, so check the
+            # connection itself rather than dropping it
+            self.config_entry.async_create_background_task(
+                self.hass,
+                self._async_check_connection(),
+                name=f"{DOMAIN} check connection {self._address}",
             )
-        else:
-            _LOGGER.debug("No device information available in coordinator")
+            return
+        # Nothing can be reached until the desk advertises again, and that
+        # advertisement reconnects at once rather than after the backoff
+        self._async_cancel_retry()
+        self._failed_attempts = 0
 
-        return self._build_data(self._device)
+    async def _async_check_connection(self) -> None:
+        """Drop the connection if the desk no longer answers on it."""
+        try:
+            await self.device.get_status()
+        except DeskError:
+            await self._async_drop_connection()
 
-    def _start_reconnect(self) -> None:
-        """Start the reconnect loop unless it is already running."""
+    async def _async_drop_connection(self) -> None:
+        """Close a connection the desk no longer answers on."""
+        _LOGGER.debug("The desk at %s stopped responding", self._address)
+        device = self.device
+        await device.disconnect()
+        self._handle_disconnect(device)
+
+    @callback
+    def _async_request_reconnect(self) -> None:
+        """Start a reconnect unless one is running, waiting or not wanted."""
+        if not self._expected_connected or self.device.is_connected:
+            return
         if self._reconnect_task is not None and not self._reconnect_task.done():
+            return
+        # While backing off after failures, the retry timer reconnects instead
+        if self._cancel_retry is not None:
             return
         # A config entry background task is cancelled when the entry unloads
         self._reconnect_task = self.config_entry.async_create_background_task(
-            self.hass, self._reconnect(), name=f"{DOMAIN} reconnect {self._address}"
+            self.hass,
+            self._async_reconnect(),
+            name=f"{DOMAIN} reconnect {self._address}",
         )
 
-    async def _reconnect(self) -> None:
-        """Try to reconnect to the desk."""
-        while not self._shutdown and self._device and not self._device.is_connected:
-            _LOGGER.debug("Attempting to reconnect to desk")
+    async def _async_reconnect(self) -> None:
+        """Try to reconnect once, scheduling a retry with backoff if it fails."""
+        device = self.device
+        if not await device.connect():
+            self._failed_attempts += 1
+            delay = min(
+                RECONNECT_BACKOFF_MIN_SECONDS * 2 ** (self._failed_attempts - 1),
+                RECONNECT_BACKOFF_MAX_SECONDS,
+            )
+            _LOGGER.debug(
+                "Could not reconnect to the desk at %s, retrying in %d seconds",
+                self._address,
+                delay,
+            )
+            self._cancel_retry = async_call_later(self.hass, delay, self._async_retry)
+            return
 
-            try:
-                ble_device = bluetooth.async_ble_device_from_address(
-                    self.hass, self._address, connectable=True
-                )
+        self._failed_attempts = 0
+        if self._unavailable_logged:
+            _LOGGER.info("The desk at %s is available again", self._address)
+            self._unavailable_logged = False
+        self.async_set_updated_data(self._build_data(device))
+        await self.async_update_device_registry()
 
-                if ble_device:
-                    self._device._ble_device = ble_device
-                    if await self._device.connect():
-                        _LOGGER.info("Reconnected to desk")
-                        data = await self._async_update_data()
-                        self.async_set_updated_data(data)
-                        # Update device registry with BLE device information
-                        await self.async_update_device_registry()
-                        break
-                    _LOGGER.debug("Connection attempt failed")
-                else:
-                    _LOGGER.debug("BLE device not found at address %s", self._address)
-            except Exception as err:
-                _LOGGER.debug("Reconnection failed: %s", err)
+    @callback
+    def _async_retry(self, _now: datetime) -> None:
+        """Retry reconnecting once the backoff delay has passed."""
+        self._cancel_retry = None
+        if (
+            bluetooth.async_ble_device_from_address(
+                self.hass, self._address, connectable=True
+            )
+            is None
+        ):
+            # The desk is out of range; its next advertisement reconnects
+            self._failed_attempts = 0
+            return
+        self._async_request_reconnect()
 
-            await asyncio.sleep(RECONNECT_INTERVAL_SECONDS)
+    @callback
+    def _async_cancel_retry(self) -> None:
+        """Cancel a scheduled reconnect retry."""
+        if self._cancel_retry is not None:
+            self._cancel_retry()
+            self._cancel_retry = None
 
     def _handle_notification(
         self, device: DeskBLEDevice, height: float, collision: bool, moving: bool
@@ -296,14 +403,22 @@ class DeskUpdateCoordinator(DataUpdateCoordinator[DeskData]):
     def _handle_disconnect(self, device: DeskBLEDevice) -> None:
         """Handle disconnection from the desk."""
         self.async_set_updated_data(self._build_data(device))
+        if not self._expected_connected:
+            return
+        if not self._unavailable_logged:
+            _LOGGER.warning("The desk at %s is unavailable", self._address)
+            self._unavailable_logged = True
+        # The desk usually advertises again at once, but do not wait for it
+        self._async_request_reconnect()
 
     async def async_shutdown(self) -> None:
         """Shutdown the coordinator.
 
         Runs when the config entry unloads, including after a failed setup.
         """
+        self._expected_connected = False
+        self._async_cancel_retry()
         await super().async_shutdown()
-        self._shutdown = True
 
         if self._reconnect_task and not self._reconnect_task.done():
             self._reconnect_task.cancel()

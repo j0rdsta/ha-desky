@@ -17,10 +17,9 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import ExtraStoredData, RestoreEntity
 
-from .bluetooth import DeskBLEDevice
 from .const import LIGHT_COLORS
 from .coordinator import DeskUpdateCoordinator, DeskyConfigEntry
-from .entity import DeskEntity
+from .entity import DeskEntity, desk_command
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -153,17 +152,15 @@ class DeskLight(DeskEntity, LightEntity, RestoreEntity):
         light_color = self.coordinator.data.light_color
         return None if light_color is None else COLOR_TO_EFFECT.get(light_color)
 
-    async def _async_set_color(self, device: DeskBLEDevice, color_code: int) -> None:
+    async def _async_set_color(self, color_code: int) -> None:
         """Set the light colour and remember it if it is a static colour."""
-        await device.set_light_color(color_code)
+        await self._device.set_light_color(color_code)
         if color_code != COLOR_PARTY:
             self._last_static_color = color_code
 
+    @desk_command
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn on the light."""
-        if not self.available or not self._device:
-            return
-
         # Handle brightness change
         if ATTR_BRIGHTNESS in kwargs:
             # Convert Home Assistant brightness (0-255) to percentage (0-100)
@@ -174,7 +171,7 @@ class DeskLight(DeskEntity, LightEntity, RestoreEntity):
         if ATTR_EFFECT in kwargs:
             effect_name = kwargs[ATTR_EFFECT]
             if effect_name in EFFECT_TO_COLOR:
-                await self._async_set_color(self._device, EFFECT_TO_COLOR[effect_name])
+                await self._async_set_color(EFFECT_TO_COLOR[effect_name])
         else:
             # If no specific effect requested and light is off, turn on with the
             # last static colour
@@ -191,24 +188,20 @@ class DeskLight(DeskEntity, LightEntity, RestoreEntity):
         await self._device.get_light_color()
         await self._device.get_brightness()
 
+    @desk_command
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn off the light."""
-        if not self.available or not self._device:
-            return
-
         # Disable lighting
         await self._device.set_lighting(False)
 
         # Request status update
         await self._device.get_lighting_status()
 
+    @desk_command
     async def async_set_effect(self, effect: str) -> None:
         """Set the effect."""
-        if not self.available or not self._device:
-            return
-
         if effect in EFFECT_TO_COLOR:
-            await self._async_set_color(self._device, EFFECT_TO_COLOR[effect])
+            await self._async_set_color(EFFECT_TO_COLOR[effect])
             await self._device.get_light_color()
 
     @property

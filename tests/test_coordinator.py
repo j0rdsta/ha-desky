@@ -6,6 +6,7 @@ loaded entry through Home Assistant time and the mocked desk's callbacks.
 
 from __future__ import annotations
 
+import asyncio
 from datetime import timedelta
 import logging
 from unittest.mock import MagicMock, patch
@@ -20,17 +21,20 @@ from pytest_homeassistant_custom_component.common import (
     async_fire_time_changed,
 )
 
+from custom_components.desky_desk.bluetooth import DeskCommandError
 from custom_components.desky_desk.const import (
     DOMAIN,
-    RECONNECT_INTERVAL_SECONDS,
+    RECONNECT_BACKOFF_MAX_SECONDS,
+    RECONNECT_BACKOFF_MIN_SECONDS,
     UPDATE_INTERVAL_SECONDS,
 )
 from custom_components.desky_desk.coordinator import DeskData, DeskUpdateCoordinator
 
-from . import desk_data, disconnect_desk, notify_desk
+from . import BluetoothCallbacks, desk_data, disconnect_desk, notify_desk
 
 ADDRESS = "AA:BB:CC:DD:EE:FF"
 COORDINATOR_LOGGER = "custom_components.desky_desk.coordinator"
+INTEGRATION_LOGGER = "custom_components.desky_desk"
 HEIGHT_ENTITY = "number.desky_desk_height"
 
 NO_DEVICE_INFO = {
@@ -44,12 +48,12 @@ NO_DEVICE_INFO = {
 
 
 async def _advance(
-    hass: HomeAssistant, freezer: FrozenDateTimeFactory, seconds: int
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, seconds: float
 ) -> None:
     """Move Home Assistant time forward and run whatever became due."""
     freezer.tick(timedelta(seconds=seconds))
     async_fire_time_changed(hass)
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
 
 
 async def _poll(hass: HomeAssistant, freezer: FrozenDateTimeFactory) -> None:
@@ -73,17 +77,23 @@ def _desk_device(hass: HomeAssistant, entry: MockConfigEntry) -> dr.DeviceEntry:
     return device
 
 
-async def _start_failing_reconnect(
-    hass: HomeAssistant,
-    entry: MockConfigEntry,
-    desk: MagicMock,
-    freezer: FrozenDateTimeFactory,
-) -> None:
-    """Disconnect the desk and let a poll start a reconnect that keeps failing."""
+async def _lose_desk(hass: HomeAssistant, desk: MagicMock) -> None:
+    """Drop the connection to a desk that then refuses to reconnect."""
+    desk.connect.side_effect = None
     desk.connect.return_value = False
     disconnect_desk(desk)
-    await _poll(hass, freezer)
-    assert len(entry._background_tasks) == 1
+    await hass.async_block_till_done(wait_background_tasks=True)
+
+
+def _desk_stops_answering(desk: MagicMock) -> None:
+    """Make the desk ignore commands on a connection that still looks open."""
+    desk.get_status.side_effect = DeskCommandError("Not connected")
+    desk.connect.return_value = False
+
+    async def _disconnect() -> None:
+        desk.is_connected = False
+
+    desk.disconnect.side_effect = _disconnect
 
 
 def _reconnect_succeeds(desk: MagicMock) -> None:
@@ -216,136 +226,388 @@ async def test_disconnect_keeps_last_known_state(
     )
 
 
-async def test_poll_while_disconnected_starts_one_reconnect(
-    hass: HomeAssistant,
-    init_integration: MockConfigEntry,
-    mock_desk: MagicMock,
-    freezer: FrozenDateTimeFactory,
-    caplog: pytest.LogCaptureFixture,
+async def test_disconnect_reconnects_at_once(
+    hass: HomeAssistant, init_integration: MockConfigEntry, mock_desk: MagicMock
 ) -> None:
-    """Test polling a disconnected desk fails and starts a single reconnect loop."""
-    caplog.set_level(logging.DEBUG, logger=COORDINATOR_LOGGER)
-    coordinator = init_integration.runtime_data
-
-    await _start_failing_reconnect(hass, init_integration, mock_desk, freezer)
-
-    assert not coordinator.last_update_success
-    assert all(
-        state == STATE_UNAVAILABLE for state in _entity_states(hass, init_integration)
-    )
-    # The poll does not ask a disconnected desk for its status
-    mock_desk.get_status.assert_awaited_once()
-    assert mock_desk.connect.await_count == 2
-    assert "Connection attempt failed" in caplog.text
-    (reconnect,) = init_integration._background_tasks
-    assert not reconnect.done()
-
-    # Later polls leave the running reconnect alone
-    await _poll(hass, freezer)
-    await _poll(hass, freezer)
-
-    assert init_integration._background_tasks == {reconnect}
-    assert not coordinator.last_update_success
-
-
-async def test_reconnect_restores_desk(
-    hass: HomeAssistant,
-    init_integration: MockConfigEntry,
-    mock_desk: MagicMock,
-    freezer: FrozenDateTimeFactory,
-) -> None:
-    """Test a successful reconnect refreshes the data and the device registry."""
-    await _start_failing_reconnect(hass, init_integration, mock_desk, freezer)
-
+    """Test a dropped connection is re-established without waiting for a poll."""
     _reconnect_succeeds(mock_desk)
+    mock_desk.height_cm = 72.0
     # The desk reports new firmware once it is back
     mock_desk.firmware_revision = "2.2.0"
-    mock_desk.height_cm = 72.0
-    await _advance(hass, freezer, RECONNECT_INTERVAL_SECONDS)
+
+    disconnect_desk(mock_desk)
     await hass.async_block_till_done(wait_background_tasks=True)
 
     coordinator = init_integration.runtime_data
+    assert mock_desk.connect.await_count == 2
     assert coordinator.data == desk_data(height_cm=72.0, firmware_revision="2.2.0")
-    assert coordinator.last_update_success
-    assert not init_integration._background_tasks
     assert STATE_UNAVAILABLE not in _entity_states(hass, init_integration)
     assert _desk_device(hass, init_integration).sw_version == "2.2.0"
-    # The reconnect used the BLE device Home Assistant currently sees
-    assert mock_desk._ble_device.address == ADDRESS
+    assert not init_integration._background_tasks
 
 
-async def test_reconnect_retries_after_missing_device_and_error(
+async def test_desk_returns_to_range(
     hass: HomeAssistant,
     init_integration: MockConfigEntry,
     mock_desk: MagicMock,
-    freezer: FrozenDateTimeFactory,
-    caplog: pytest.LogCaptureFixture,
+    mock_bluetooth_callbacks: BluetoothCallbacks,
 ) -> None:
-    """Test the reconnect loop keeps going when the desk is absent or errors."""
-    caplog.set_level(logging.DEBUG, logger=COORDINATOR_LOGGER)
-    mock_desk.connect.side_effect = OSError("adapter busy")
+    """Test a desk that comes back reconnects as soon as it advertises."""
+    await _lose_desk(hass, mock_desk)
+    mock_bluetooth_callbacks.lose_sight()
+    assert all(
+        state == STATE_UNAVAILABLE for state in _entity_states(hass, init_integration)
+    )
+
+    # No fixed interval: the advertisement itself starts the reconnect
+    _reconnect_succeeds(mock_desk)
+    mock_bluetooth_callbacks.advertise()
+    await hass.async_block_till_done(wait_background_tasks=True)
+
+    assert mock_desk.connect.await_count == 3
+    assert init_integration.runtime_data.data.is_connected
+    assert STATE_UNAVAILABLE not in _entity_states(hass, init_integration)
+
+
+async def test_desk_moves_between_proxies(
+    hass: HomeAssistant,
+    init_integration: MockConfigEntry,
+    mock_desk: MagicMock,
+    mock_bluetooth_callbacks: BluetoothCallbacks,
+) -> None:
+    """Test the reconnect uses the proxy that heard the desk most recently."""
+    await _lose_desk(hass, mock_desk)
+    mock_bluetooth_callbacks.lose_sight()
+
+    routes: list[MagicMock] = []
+
+    async def _connect() -> bool:
+        routes.append(mock_desk.set_ble_device.call_args.args[0])
+        mock_desk.is_connected = True
+        return True
+
+    mock_desk.connect.side_effect = _connect
+    other_proxy = MagicMock(address=ADDRESS)
+    mock_bluetooth_callbacks.advertise(other_proxy)
+    await hass.async_block_till_done(wait_background_tasks=True)
+
+    assert routes == [other_proxy]
+
+
+async def test_advertisement_while_connected_only_updates_the_route(
+    hass: HomeAssistant,
+    init_integration: MockConfigEntry,
+    mock_desk: MagicMock,
+    mock_bluetooth_callbacks: BluetoothCallbacks,
+) -> None:
+    """Test advertisements from a connected desk do not reconnect it."""
+    route = MagicMock(address=ADDRESS)
+    mock_bluetooth_callbacks.advertise(route)
+    await hass.async_block_till_done(wait_background_tasks=True)
+
+    mock_desk.set_ble_device.assert_called_with(route)
+    mock_desk.connect.assert_awaited_once()
+
+
+async def test_advertisements_during_a_reconnect_start_no_other(
+    hass: HomeAssistant,
+    init_integration: MockConfigEntry,
+    mock_desk: MagicMock,
+    mock_bluetooth_callbacks: BluetoothCallbacks,
+) -> None:
+    """Test advertisements arriving while connecting do not start more attempts."""
+    release = asyncio.Event()
+
+    async def _connect() -> bool:
+        await release.wait()
+        mock_desk.is_connected = True
+        return True
+
+    mock_desk.connect.side_effect = _connect
     disconnect_desk(mock_desk)
+    await hass.async_block_till_done()
+    for _ in range(5):
+        mock_bluetooth_callbacks.advertise()
+    release.set()
+    await hass.async_block_till_done(wait_background_tasks=True)
+
+    assert mock_desk.connect.await_count == 2
+    assert init_integration.runtime_data.data.is_connected
+
+
+async def test_repeated_connect_failures_back_off(
+    hass: HomeAssistant,
+    init_integration: MockConfigEntry,
+    mock_desk: MagicMock,
+    mock_bluetooth_callbacks: BluetoothCallbacks,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """Test retries against an advertising desk wait longer each time, up to a cap."""
+    await _lose_desk(hass, mock_desk)
+    attempts = mock_desk.connect.await_count
+
+    delays = [5, 10, 20, 40, 80, 120, 120]
+    assert delays[0] == RECONNECT_BACKOFF_MIN_SECONDS
+    assert delays[-1] == RECONNECT_BACKOFF_MAX_SECONDS
+    for delay in delays:
+        # The desk keeps advertising, but that does not cut the wait short
+        mock_bluetooth_callbacks.advertise()
+        await _advance(hass, freezer, delay - 1)
+        assert mock_desk.connect.await_count == attempts
+
+        await _advance(hass, freezer, 1)
+        attempts += 1
+        assert mock_desk.connect.await_count == attempts
+
+    # A success resets the delay for the next outage
+    _reconnect_succeeds(mock_desk)
+    await _advance(hass, freezer, RECONNECT_BACKOFF_MAX_SECONDS)
+    assert init_integration.runtime_data.data.is_connected
+
+    await _lose_desk(hass, mock_desk)
+    attempts = mock_desk.connect.await_count
+    await _advance(hass, freezer, RECONNECT_BACKOFF_MIN_SECONDS)
+    assert mock_desk.connect.await_count == attempts + 1
+
+
+async def test_retry_waits_for_a_desk_out_of_range(
+    hass: HomeAssistant,
+    init_integration: MockConfigEntry,
+    mock_desk: MagicMock,
+    mock_bluetooth_callbacks: BluetoothCallbacks,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """Test a retry is skipped while the desk is not seen, until it advertises."""
+    await _lose_desk(hass, mock_desk)
+    attempts = mock_desk.connect.await_count
 
     with patch(
         "homeassistant.components.bluetooth.async_ble_device_from_address",
         return_value=None,
     ):
-        await _poll(hass, freezer)
-    assert f"BLE device not found at address {ADDRESS}" in caplog.text
-    assert mock_desk.connect.await_count == 1
+        await _advance(hass, freezer, RECONNECT_BACKOFF_MIN_SECONDS)
+    assert mock_desk.connect.await_count == attempts
 
-    await _advance(hass, freezer, RECONNECT_INTERVAL_SECONDS)
-    assert "Reconnection failed: adapter busy" in caplog.text
+    # Nothing retries on a timer any more...
+    await _advance(hass, freezer, RECONNECT_BACKOFF_MAX_SECONDS)
+    assert mock_desk.connect.await_count == attempts
+
+    # ...and the desk's next advertisement reconnects at once
+    _reconnect_succeeds(mock_desk)
+    mock_bluetooth_callbacks.advertise()
+    await hass.async_block_till_done(wait_background_tasks=True)
+    assert mock_desk.connect.await_count == attempts + 1
+    assert init_integration.runtime_data.data.is_connected
+
+
+async def test_desk_powered_off(
+    hass: HomeAssistant,
+    init_integration: MockConfigEntry,
+    mock_desk: MagicMock,
+    mock_bluetooth_callbacks: BluetoothCallbacks,
+) -> None:
+    """Test a desk the stack stops seeing goes unavailable if it stops answering."""
+    _desk_stops_answering(mock_desk)
+
+    mock_bluetooth_callbacks.lose_sight()
+    await hass.async_block_till_done(wait_background_tasks=True)
+
+    mock_desk.disconnect.assert_awaited_once()
+    assert not init_integration.runtime_data.data.is_connected
+    assert all(
+        state == STATE_UNAVAILABLE for state in _entity_states(hass, init_integration)
+    )
+
+
+async def test_stack_loses_sight_of_a_desk_that_still_answers(
+    hass: HomeAssistant,
+    init_integration: MockConfigEntry,
+    mock_desk: MagicMock,
+    mock_bluetooth_callbacks: BluetoothCallbacks,
+) -> None:
+    """Test a connected desk that stops advertising but still answers stays up."""
+    mock_bluetooth_callbacks.lose_sight()
+    await hass.async_block_till_done(wait_background_tasks=True)
+
+    assert mock_desk.get_status.await_count == 2
+    mock_desk.disconnect.assert_not_called()
+    assert STATE_UNAVAILABLE not in _entity_states(hass, init_integration)
+
+
+async def test_poll_drops_a_connection_the_desk_no_longer_answers(
+    hass: HomeAssistant,
+    init_integration: MockConfigEntry,
+    mock_desk: MagicMock,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """Test a failed status request closes the connection and marks it unavailable."""
+    _desk_stops_answering(mock_desk)
+
+    await _poll(hass, freezer)
+
+    mock_desk.disconnect.assert_awaited_once()
+    assert all(
+        state == STATE_UNAVAILABLE for state in _entity_states(hass, init_integration)
+    )
+
+
+async def test_dropped_connection_is_logged_once(
+    hass: HomeAssistant,
+    init_integration: MockConfigEntry,
+    mock_desk: MagicMock,
+    freezer: FrozenDateTimeFactory,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Test closing a dead connection, which Bleak also reports, logs one warning."""
+    _desk_stops_answering(mock_desk)
+    disconnected = mock_desk.register_disconnect_callback.call_args.args[0]
+
+    async def _disconnect() -> None:
+        mock_desk.is_connected = False
+        # Bleak reports the disconnect it was asked for as well
+        disconnected()
+
+    mock_desk.disconnect.side_effect = _disconnect
+
+    await _poll(hass, freezer)
+
+    assert caplog.text.count("is unavailable") == 1
+    # The second report does not start a second attempt before the backoff
     assert mock_desk.connect.await_count == 2
-    assert len(init_integration._background_tasks) == 1
+
+
+async def test_poll_while_disconnected_reports_unavailable(
+    hass: HomeAssistant,
+    init_integration: MockConfigEntry,
+    mock_desk: MagicMock,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """Test polling a disconnected desk sends nothing and is not an update failure."""
+    await _lose_desk(hass, mock_desk)
+
+    await _poll(hass, freezer)
+
+    coordinator = init_integration.runtime_data
+    assert coordinator.last_update_success
+    assert not coordinator.data.is_connected
+    mock_desk.get_status.assert_awaited_once()
+
+
+async def test_extended_outage_logs_one_warning(
+    hass: HomeAssistant,
+    init_integration: MockConfigEntry,
+    mock_desk: MagicMock,
+    mock_bluetooth_callbacks: BluetoothCallbacks,
+    freezer: FrozenDateTimeFactory,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Test an hour of failing retries logs the outage once, at warning level."""
+    caplog.set_level(logging.DEBUG, logger=INTEGRATION_LOGGER)
+    await _lose_desk(hass, mock_desk)
+
+    for _ in range(60):
+        mock_bluetooth_callbacks.advertise()
+        await _advance(hass, freezer, 60)
+        await _poll(hass, freezer)
+    assert mock_desk.connect.await_count > 30
+
+    problems = [
+        record
+        for record in caplog.records
+        if record.name.startswith(INTEGRATION_LOGGER)
+        and record.levelno >= logging.WARNING
+    ]
+    assert [(record.levelno, record.getMessage()) for record in problems] == [
+        (logging.WARNING, f"The desk at {ADDRESS} is unavailable")
+    ]
+    assert f"Could not reconnect to the desk at {ADDRESS}" in caplog.text
+
+
+async def test_recovery_logs_one_info_message(
+    hass: HomeAssistant,
+    init_integration: MockConfigEntry,
+    mock_desk: MagicMock,
+    mock_bluetooth_callbacks: BluetoothCallbacks,
+    freezer: FrozenDateTimeFactory,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Test the desk coming back is logged once, at info level."""
+    await _lose_desk(hass, mock_desk)
+    await _advance(hass, freezer, RECONNECT_BACKOFF_MIN_SECONDS)
+    caplog.clear()
 
     _reconnect_succeeds(mock_desk)
-    await _advance(hass, freezer, RECONNECT_INTERVAL_SECONDS)
-    await hass.async_block_till_done(wait_background_tasks=True)
+    await _advance(hass, freezer, 2 * RECONNECT_BACKOFF_MIN_SECONDS)
+    await _poll(hass, freezer)
 
-    assert mock_desk.connect.await_count == 3
-    assert init_integration.runtime_data.data == desk_data()
-    assert not init_integration._background_tasks
+    messages = [
+        record.getMessage()
+        for record in caplog.records
+        if record.name.startswith(INTEGRATION_LOGGER) and record.levelno >= logging.INFO
+    ]
+    assert messages == [f"The desk at {ADDRESS} is available again"]
+
+    # The next outage is logged again
+    await _lose_desk(hass, mock_desk)
+    assert f"The desk at {ADDRESS} is unavailable" in caplog.text
 
 
-async def test_reconnect_stops_when_desk_is_back(
+async def test_shutdown_stops_reconnecting_and_disconnects(
     hass: HomeAssistant,
     init_integration: MockConfigEntry,
     mock_desk: MagicMock,
+    mock_bluetooth_callbacks: BluetoothCallbacks,
     freezer: FrozenDateTimeFactory,
 ) -> None:
-    """Test the reconnect loop ends without connecting once the desk is connected."""
-    await _start_failing_reconnect(hass, init_integration, mock_desk, freezer)
-
-    mock_desk.is_connected = True
-    await _advance(hass, freezer, RECONNECT_INTERVAL_SECONDS)
-    await hass.async_block_till_done(wait_background_tasks=True)
-
-    assert mock_desk.connect.await_count == 2
-    assert not init_integration._background_tasks
-
-
-async def test_shutdown_cancels_reconnect_and_disconnects(
-    hass: HomeAssistant,
-    init_integration: MockConfigEntry,
-    mock_desk: MagicMock,
-    freezer: FrozenDateTimeFactory,
-) -> None:
-    """Test shutting the coordinator down stops reconnecting and disconnects."""
-    await _start_failing_reconnect(hass, init_integration, mock_desk, freezer)
-    (reconnect,) = init_integration._background_tasks
+    """Test shutting the coordinator down cancels retries and disconnects."""
+    await _lose_desk(hass, mock_desk)
+    attempts = mock_desk.connect.await_count
 
     await init_integration.runtime_data.async_shutdown()
     await hass.async_block_till_done()
 
-    assert reconnect.cancelled()
-    assert not init_integration._background_tasks
     mock_desk.disconnect.assert_awaited_once()
+    # Neither the retry timer nor an advertisement reconnects any more
+    await _advance(hass, freezer, RECONNECT_BACKOFF_MAX_SECONDS)
+    mock_bluetooth_callbacks.advertise()
+    await hass.async_block_till_done(wait_background_tasks=True)
+    assert mock_desk.connect.await_count == attempts
 
-    # Nothing tries to reconnect afterwards
-    await _advance(hass, freezer, RECONNECT_INTERVAL_SECONDS)
-    assert mock_desk.connect.await_count == 2
-    assert not init_integration._background_tasks
+
+async def test_shutdown_cancels_a_running_reconnect(
+    hass: HomeAssistant, init_integration: MockConfigEntry, mock_desk: MagicMock
+) -> None:
+    """Test shutting down while a reconnect is in progress cancels it."""
+    started = asyncio.Event()
+
+    async def _connect() -> bool:
+        started.set()
+        await asyncio.Event().wait()
+        return True
+
+    mock_desk.connect.side_effect = _connect
+    disconnect_desk(mock_desk)
+    await started.wait()
+    reconnect = init_integration.runtime_data._reconnect_task
+
+    await init_integration.runtime_data.async_shutdown()
+
+    assert reconnect.cancelled()
+
+
+async def test_shutdown_without_disconnect_logs_nothing(
+    hass: HomeAssistant,
+    init_integration: MockConfigEntry,
+    mock_desk: MagicMock,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Test the disconnect caused by unloading is not reported as an outage."""
+    await init_integration.runtime_data.async_shutdown()
+    disconnect_desk(mock_desk)
+    await hass.async_block_till_done(wait_background_tasks=True)
+
+    assert "is unavailable" not in caplog.text
+    mock_desk.connect.assert_awaited_once()
 
 
 async def test_device_info_before_connecting(

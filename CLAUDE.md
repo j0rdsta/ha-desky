@@ -63,7 +63,7 @@ This is a Home Assistant custom integration that follows the standard component 
 1. **Coordinator Pattern**: All entities receive updates through a central `DeskUpdateCoordinator` that manages:
    - Bluetooth connection state
    - Periodic status polling (30-second intervals)
-   - Automatic reconnection attempts
+   - Reconnection when the desk advertises again, with backoff (see Connection Management)
    - Data distribution to all entities
    - Movement tracking for the cover state and collision detection (see Movement Tracking below)
 
@@ -223,7 +223,12 @@ The integration provides these custom services:
 ### Connection Management
 
 - Handshake command sent after connection to enable movement controls, and again before every command that moves the desk or changes a setting: the controller ignores commands while its display is asleep (about a minute after the last touch), and the handshake wakes it. `stop()` is sent without it
-- Automatic reconnection every 30 seconds when disconnected
+- Connections go through `establish_connection(BleakClientWithServiceCache, ...)`, which picks whichever adapter or proxy hears the desk; there is no proxy detection of our own
+- While the entry is loaded the coordinator expects a connection. An advertisement callback for the desk's address hands the fresh `BLEDevice` to `DeskBLEDevice.set_ble_device()` and reconnects a disconnected desk at once. A failed attempt retries after 5 s, doubling to 120 s and reset on success; advertisements wait out a pending retry. A retry is skipped while HA no longer sees the desk
+- `async_track_unavailable` fires when HA stops seeing the desk. A desk that is still connected is asked for its status first and dropped only if the write fails, since a connected desk may stop advertising
+- A disconnect logs one warning and the recovery one info line (`The desk at <address> is unavailable` / `is available again`); everything in between is debug
+- Commands raise `DeskNotConnectedError` or `DeskCommandError` (the bool returns are gone; bad arguments raise `ValueError`). Writes are serialised with an `asyncio.Lock`, and a woken command writes its handshake under the same lock. Entity command methods use `@desk_command` (`entity.py`), which turns those into translated `HomeAssistantError`s
+- A poll on a disconnected desk sends nothing and is not an update failure; a poll whose status write fails drops the connection
 - Connection state tracked in coordinator data
 - All entities become unavailable when disconnected
 - BLE device discovery uses Home Assistant's bluetooth component
@@ -232,7 +237,7 @@ The integration provides these custom services:
 
 1. **Height Range**: Hardcoded 60-130cm range based on typical Desky desk limits
 2. **Update Strategy**: Passive updates via BLE notifications, with periodic status requests
-3. **Error Handling**: Connection errors trigger reconnection; command errors are logged but don't crash
+3. **Error Handling**: Connection errors trigger reconnection; entity commands raise translated errors instead of failing silently
 4. **Bluetooth Proxies**: Fully supported through Home Assistant's bluetooth component
 5. **Multi-desk Support**: Each desk gets its own coordinator instance
 6. **Movement Tracking** (`bluetooth.py`, one `_Movement` object, `None` when nothing is in flight):

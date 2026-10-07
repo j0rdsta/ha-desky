@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, PropertyMock, patch
+from unittest.mock import MagicMock
 
 from homeassistant.components.cover import (
     ATTR_CURRENT_POSITION,
@@ -30,7 +30,6 @@ import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.desky_desk.const import MAX_HEIGHT, MIN_HEIGHT
-from custom_components.desky_desk.coordinator import DeskUpdateCoordinator
 
 from . import disconnect_desk, notify_desk
 
@@ -175,33 +174,6 @@ async def test_cover_set_position(
     mock_desk.move_to_height.assert_awaited_once_with(height)
     # The cover asks the coordinator to refresh so it tracks the movement
     mock_desk.get_status.assert_awaited_once_with()
-
-
-async def test_cover_commands_skipped_without_device(
-    hass: HomeAssistant,
-    init_integration: MockConfigEntry,
-    mock_desk: MagicMock,
-) -> None:
-    """Test cover services do nothing when the coordinator has no desk device."""
-    mock_desk.get_status.reset_mock()
-
-    with patch.object(
-        DeskUpdateCoordinator, "device", new_callable=PropertyMock, return_value=None
-    ):
-        for service, data in (
-            (SERVICE_OPEN_COVER, {}),
-            (SERVICE_CLOSE_COVER, {}),
-            (SERVICE_STOP_COVER, {}),
-            (SERVICE_SET_COVER_POSITION, {ATTR_POSITION: 50}),
-        ):
-            await _call(hass, service, **data)
-        await hass.async_block_till_done()
-
-    mock_desk.move_up.assert_not_called()
-    mock_desk.move_down.assert_not_called()
-    mock_desk.stop.assert_not_called()
-    mock_desk.move_to_height.assert_not_called()
-    mock_desk.get_status.assert_not_called()
 
 
 async def test_cover_availability(
