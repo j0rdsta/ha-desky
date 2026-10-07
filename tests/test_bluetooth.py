@@ -385,23 +385,44 @@ def test_recent_notification_headers(mock_ble_device):
 
     # Unknown and truncated frames are kept too: they are what a bug report needs
     assert device.recent_notification_headers == [
-        "f2 f2 01 03",
-        "f2 f2",
-        "ff ff 00 00",
+        {"header": "f2 f2 01 03", "count": 1},
+        {"header": "f2 f2", "count": 1},
+        {"header": "ff ff 00 00", "count": 1},
+    ]
+
+
+def test_recent_notification_headers_collapse_repeats(mock_ble_device):
+    """Test a run of identical headers is kept once, with how often it came."""
+    device = DeskBLEDevice(mock_ble_device)
+
+    # An idle desk streams status frames; a settings reply interrupts the run
+    for _ in range(81):
+        device._handle_notification(None, _status_frame(85.0))
+    device._handle_notification(None, bytearray([0xF2, 0xF2, 0x0E, 0x01, 0x00]))
+    for _ in range(3):
+        device._handle_notification(None, _status_frame(85.0))
+
+    assert device.recent_notification_headers == [
+        {"header": "f2 f2 01 03", "count": 81},
+        {"header": "f2 f2 0e 01", "count": 1},
+        {"header": "f2 f2 01 03", "count": 3},
     ]
 
 
 def test_recent_notification_headers_are_capped(mock_ble_device):
-    """Test only the most recent notification headers are kept."""
+    """Test only the most recent runs of notification headers are kept."""
     device = DeskBLEDevice(mock_ble_device)
 
     for value in range(RECENT_NOTIFICATION_HEADERS + 5):
-        device._handle_notification(None, bytearray([0xF2, 0xF2, value, 0x01, 0x00]))
+        for _ in range(2):
+            device._handle_notification(
+                None, bytearray([0xF2, 0xF2, value, 0x01, 0x00])
+            )
 
     headers = device.recent_notification_headers
     assert len(headers) == RECENT_NOTIFICATION_HEADERS == 20
-    assert headers[0] == "f2 f2 05 01"
-    assert headers[-1] == "f2 f2 18 01"
+    assert headers[0] == {"header": "f2 f2 05 01", "count": 2}
+    assert headers[-1] == {"header": "f2 f2 18 01", "count": 2}
 
 
 def test_handle_notification_invalid_data(mock_ble_device):

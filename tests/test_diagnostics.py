@@ -17,7 +17,11 @@ from . import disconnect_desk
 
 ADDRESS = "AA:BB:CC:DD:EE:FF"
 SERIAL_NUMBER = "TEST123456"
-HEADERS = ["f2 f2 01 03", "f2 f2 0e 01", "f2 f2 19 01"]
+HEADERS = [
+    {"header": "f2 f2 01 03", "count": 81},
+    {"header": "f2 f2 0e 01", "count": 1},
+    {"header": "f2 f2 01 03", "count": 12},
+]
 
 
 async def test_diagnostics_connected(

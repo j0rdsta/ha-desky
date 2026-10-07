@@ -21,9 +21,18 @@
       'unique_id': '**REDACTED**',
     }),
     'recent_notification_headers': list([
-      'f2 f2 01 03',
-      'f2 f2 0e 01',
-      'f2 f2 19 01',
+      dict({
+        'count': 81,
+        'header': 'f2 f2 01 03',
+      }),
+      dict({
+        'count': 1,
+        'header': 'f2 f2 0e 01',
+      }),
+      dict({
+        'count': 12,
+        'header': 'f2 f2 01 03',
+      }),
     ]),
     'stale': False,
     'state': dict({
@@ -70,9 +79,18 @@
       'unique_id': '**REDACTED**',
     }),
     'recent_notification_headers': list([
-      'f2 f2 01 03',
-      'f2 f2 0e 01',
-      'f2 f2 19 01',
+      dict({
+        'count': 81,
+        'header': 'f2 f2 01 03',
+      }),
+      dict({
+        'count': 1,
+        'header': 'f2 f2 0e 01',
+      }),
+      dict({
+        'count': 12,
+        'header': 'f2 f2 01 03',
+      }),
     ]),
     'stale': True,
     'state': dict({
