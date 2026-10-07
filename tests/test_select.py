@@ -19,10 +19,12 @@ from homeassistant.const import (
     EntityCategory,
 )
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
+from custom_components.desky_desk.bluetooth import DeskCommandError
 from custom_components.desky_desk.select import SELECT_DESCRIPTIONS, DeskSelect
 
 from . import disconnect_desk, notify_desk, set_desk_state
@@ -159,15 +161,13 @@ async def test_selects_unavailable_when_disconnected(
     for entity_id in (SENSITIVITY, TOUCH_MODE, UNIT):
         assert hass.states.get(entity_id).state == STATE_UNAVAILABLE
 
-    # Home Assistant skips unavailable entities, so call the entity directly too
+    # Home Assistant skips unavailable entities
     await hass.services.async_call(
         SELECT_DOMAIN,
         SERVICE_SELECT_OPTION,
         {ATTR_ENTITY_ID: SENSITIVITY, ATTR_OPTION: "High"},
         blocking=True,
     )
-    entity = DeskSelect(init_integration.runtime_data, DESCRIPTIONS["sensitivity"])
-    await entity.async_select_option("High")
 
     mock_desk.set_sensitivity.assert_not_awaited()
     mock_desk.get_sensitivity.assert_not_awaited()
@@ -266,14 +266,15 @@ async def test_select_skips_read_back_when_the_write_fails(
     command: str,
 ) -> None:
     """A setting that could not be sent is not read back."""
-    getattr(mock_desk, command).return_value = False
+    getattr(mock_desk, command).side_effect = DeskCommandError("write failed")
 
-    await hass.services.async_call(
-        SELECT_DOMAIN,
-        SERVICE_SELECT_OPTION,
-        {ATTR_ENTITY_ID: entity_id, ATTR_OPTION: option},
-        blocking=True,
-    )
+    with pytest.raises(HomeAssistantError):
+        await hass.services.async_call(
+            SELECT_DOMAIN,
+            SERVICE_SELECT_OPTION,
+            {ATTR_ENTITY_ID: entity_id, ATTR_OPTION: option},
+            blocking=True,
+        )
 
     mock_desk.get_settings.assert_not_awaited()
 

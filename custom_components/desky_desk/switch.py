@@ -11,7 +11,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .coordinator import DeskUpdateCoordinator, DeskyConfigEntry
-from .entity import DeskEntity
+from .entity import DeskEntity, desk_command
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -63,11 +63,9 @@ class DeskSwitch(DeskEntity, SwitchEntity):
 
         return False
 
+    @desk_command
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the switch on."""
-        if not self.available or not self._device:
-            return
-
         if self.entity_description.key == "vibration":
             await self._device.set_vibration(True)
             await self._device.get_vibration_status()
@@ -75,11 +73,9 @@ class DeskSwitch(DeskEntity, SwitchEntity):
             await self._device.set_lock_status(True)
             await self._device.get_lock_status()
 
+    @desk_command
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the switch off."""
-        if not self.available or not self._device:
-            return
-
         if self.entity_description.key == "vibration":
             await self._device.set_vibration(False)
             await self._device.get_vibration_status()

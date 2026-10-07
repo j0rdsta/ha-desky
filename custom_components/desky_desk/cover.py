@@ -15,7 +15,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import COVER_CLOSED_POSITION, MAX_HEIGHT, MIN_HEIGHT
 from .coordinator import DeskUpdateCoordinator, DeskyConfigEntry
-from .entity import DeskEntity
+from .entity import DeskEntity, desk_command
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -81,26 +81,24 @@ class DeskyCover(DeskEntity, CoverEntity):
         data = self.coordinator.data
         return data.is_moving and data.movement_direction == "down"
 
+    @desk_command
     async def async_open_cover(self, **kwargs: Any) -> None:
         """Open the cover (raise the desk)."""
-        if self._device:
-            await self._device.move_up()
+        await self._device.move_up()
 
+    @desk_command
     async def async_close_cover(self, **kwargs: Any) -> None:
         """Close the cover (lower the desk)."""
-        if self._device:
-            await self._device.move_down()
+        await self._device.move_down()
 
+    @desk_command
     async def async_stop_cover(self, **kwargs: Any) -> None:
         """Stop the cover (stop desk movement)."""
-        if self._device:
-            await self._device.stop()
+        await self._device.stop()
 
+    @desk_command
     async def async_set_cover_position(self, **kwargs: Any) -> None:
         """Move the cover to a specific position."""
-        if not self._device:
-            return
-
         # Convert position (0-100) to height (MIN_HEIGHT-MAX_HEIGHT)
         position = kwargs[ATTR_POSITION]
         target_height = MIN_HEIGHT + (position / 100) * (MAX_HEIGHT - MIN_HEIGHT)

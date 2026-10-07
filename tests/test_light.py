@@ -14,6 +14,7 @@ from homeassistant.components.light import (
 )
 from homeassistant.const import ATTR_ENTITY_ID, STATE_OFF, STATE_ON, STATE_UNAVAILABLE
 from homeassistant.core import HomeAssistant, State
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import async_get_platforms
 import pytest
 from pytest_homeassistant_custom_component.common import (
@@ -21,6 +22,7 @@ from pytest_homeassistant_custom_component.common import (
     mock_restore_cache_with_extra_data,
 )
 
+from custom_components.desky_desk.bluetooth import DeskCommandError
 from custom_components.desky_desk.const import DOMAIN
 from custom_components.desky_desk.light import DeskLight
 
@@ -297,23 +299,30 @@ async def test_light_set_effect(
 async def test_light_commands_skipped_when_unavailable(
     hass: HomeAssistant, init_integration: MockConfigEntry, mock_desk: MagicMock
 ) -> None:
-    """Test the light sends nothing while the desk is disconnected.
-
-    Home Assistant skips unavailable entities when handling service calls, so
-    the entity methods are called directly.
-    """
-    light = _light(hass)
+    """Test Home Assistant sends nothing to the light while the desk is disconnected."""
     await set_desk_state(hass, init_integration, is_connected=False)
 
-    await light.async_turn_on(**{ATTR_EFFECT: "Red"})
-    await light.async_turn_off()
-    await light.async_set_effect("Red")
+    await hass.services.async_call(
+        LIGHT_DOMAIN,
+        SERVICE_TURN_ON,
+        {ATTR_ENTITY_ID: ENTITY_ID, ATTR_EFFECT: "Red"},
+        blocking=True,
+    )
 
     mock_desk.set_light_color.assert_not_called()
     mock_desk.set_lighting.assert_not_called()
-    mock_desk.get_lighting_status.assert_not_called()
-    mock_desk.get_light_color.assert_not_called()
-    assert light.extra_restore_state_data.as_dict() == {"last_static_color": 1}
+
+
+async def test_failed_color_change_is_not_remembered(
+    hass: HomeAssistant, init_integration: MockConfigEntry, mock_desk: MagicMock
+) -> None:
+    """Test a colour the desk never received is not restored on the next turn on."""
+    mock_desk.set_light_color.side_effect = DeskCommandError("write failed")
+
+    with pytest.raises(HomeAssistantError):
+        await _light(hass).async_set_effect("Red")
+
+    assert _light(hass).extra_restore_state_data.as_dict() == {"last_static_color": 1}
 
 
 async def test_light_restores_last_static_color(

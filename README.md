@@ -419,9 +419,32 @@ automation:
 - Verify the desk name starts with "Desky"
 
 ### Connection Issues
-- The integration automatically reconnects if connection is lost
-- Check Home Assistant logs for detailed error messages
-- Ensure no other device is connected to the desk
+When the connection to the desk drops, its entities become unavailable and the log gets one
+warning:
+
+```
+The desk at AA:BB:CC:DD:EE:FF is unavailable
+```
+
+The integration reconnects as soon as Home Assistant sees the desk advertising again, through
+whichever adapter or proxy hears it. If the desk is advertising but refuses the connection,
+it retries after 5 seconds, doubling the wait each time up to 2 minutes. Retries are only
+logged at debug level (`Could not reconnect to the desk at …, retrying in … seconds`), so a
+long outage does not fill the log. Once the desk is back, the log gets one info line:
+
+```
+The desk at AA:BB:CC:DD:EE:FF is available again
+```
+
+Home Assistant does not run actions on unavailable entities. If the connection drops just as a
+command is sent, the command fails with "The desk is not connected"; if the Bluetooth write
+fails, it fails with "Could not send the command to the desk", followed by the Bluetooth
+error. An automation records either as an error instead of carrying on as if the desk moved.
+
+If the desk stays unavailable:
+- Check that it is powered on and in range of an adapter or proxy
+- Make sure no phone or other device is connected to it, which can keep Home Assistant out
+- Check that a Bluetooth proxy has a free connection slot (see below)
 - Try restarting the desk by unplugging it for 10 seconds
 
 ### Height sensor not updating?
@@ -438,8 +461,13 @@ automation:
 
 ### ESPHome Bluetooth Proxy
 This integration fully supports ESPHome Bluetooth proxies. To use:
-1. Set up an ESPHome device with `esp32_ble_tracker` and `bluetooth_proxy`
+1. Set up an ESPHome device with `esp32_ble_tracker` and `bluetooth_proxy`, with
+   `active: true` so the proxy can connect to devices
 2. The desk will be discovered through the proxy automatically
+
+The desk stays connected, so it holds one of the proxy's connection slots (an ESP32 proxy has
+three by default). If every slot is taken by other devices, the desk cannot connect and stays
+unavailable, retrying as described above. Free a slot or add another proxy near the desk.
 
 ## Technical Details
 

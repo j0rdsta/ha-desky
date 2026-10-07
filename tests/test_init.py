@@ -6,6 +6,7 @@ from datetime import timedelta
 from unittest.mock import MagicMock, patch
 
 from freezegun.api import FrozenDateTimeFactory
+from homeassistant.components.bluetooth import BluetoothScanningMode
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import STATE_UNAVAILABLE, Platform
 from homeassistant.core import HomeAssistant
@@ -16,10 +17,10 @@ from pytest_homeassistant_custom_component.common import (
 )
 
 from custom_components.desky_desk import PLATFORMS
-from custom_components.desky_desk.const import DOMAIN, UPDATE_INTERVAL_SECONDS
+from custom_components.desky_desk.const import DOMAIN, RECONNECT_BACKOFF_MAX_SECONDS
 from custom_components.desky_desk.coordinator import DeskUpdateCoordinator
 
-from . import disconnect_desk
+from . import BluetoothCallbacks, disconnect_desk
 
 ADDRESS = "AA:BB:CC:DD:EE:FF"
 
@@ -135,15 +136,10 @@ async def test_unload_cancels_pending_reconnect(
     mock_desk: MagicMock,
     freezer: FrozenDateTimeFactory,
 ) -> None:
-    """Test unloading while a reconnect is pending cancels it cleanly."""
+    """Test unloading while a reconnect retry is pending cancels it cleanly."""
     mock_desk.connect.return_value = False
     disconnect_desk(mock_desk)
-
-    # The next poll finds the desk disconnected and starts reconnecting
-    freezer.tick(timedelta(seconds=UPDATE_INTERVAL_SECONDS))
-    async_fire_time_changed(hass)
-    await hass.async_block_till_done()
-    assert len(init_integration._background_tasks) == 1
+    await hass.async_block_till_done(wait_background_tasks=True)
     assert all(
         state == STATE_UNAVAILABLE
         for state in _desk_entity_states(hass, init_integration)
@@ -155,6 +151,55 @@ async def test_unload_cancels_pending_reconnect(
     assert init_integration.state is ConfigEntryState.NOT_LOADED
     assert not init_integration._background_tasks
     mock_desk.disconnect.assert_awaited_once()
+
+    # The retry that was waiting never runs
+    freezer.tick(timedelta(seconds=RECONNECT_BACKOFF_MAX_SECONDS))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done(wait_background_tasks=True)
+    assert mock_desk.connect.await_count == 2
+
+
+async def test_unload_releases_bluetooth_callbacks(
+    hass: HomeAssistant,
+    init_integration: MockConfigEntry,
+    mock_bluetooth_callbacks: BluetoothCallbacks,
+) -> None:
+    """Test the advertisement and unavailable callbacks are removed on unload."""
+    unregister = mock_bluetooth_callbacks.register.return_value
+    untrack = mock_bluetooth_callbacks.track_unavailable.return_value
+    _, _, matcher, mode = mock_bluetooth_callbacks.register.call_args.args
+    assert matcher == {"address": ADDRESS, "connectable": True}
+    assert mode is BluetoothScanningMode.ACTIVE
+    assert mock_bluetooth_callbacks.track_unavailable.call_args.kwargs == {
+        "connectable": True
+    }
+
+    assert await hass.config_entries.async_unload(init_integration.entry_id)
+    await hass.async_block_till_done()
+
+    unregister.assert_called_once_with()
+    untrack.assert_called_once_with()
+
+
+async def test_failed_setup_registers_no_bluetooth_callbacks(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_desk: MagicMock,
+    mock_bluetooth_callbacks: BluetoothCallbacks,
+) -> None:
+    """Test a desk that cannot be connected at setup is not watched for."""
+    mock_desk.connect.return_value = False
+    mock_config_entry.add_to_hass(hass)
+    with patch(
+        "homeassistant.components.bluetooth.async_ble_device_from_address",
+        return_value=MagicMock(address=ADDRESS),
+    ):
+        await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert mock_config_entry.state is ConfigEntryState.SETUP_RETRY
+    mock_bluetooth_callbacks.register.assert_not_called()
+    mock_bluetooth_callbacks.track_unavailable.assert_not_called()
 
 
 async def test_reload(

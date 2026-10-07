@@ -9,7 +9,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .coordinator import DeskUpdateCoordinator, DeskyConfigEntry
-from .entity import DeskEntity
+from .entity import DeskEntity, desk_command
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -45,11 +45,11 @@ class DeskyPresetButton(DeskEntity, ButtonEntity):
         self._preset_number = preset_number
         self._attr_translation_placeholders = {"number": str(preset_number)}
 
+    @desk_command
     async def async_press(self) -> None:
         """Handle the button press."""
-        if self._device:
-            _LOGGER.debug("Moving desk to preset %d", self._preset_number)
-            await self._device.move_to_preset(self._preset_number)
+        _LOGGER.debug("Moving desk to preset %d", self._preset_number)
+        await self._device.move_to_preset(self._preset_number)
 
 
 class DeskyMoveUpButton(DeskEntity, ButtonEntity):
@@ -61,11 +61,11 @@ class DeskyMoveUpButton(DeskEntity, ButtonEntity):
         """Initialize the move up button."""
         super().__init__(coordinator, "move_up")
 
+    @desk_command
     async def async_press(self) -> None:
         """Handle the button press."""
-        if self._device:
-            _LOGGER.debug("Moving desk up")
-            await self._device.move_up()
+        _LOGGER.debug("Moving desk up")
+        await self._device.move_up()
 
 
 class DeskyMoveDownButton(DeskEntity, ButtonEntity):
@@ -77,8 +77,8 @@ class DeskyMoveDownButton(DeskEntity, ButtonEntity):
         """Initialize the move down button."""
         super().__init__(coordinator, "move_down")
 
+    @desk_command
     async def async_press(self) -> None:
         """Handle the button press."""
-        if self._device:
-            _LOGGER.debug("Moving desk down")
-            await self._device.move_down()
+        _LOGGER.debug("Moving desk down")
+        await self._device.move_down()

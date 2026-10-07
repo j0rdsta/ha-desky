@@ -5,11 +5,14 @@ from __future__ import annotations
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, call, patch
 
+from bleak_retry_connector import BleakClientWithServiceCache
 import pytest
 
 from custom_components.desky_desk.bluetooth import (
     COMMAND_EXPIRY_SECONDS,
     DeskBLEDevice,
+    DeskCommandError,
+    DeskNotConnectedError,
     _Movement,
 )
 from custom_components.desky_desk.const import (
@@ -145,13 +148,16 @@ async def test_connect_success(
     assert device._client == mock_bleak_client
     assert device.is_connected is True
 
-    # Verify establish_connection was called with correct parameters
-    mock_establish_connection.assert_called_once()
-    call_args = mock_establish_connection.call_args
-    assert call_args.kwargs["timeout"] == 20.0  # Direct connection timeout
-    assert call_args.kwargs["max_attempts"] == 3  # Direct connection attempts
-    assert call_args.kwargs["use_services_cache"] is True
-    assert "ble_device_callback" in call_args.kwargs
+    # bleak-retry-connector handles adapters and proxies alike, with no
+    # timeouts of our own
+    mock_establish_connection.assert_called_once_with(
+        BleakClientWithServiceCache,
+        mock_ble_device,
+        "Desky",
+        disconnected_callback=device._handle_disconnect,
+        max_attempts=3,
+        ble_device_callback=device._get_ble_device,
+    )
 
     mock_bleak_client.start_notify.assert_called_once_with(
         NOTIFY_CHARACTERISTIC_UUID, device._handle_notification
@@ -205,61 +211,39 @@ async def test_connect_timeout(mock_ble_device):
         assert device._client is None
 
 
-async def test_proxy_detection(mock_ble_device):
-    """Test ESPHome proxy detection."""
+async def test_connection_retries_use_the_latest_ble_device(mock_ble_device):
+    """Test retries within a connection attempt use the most recently seen device."""
     device = DeskBLEDevice(mock_ble_device)
+    assert device._get_ble_device() is mock_ble_device
 
-    # Test no details
-    mock_ble_device.details = None
-    assert device._is_esphome_proxy(mock_ble_device) is False
+    # The desk is now heard through another proxy
+    newer = MagicMock(address=mock_ble_device.address)
+    device.set_ble_device(newer)
 
-    # Test via_device indicator
-    mock_ble_device.details = {"via_device": "ESP32"}
-    assert device._is_esphome_proxy(mock_ble_device) is True
-
-    # Test source field
-    mock_ble_device.details = {"source": "esphome"}
-    assert device._is_esphome_proxy(mock_ble_device) is True
-
-    # Test scanner field
-    mock_ble_device.details = {"scanner": "esp32_proxy"}
-    assert device._is_esphome_proxy(mock_ble_device) is True
-
-    # Test path field
-    mock_ble_device.details = {"path": "/esphome/proxy1"}
-    assert device._is_esphome_proxy(mock_ble_device) is True
-
-    # Test no proxy indicators
-    mock_ble_device.details = {"source": "hci0"}
-    assert device._is_esphome_proxy(mock_ble_device) is False
+    assert device._get_ble_device() is newer
 
 
-async def test_connect_with_proxy(
-    mock_ble_device, mock_establish_connection, mock_bleak_client
+async def test_connection_lifecycle_logs_only_at_debug(
+    mock_ble_device, mock_establish_connection, mock_bleak_client, caplog
 ):
-    """Test connection with ESPHome proxy detection."""
-    # Set proxy indicators
-    mock_ble_device.details = {"via_device": "ESP32"}
+    """Test connecting, dropping and failing to reconnect log nothing above debug.
 
+    The coordinator logs an outage and the recovery once each, so the device
+    must not add a line for every attempt.
+    """
+    caplog.set_level("DEBUG", logger="custom_components.desky_desk.bluetooth")
     device = DeskBLEDevice(mock_ble_device)
 
-    result = await device.connect()
+    # A desk without the Device Information Service, connected and dropped
+    assert await device.connect()
+    device._handle_disconnect(mock_bleak_client)
+    mock_establish_connection.side_effect = TimeoutError()
+    assert not await device.connect()
 
-    assert result is True
-
-    # Verify proxy-specific parameters were used
-    call_args = mock_establish_connection.call_args
-    assert call_args.kwargs["timeout"] == 30.0  # Proxy timeout
-    assert call_args.kwargs["max_attempts"] == 5  # Proxy attempts
-
-
-async def test_get_updated_device(mock_ble_device):
-    """Test _get_updated_device callback returns the BLE device."""
-    device = DeskBLEDevice(mock_ble_device)
-
-    # Test the callback returns the device
-    result = device._get_updated_device()
-    assert result == mock_ble_device
+    assert [
+        record.getMessage() for record in caplog.records if record.levelname != "DEBUG"
+    ] == []
+    assert "Failed to connect to desk at AA:BB:CC:DD:EE:FF" in caplog.text
 
 
 async def test_disconnect(mock_ble_device, mock_bleak_client):
@@ -279,32 +263,32 @@ async def test_send_command_success(mock_ble_device, mock_bleak_client):
     device = DeskBLEDevice(mock_ble_device)
     device._client = mock_bleak_client
 
-    result = await device._send_command(COMMAND_GET_STATUS)
+    await device._send_command(COMMAND_GET_STATUS)
 
-    assert result is True
     mock_bleak_client.write_gatt_char.assert_called_once_with(
         WRITE_CHARACTERISTIC_UUID, COMMAND_GET_STATUS
     )
 
 
 async def test_send_command_not_connected(mock_ble_device):
-    """Test command sending when not connected."""
+    """Test a command to a disconnected desk raises instead of reporting success."""
     device = DeskBLEDevice(mock_ble_device)
 
-    result = await device._send_command(COMMAND_GET_STATUS)
-
-    assert result is False
+    with pytest.raises(DeskNotConnectedError):
+        await device._send_command(COMMAND_GET_STATUS)
 
 
 async def test_send_command_failure(mock_ble_device, mock_bleak_client):
-    """Test command sending failure."""
+    """Test a failed write raises with the cause attached."""
     device = DeskBLEDevice(mock_ble_device)
     device._client = mock_bleak_client
-    mock_bleak_client.write_gatt_char.side_effect = Exception("Write failed")
+    cause = Exception("Write failed")
+    mock_bleak_client.write_gatt_char.side_effect = cause
 
-    result = await device._send_command(COMMAND_GET_STATUS)
+    with pytest.raises(DeskCommandError, match="Write failed") as err:
+        await device._send_command(COMMAND_GET_STATUS)
 
-    assert result is False
+    assert err.value.__cause__ is cause
 
 
 async def test_movement_commands(mock_ble_device, mock_bleak_client):
@@ -366,9 +350,9 @@ async def test_invalid_preset(mock_ble_device, mock_bleak_client):
     device = DeskBLEDevice(mock_ble_device)
     device._client = mock_bleak_client
 
-    result = await device.move_to_preset(5)
+    with pytest.raises(ValueError, match="Invalid preset number: 5"):
+        await device.move_to_preset(5)
 
-    assert result is False
     mock_bleak_client.write_gatt_char.assert_not_called()
 
 
@@ -540,9 +524,8 @@ async def test_move_to_height_success(mock_ble_device, mock_bleak_client):
     device._height_cm = 70.0  # Current height
 
     # Test moving to 85.0 cm (850 mm) - up direction
-    result = await device.move_to_height(85.0)
+    await device.move_to_height(85.0)
 
-    assert result is True
     assert device.is_moving is False  # Not moving until the desk responds
     assert device.movement_direction == "up"
     assert device._movement.kind == "targeted"
@@ -566,13 +549,13 @@ async def test_move_to_height_out_of_range(mock_ble_device, mock_bleak_client):
     device._client = mock_bleak_client
 
     # Test below minimum
-    result = await device.move_to_height(MIN_HEIGHT - 10)
-    assert result is False
+    with pytest.raises(ValueError, match="out of range"):
+        await device.move_to_height(MIN_HEIGHT - 10)
     assert not device.is_moving
 
     # Test above maximum
-    result = await device.move_to_height(MAX_HEIGHT + 10)
-    assert result is False
+    with pytest.raises(ValueError, match="out of range"):
+        await device.move_to_height(MAX_HEIGHT + 10)
     assert not device.is_moving
 
     # Verify no commands were sent
@@ -675,9 +658,10 @@ async def test_move_to_height_direction_detection(mock_ble_device, mock_bleak_cl
 
     # Test same height (no movement)
     device._height_cm = 80.0
-    result = await device.move_to_height(80.0)
-    assert result is True
+    await device.move_to_height(80.0)
     assert device.movement_direction is None
+    # Nothing is sent for a move to where the desk already is
+    assert mock_bleak_client.write_gatt_char.call_count == 4
 
 
 async def test_collision_state_persists(mock_ble_device, mock_bleak_client):
@@ -1464,66 +1448,55 @@ async def test_new_device_commands(mock_ble_device, mock_bleak_client):
     device._client = mock_bleak_client
 
     # Test light color commands
-    result = await device.set_light_color(2)  # Red
-    assert result is True
+    await device.set_light_color(2)  # Red
     expected_command = bytes([0xF1, 0xF1, 0xB4, 0x01, 0x02, 0xB7, 0x7E])
     mock_bleak_client.write_gatt_char.assert_called_with(
         WRITE_CHARACTERISTIC_UUID, expected_command
     )
 
     # Test invalid light color
-    result = await device.set_light_color(8)  # Invalid
-    assert result is False
+    with pytest.raises(ValueError):
+        await device.set_light_color(8)
 
     # Test brightness
-    result = await device.set_brightness(75)
-    assert result is True
+    await device.set_brightness(75)
     expected_command = bytes([0xF1, 0xF1, 0xB6, 0x01, 0x4B, 0x02, 0x7E])  # 75 = 0x4B
 
     # Test lighting enabled
-    result = await device.set_lighting(True)
-    assert result is True
+    await device.set_lighting(True)
     expected_command = bytes([0xF1, 0xF1, 0xB5, 0x01, 0x01, 0xB7, 0x7E])
 
     # Test vibration
-    result = await device.set_vibration(False)
-    assert result is True
+    await device.set_vibration(False)
     expected_command = bytes([0xF1, 0xF1, 0xB3, 0x01, 0x00, 0xB4, 0x7E])
 
     # Test vibration intensity
-    result = await device.set_vibration_intensity(50)
-    assert result is True
+    await device.set_vibration_intensity(50)
     expected_command = bytes([0xF1, 0xF1, 0xA4, 0x01, 0x32, 0xD7, 0x7E])  # 50 = 0x32
 
     # Test lock status
-    result = await device.set_lock_status(True)
-    assert result is True
+    await device.set_lock_status(True)
     expected_command = bytes([0xF1, 0xF1, 0xB2, 0x01, 0x01, 0xB4, 0x7E])
 
     # Test sensitivity level
-    result = await device.set_sensitivity(2)  # Medium
-    assert result is True
+    await device.set_sensitivity(2)  # Medium
     expected_command = bytes([0xF1, 0xF1, 0x1D, 0x01, 0x02, 0x20, 0x7E])
 
     # Test height limits
-    result = await device.set_height_limit_upper(120.0)
-    assert result is True
+    await device.set_height_limit_upper(120.0)
     # 1200 = 0x04B0, so high=0x04, low=0xB0
     expected_command = bytes([0xF1, 0xF1, 0x21, 0x02, 0x04, 0xB0, 0xD7, 0x7E])
 
-    result = await device.set_height_limit_lower(65.0)
-    assert result is True
+    await device.set_height_limit_lower(65.0)
     # 650 = 0x028A, so high=0x02, low=0x8A
     expected_command = bytes([0xF1, 0xF1, 0x22, 0x02, 0x02, 0x8A, 0xB0, 0x7E])
 
     # Test clear limits
-    result = await device.clear_height_limits()
-    assert result is True
+    await device.clear_height_limits()
     expected_command = bytes([0xF1, 0xF1, 0x23, 0x00, 0x23, 0x7E])
 
     # Test touch mode
-    result = await device.set_touch_mode(1)  # Press and hold
-    assert result is True
+    await device.set_touch_mode(1)  # Press and hold
     expected_command = bytes([0xF1, 0xF1, 0x19, 0x01, 0x01, 0x1B, 0x7E])
 
     # Test units - not implemented in device
@@ -1551,8 +1524,7 @@ async def test_device_capability_queries(mock_ble_device, mock_bleak_client):
 
     for method, expected_command in commands_to_test:
         mock_bleak_client.write_gatt_char.reset_mock()
-        result = await method()
-        assert result is True
+        await method()
         mock_bleak_client.write_gatt_char.assert_called_once_with(
             WRITE_CHARACTERISTIC_UUID, expected_command
         )
@@ -1658,55 +1630,37 @@ async def test_device_capability_detection(mock_ble_device, mock_bleak_client):
             assert expected in sent_commands
 
 
-async def test_command_parameter_validation(mock_ble_device, mock_bleak_client):
-    """Test parameter validation for new commands."""
+@pytest.mark.parametrize(
+    ("method", "value"),
+    [
+        ("set_light_color", 0),
+        ("set_light_color", 8),
+        ("set_brightness", -1),
+        ("set_brightness", 101),
+        ("set_vibration_intensity", -1),
+        ("set_vibration_intensity", 101),
+        ("set_sensitivity", 0),
+        ("set_sensitivity", 4),
+        ("set_height_limit_upper", 59.0),
+        ("set_height_limit_upper", 131.0),
+        ("set_height_limit_lower", 59.0),
+        ("set_height_limit_lower", 131.0),
+        ("set_touch_mode", -1),
+        ("set_touch_mode", 2),
+        ("set_unit", "meters"),
+    ],
+)
+async def test_command_parameter_validation(
+    mock_ble_device, mock_bleak_client, method, value
+):
+    """Test an out-of-range value raises and sends nothing."""
     device = DeskBLEDevice(mock_ble_device)
     device._client = mock_bleak_client
 
-    # Test invalid light color
-    result = await device.set_light_color(0)  # Too low
-    assert result is False
-    result = await device.set_light_color(8)  # Too high
-    assert result is False
+    with pytest.raises(ValueError, match="Invalid"):
+        await getattr(device, method)(value)
 
-    # Test invalid brightness
-    result = await device.set_brightness(-1)  # Too low
-    assert result is False
-    result = await device.set_brightness(101)  # Too high
-    assert result is False
-
-    # Test invalid vibration intensity
-    result = await device.set_vibration_intensity(-1)  # Too low
-    assert result is False
-    result = await device.set_vibration_intensity(101)  # Too high
-    assert result is False
-
-    # Test invalid sensitivity level
-    result = await device.set_sensitivity(0)  # Too low
-    assert result is False
-    result = await device.set_sensitivity(4)  # Too high
-    assert result is False
-
-    # Test invalid height limits
-    result = await device.set_height_limit_upper(59.0)  # Too low
-    assert result is False
-    result = await device.set_height_limit_upper(131.0)  # Too high
-    assert result is False
-
-    result = await device.set_height_limit_lower(59.0)  # Too low
-    assert result is False
-    result = await device.set_height_limit_lower(131.0)  # Too high
-    assert result is False
-
-    # Test invalid touch mode
-    result = await device.set_touch_mode(-1)  # Too low
-    assert result is False
-    result = await device.set_touch_mode(2)  # Too high
-    assert result is False
-
-    # Test invalid units
-    result = await device.set_unit("meters")  # Invalid unit
-    assert result is False
+    mock_bleak_client.write_gatt_char.assert_not_called()
 
 
 def test_create_command_helpers(mock_ble_device):
@@ -2339,7 +2293,8 @@ async def test_failed_movement_command_ends_the_movement(
     device._client = mock_bleak_client
     mock_bleak_client.write_gatt_char.side_effect = Exception("write failed")
 
-    assert await device.move_up() is False
+    with pytest.raises(DeskCommandError):
+        await device.move_up()
     assert device._movement is None
     assert device.movement_direction is None
 
@@ -2493,12 +2448,50 @@ async def test_commands_wake_the_desk_first(
     device._client = mock_bleak_client
     device._height_cm = 80.0
 
-    assert await getattr(device, method)(*args) is True
+    await getattr(device, method)(*args)
 
     writes = [c.args[1] for c in mock_bleak_client.write_gatt_char.call_args_list]
     assert len(writes) == 2
     assert writes[0] == COMMAND_HANDSHAKE
     assert writes[1] != COMMAND_HANDSHAKE
+
+
+async def test_concurrent_commands_do_not_interleave(
+    mock_ble_device, mock_bleak_client
+):
+    """Two commands sent at the same moment reach the desk one after the other."""
+    device = DeskBLEDevice(mock_ble_device)
+    device._client = mock_bleak_client
+    device._height_cm = 80.0
+    writes: list[bytes] = []
+
+    async def _write(_uuid: str, data: bytes) -> None:
+        # Yield mid-write, as a real GATT write does, so the other caller can run
+        await asyncio.sleep(0)
+        writes.append(bytes(data))
+
+    mock_bleak_client.write_gatt_char.side_effect = _write
+    light_red = device._create_command_with_byte_param(0xB4, 2)
+
+    await asyncio.gather(device.move_to_preset(2), device.set_light_color(2))
+
+    # Each command stays together with the handshake that wakes the desk for it
+    assert writes == [COMMAND_HANDSHAKE, COMMAND_MEMORY_2, COMMAND_HANDSHAKE, light_red]
+
+
+async def test_failed_write_releases_the_desk_for_the_next_command(
+    mock_ble_device, mock_bleak_client
+):
+    """A write that fails does not block the commands after it."""
+    device = DeskBLEDevice(mock_ble_device)
+    device._client = mock_bleak_client
+    mock_bleak_client.write_gatt_char.side_effect = [Exception("busy"), None]
+
+    with pytest.raises(DeskCommandError):
+        await device.get_status()
+    await device.get_status()
+
+    assert mock_bleak_client.write_gatt_char.call_count == 2
 
 
 async def test_stop_is_sent_without_waking(mock_ble_device, mock_bleak_client):
@@ -2535,12 +2528,13 @@ async def test_get_settings_requests_status_after_handshake(
 async def test_failed_handshake_fails_the_command(
     mock_ble_device, mock_bleak_client, method, args
 ):
-    """If the handshake cannot be written, the command is reported as failed."""
+    """If the handshake cannot be written, the command fails and is not sent."""
     device = DeskBLEDevice(mock_ble_device)
     device._client = mock_bleak_client
     mock_bleak_client.write_gatt_char.side_effect = Exception("write failed")
 
-    assert await getattr(device, method)(*args) is False
+    with pytest.raises(DeskCommandError):
+        await getattr(device, method)(*args)
     mock_bleak_client.write_gatt_char.assert_called_once_with(
         WRITE_CHARACTERISTIC_UUID, COMMAND_HANDSHAKE
     )

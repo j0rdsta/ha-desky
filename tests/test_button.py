@@ -2,25 +2,13 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from unittest.mock import MagicMock
 
-from homeassistant.components.button import (
-    DOMAIN as BUTTON_DOMAIN,
-    SERVICE_PRESS,
-    ButtonEntity,
-)
+from homeassistant.components.button import DOMAIN as BUTTON_DOMAIN, SERVICE_PRESS
 from homeassistant.const import ATTR_ENTITY_ID, STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import HomeAssistant
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
-
-from custom_components.desky_desk.button import (
-    DeskyMoveDownButton,
-    DeskyMoveUpButton,
-    DeskyPresetButton,
-)
-from custom_components.desky_desk.coordinator import DeskUpdateCoordinator
 
 from . import disconnect_desk, notify_desk
 
@@ -113,29 +101,3 @@ async def test_buttons_follow_connection(
     assert all(
         hass.states.get(entity_id).state == STATE_UNKNOWN for entity_id in BUTTONS
     )
-
-
-@pytest.mark.parametrize(
-    "button_factory",
-    [
-        lambda coordinator: DeskyPresetButton(coordinator, 1),
-        DeskyMoveUpButton,
-        DeskyMoveDownButton,
-    ],
-)
-async def test_press_without_device(
-    hass: HomeAssistant,
-    init_integration: MockConfigEntry,
-    mock_desk: MagicMock,
-    button_factory: Callable[[DeskUpdateCoordinator], ButtonEntity],
-) -> None:
-    """Test a press is ignored when the coordinator has no BLE device yet."""
-    # A coordinator that never connected has no device
-    coordinator = DeskUpdateCoordinator(hass, init_integration)
-    assert coordinator.device is None
-
-    await button_factory(coordinator).async_press()
-
-    mock_desk.move_to_preset.assert_not_called()
-    mock_desk.move_up.assert_not_called()
-    mock_desk.move_down.assert_not_called()

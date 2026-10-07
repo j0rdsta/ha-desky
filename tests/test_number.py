@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from homeassistant.components.number import (
     ATTR_MAX,
@@ -27,8 +27,7 @@ import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.desky_desk.const import MAX_HEIGHT, MIN_HEIGHT
-from custom_components.desky_desk.coordinator import DeskUpdateCoordinator
-from custom_components.desky_desk.number import DeskNumber, DeskyHeightNumber
+from custom_components.desky_desk.number import DeskNumber
 
 from . import disconnect_desk, notify_desk, set_desk_state
 
@@ -240,27 +239,6 @@ async def test_numbers_follow_connection(
     assert hass.states.get(VIBRATION_INTENSITY).state == "75"
 
 
-@pytest.mark.parametrize(
-    "key", ["height_limit_upper", "height_limit_lower", "vibration_intensity"]
-)
-async def test_desk_number_ignores_set_while_disconnected(
-    hass: HomeAssistant,
-    init_integration: MockConfigEntry,
-    mock_desk: MagicMock,
-    key: str,
-) -> None:
-    """Test a setting number drops a value set while the desk is disconnected."""
-    disconnect_desk(mock_desk)
-    await hass.async_block_till_done()
-    mock_desk.reset_mock()
-    entity = DeskNumber(init_integration.runtime_data, NumberEntityDescription(key=key))
-    assert not entity.available
-
-    await entity.async_set_native_value(100.0)
-
-    assert mock_desk.method_calls == []
-
-
 async def test_desk_number_unknown_key(
     hass: HomeAssistant, init_integration: MockConfigEntry, mock_desk: MagicMock
 ) -> None:
@@ -277,19 +255,3 @@ async def test_desk_number_unknown_key(
     await entity.async_set_native_value(42.0)
 
     assert mock_desk.method_calls == []
-
-
-async def test_set_height_without_device(
-    hass: HomeAssistant, init_integration: MockConfigEntry, mock_desk: MagicMock
-) -> None:
-    """Test setting the height is ignored when the coordinator has no BLE device."""
-    # A coordinator that never connected has no device
-    coordinator = DeskUpdateCoordinator(hass, init_integration)
-    assert coordinator.device is None
-    entity = DeskyHeightNumber(coordinator)
-
-    with patch.object(coordinator, "async_request_refresh") as request_refresh:
-        await entity.async_set_native_value(100.0)
-
-    request_refresh.assert_not_called()
-    mock_desk.move_to_height.assert_not_called()

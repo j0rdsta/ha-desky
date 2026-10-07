@@ -168,15 +168,11 @@ async def test_switches_unavailable_when_disconnected(
     assert hass.states.get(VIBRATION).state == STATE_UNAVAILABLE
     assert hass.states.get(LOCK).state == STATE_UNAVAILABLE
 
-    # Home Assistant skips unavailable entities, so call the entities directly too
+    # Home Assistant skips unavailable entities
     for service in (SERVICE_TURN_ON, SERVICE_TURN_OFF):
         await hass.services.async_call(
             SWITCH_DOMAIN, service, {ATTR_ENTITY_ID: [VIBRATION, LOCK]}, blocking=True
         )
-    for description in SWITCH_DESCRIPTIONS:
-        entity = DeskSwitch(init_integration.runtime_data, description)
-        await entity.async_turn_on()
-        await entity.async_turn_off()
 
     mock_desk.set_vibration.assert_not_awaited()
     mock_desk.set_lock_status.assert_not_awaited()

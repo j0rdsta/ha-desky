@@ -16,7 +16,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import MAX_HEIGHT, MIN_HEIGHT
 from .coordinator import DeskUpdateCoordinator, DeskyConfigEntry
-from .entity import DeskEntity
+from .entity import DeskEntity, desk_command
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -96,11 +96,9 @@ class DeskyHeightNumber(DeskEntity, NumberEntity):
         """Return the current height in cm."""
         return self.coordinator.data.height_cm
 
+    @desk_command
     async def async_set_native_value(self, value: float) -> None:
         """Set the desk height to a specific value in cm."""
-        if not self._device:
-            return
-
         # Use the move_to_height method for precise positioning
         await self._device.move_to_height(value)
 
@@ -131,11 +129,9 @@ class DeskNumber(DeskEntity, NumberEntity):
             return data.vibration_intensity
         return None
 
+    @desk_command
     async def async_set_native_value(self, value: float) -> None:
         """Set the value."""
-        if not self.available or not self._device:
-            return
-
         if self.entity_description.key == "height_limit_upper":
             await self._device.set_height_limit_upper(value)
             await self._device.get_limits()

@@ -18,7 +18,7 @@ from syrupy.assertion import SnapshotAssertion
 from custom_components.desky_desk.const import DOMAIN
 from custom_components.desky_desk.coordinator import DeskData
 
-from . import desk_data, make_service_info
+from . import BluetoothCallbacks, desk_data, make_service_info
 
 
 @pytest.fixture
@@ -179,7 +179,23 @@ def mock_bluetooth() -> Generator[None]:
 
 
 @pytest.fixture
-def mock_desk(mock_bluetooth: None) -> Generator[MagicMock]:
+def mock_bluetooth_callbacks(mock_bluetooth: None) -> Generator[BluetoothCallbacks]:
+    """Capture the advertisement and unavailable callbacks the desk registers."""
+    with (
+        patch(
+            "homeassistant.components.bluetooth.async_register_callback",
+            return_value=MagicMock(),
+        ) as register,
+        patch(
+            "homeassistant.components.bluetooth.async_track_unavailable",
+            return_value=MagicMock(),
+        ) as track_unavailable,
+    ):
+        yield BluetoothCallbacks(register, track_unavailable)
+
+
+@pytest.fixture
+def mock_desk(mock_bluetooth_callbacks: BluetoothCallbacks) -> Generator[MagicMock]:
     """Patch the desk's BLE device with a connected desk and return it.
 
     The values match `mock_coordinator_data`. Use `notify_desk()` or

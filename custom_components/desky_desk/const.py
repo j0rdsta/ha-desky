@@ -77,13 +77,10 @@ DEFAULT_HEIGHT: Final = 75.0
 
 # Update intervals
 UPDATE_INTERVAL_SECONDS: Final = 30
-RECONNECT_INTERVAL_SECONDS: Final = 30
-
-# Connection timeouts
-DIRECT_CONNECTION_TIMEOUT: Final = 20.0  # Direct Bluetooth connection
-PROXY_CONNECTION_TIMEOUT: Final = 30.0  # ESPHome proxy connection
-PROXY_MAX_ATTEMPTS: Final = 5  # Retry attempts for proxy
-DIRECT_MAX_ATTEMPTS: Final = 3  # Retry attempts for direct
+# Delay before retrying a failed reconnect, doubling up to the maximum, so a
+# desk that keeps refusing does not tie up a proxy's connection slots
+RECONNECT_BACKOFF_MIN_SECONDS: Final = 5
+RECONNECT_BACKOFF_MAX_SECONDS: Final = 120
 
 # Entity attributes
 ATTR_HEIGHT_CM: Final = "height_cm"
