@@ -13,8 +13,8 @@ handles the differences it knows about:
 - **Display unit.** The desk reports heights in the unit its display shows, centimetres or
   inches. The integration converts to centimetres, so entities and actions always use cm.
 - **Features.** On connecting, the integration asks the desk for its lighting, vibration, lock,
-  collision sensitivity and height limit settings. A desk that lacks a feature does not answer;
-  its entities are still created, and show unknown or a default value.
+  collision sensitivity and height limit settings. Every entity is created whatever the desk
+  answers; for a feature the desk does not report, the entity shows unknown or a default value.
 
 The integration has been developed against an L-BTMEB95 desk controller. If you have a different
 Desky controller and something does not work, [open an issue](https://github.com/j0rdsta/ha-desky/issues)

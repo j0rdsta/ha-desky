@@ -16,7 +16,6 @@
 If setup fails with *Could not find the desk* or *Could not connect to the desk*, Home Assistant
 keeps retrying in the background. Check the points above, then:
 
-- Make sure the Desky app is closed on every phone or tablet.
 - Make sure a Bluetooth proxy near the desk has a free connection slot (see below).
 - Restart the desk by unplugging it for 10 seconds.
 
@@ -29,10 +28,9 @@ warning:
 The desk at AA:BB:CC:DD:EE:FF is unavailable
 ```
 
-The integration reconnects as soon as Home Assistant sees the desk advertising again, through
-whichever adapter or proxy hears it. If the desk is advertising but refuses the connection, the
-integration retries after 5 seconds, doubling the wait each time up to 2 minutes. Retries are
-logged at debug level only, so a long outage does not fill the log. When the desk is back, the
+The integration reconnects on its own when the desk advertises again (see
+[Connection loss and reconnecting](data-updates.md#connection-loss-and-reconnecting)). Failed
+attempts are logged at debug level only, so a long outage does not fill the log. When the desk is back, the
 log gets one info line:
 
 ```text
@@ -79,7 +77,7 @@ bluetooth_proxy:
 
 The desk stays connected, so it holds one of the proxy's connection slots for as long as it is
 loaded. An ESP32 proxy has three slots by default. If every slot is taken by other devices, the
-desk cannot connect and stays unavailable, retrying as described above. Free a slot, or add
+desk cannot connect and stays unavailable. Free a slot, or add
 another proxy near the desk.
 
 ## Debug logging

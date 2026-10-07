@@ -20,8 +20,8 @@ reach.
 
 ## What the integration does and does not do
 
-- It sends **stop** at once, without waiting for anything else, when you stop the desk from Home
-  Assistant.
+- It sends **stop** on its own, without the wake-up handshake that precedes other commands, when
+  you stop the desk from Home Assistant.
 - A command that cannot reach the desk fails with an error, so an automation records the failure
   instead of carrying on as if the desk moved.
 - The **collision** sensor is inferred from how a commanded movement ends (see

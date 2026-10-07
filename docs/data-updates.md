@@ -8,10 +8,11 @@ and the desk sends changes over it as they happen. A slow poll fills the gaps.
 When the desk connects, the integration:
 
 1. Subscribes to the desk's notifications.
-2. Sends the handshake, which enables movement commands and makes the desk report its settings.
-3. Asks for the desk's status, which includes its height.
+2. Sends the handshake, which enables movement commands.
+3. Asks for the desk's status. The desk replies with its height and, because the request follows
+   a handshake, its settings block (display unit, touch mode, collision sensitivity and presets).
 4. Asks for the lighting, vibration, lock, collision sensitivity and height limit settings. A
-   desk that lacks a feature does not answer.
+   query the desk does not answer is ignored.
 5. Reads the standard Bluetooth Device Information service for the manufacturer, model, serial
    number and versions shown on the device page.
 
@@ -34,7 +35,7 @@ when the desk was moved while a notification was missed, and checks that the con
 works: a status request that cannot be sent closes the connection, and the reconnect logic takes
 over.
 
-The status request does not wake the desk's display. The first poll after each connection is
+The poll sends no handshake, so it does not wake the desk's display. The first poll after each connection is
 different: a desk connected within about a second of powering up ignores the settings request it
 gets while connecting, so if the display unit or touch mode is still unknown, the first poll asks
 for the settings again. It asks once per connection, because asking wakes the display.

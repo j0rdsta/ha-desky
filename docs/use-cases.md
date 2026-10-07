@@ -93,7 +93,7 @@ day.
 ## Get told about collisions
 
 The collision binary sensor turns on when a commanded movement stops early or bounces back, and
-clears itself after 10 seconds.
+clears itself after 10 seconds, or sooner once a later movement runs normally.
 
 ```yaml
 alias: Desk collision
