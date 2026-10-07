@@ -1,4 +1,5 @@
 """Binary sensor platform for Desky Desk collision detection."""
+
 from __future__ import annotations
 
 import logging
@@ -30,7 +31,9 @@ async def async_setup_entry(
     async_add_entities([DeskyCollisionSensor(coordinator)])
 
 
-class DeskyCollisionSensor(CoordinatorEntity[DeskUpdateCoordinator], BinarySensorEntity):
+class DeskyCollisionSensor(
+    CoordinatorEntity[DeskUpdateCoordinator], BinarySensorEntity
+):
     """Representation of desk collision detection sensor."""
 
     _attr_device_class = BinarySensorDeviceClass.PROBLEM
@@ -42,7 +45,7 @@ class DeskyCollisionSensor(CoordinatorEntity[DeskUpdateCoordinator], BinarySenso
         """Initialize the collision sensor."""
         super().__init__(coordinator)
         self._attr_unique_id = f"{coordinator.entry.unique_id}_collision"
-        
+
     @property
     def device_info(self) -> dict[str, Any]:
         """Return device information."""
@@ -58,4 +61,8 @@ class DeskyCollisionSensor(CoordinatorEntity[DeskUpdateCoordinator], BinarySenso
     @property
     def available(self) -> bool:
         """Return True if entity is available."""
-        return self.coordinator.data.get("is_connected", False) if self.coordinator.data else False
+        return (
+            self.coordinator.data.get("is_connected", False)
+            if self.coordinator.data
+            else False
+        )

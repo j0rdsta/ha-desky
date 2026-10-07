@@ -1,27 +1,20 @@
 """Test Desky Desk select platform."""
+
 from __future__ import annotations
 
 from unittest.mock import AsyncMock
-import pytest
-from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from homeassistant.components.select import (
     DOMAIN as SELECT_DOMAIN,
     SERVICE_SELECT_OPTION,
 )
-from homeassistant.const import (
-    ATTR_ENTITY_ID,
-    ATTR_OPTION,
-    STATE_UNAVAILABLE,
-)
+from homeassistant.const import ATTR_ENTITY_ID, ATTR_OPTION, STATE_UNAVAILABLE
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
+import pytest
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.desky_desk.const import (
-    DOMAIN,
-    SENSITIVITY_LEVELS,
-    TOUCH_MODES,
-)
+from custom_components.desky_desk.const import DOMAIN
 
 
 async def setup_coordinator_data(hass, mock_config_entry):
@@ -58,38 +51,38 @@ async def test_select_entities_setup(
 ):
     """Test select entities are set up correctly."""
     await hass.async_block_till_done()
-    
+
     # Set up coordinator data
     await setup_coordinator_data(hass, mock_config_entry)
-    
+
     entity_registry = er.async_get(hass)
-    
+
     # Check sensitivity select
     entity = entity_registry.async_get("select.desky_desk_collision_sensitivity")
     assert entity
     assert entity.unique_id == "AA:BB:CC:DD:EE:FF_sensitivity"
-    
+
     # Check touch mode select
     entity = entity_registry.async_get("select.desky_desk_touch_mode")
     assert entity
     assert entity.unique_id == "AA:BB:CC:DD:EE:FF_touch_mode"
-    
+
     # Check units select
     entity = entity_registry.async_get("select.desky_desk_display_unit")
     assert entity
     assert entity.unique_id == "AA:BB:CC:DD:EE:FF_unit"
-    
+
     # Check states
     sensitivity_state = hass.states.get("select.desky_desk_collision_sensitivity")
     assert sensitivity_state
     assert sensitivity_state.state == "Medium"
     assert sensitivity_state.attributes.get("options") == ["High", "Medium", "Low"]
-    
+
     touch_mode_state = hass.states.get("select.desky_desk_touch_mode")
     assert touch_mode_state
     assert touch_mode_state.state == "One press"
     assert touch_mode_state.attributes.get("options") == ["One press", "Press and hold"]
-    
+
     units_state = hass.states.get("select.desky_desk_display_unit")
     assert units_state
     assert units_state.state == "cm"
@@ -103,15 +96,15 @@ async def test_sensitivity_select_change(
 ):
     """Test changing collision sensitivity."""
     await hass.async_block_till_done()
-    
+
     # Set up coordinator data
     coordinator = await setup_coordinator_data(hass, mock_config_entry)
     mock_device = coordinator._device
-    
+
     # Mock the device method
     mock_device.set_sensitivity = AsyncMock(return_value=True)
     mock_device.get_sensitivity = AsyncMock(return_value=True)
-    
+
     # Change to High sensitivity
     await hass.services.async_call(
         SELECT_DOMAIN,
@@ -122,9 +115,9 @@ async def test_sensitivity_select_change(
         },
         blocking=True,
     )
-    
+
     mock_device.set_sensitivity.assert_called_once_with(1)  # High = 1
-    
+
     # Change to Low sensitivity
     mock_device.set_sensitivity.reset_mock()
     await hass.services.async_call(
@@ -136,7 +129,7 @@ async def test_sensitivity_select_change(
         },
         blocking=True,
     )
-    
+
     mock_device.set_sensitivity.assert_called_once_with(3)  # Low = 3
 
 
@@ -147,14 +140,14 @@ async def test_touch_mode_select_change(
 ):
     """Test changing touch mode."""
     await hass.async_block_till_done()
-    
+
     # Set up coordinator data
     coordinator = await setup_coordinator_data(hass, mock_config_entry)
     mock_device = coordinator._device
-    
+
     # Mock the device method
     mock_device.set_touch_mode = AsyncMock(return_value=True)
-    
+
     # Change to Press and hold
     await hass.services.async_call(
         SELECT_DOMAIN,
@@ -165,9 +158,9 @@ async def test_touch_mode_select_change(
         },
         blocking=True,
     )
-    
+
     mock_device.set_touch_mode.assert_called_once_with(1)  # Press and hold = 1
-    
+
     # Change back to One press
     mock_device.set_touch_mode.reset_mock()
     await hass.services.async_call(
@@ -179,7 +172,7 @@ async def test_touch_mode_select_change(
         },
         blocking=True,
     )
-    
+
     mock_device.set_touch_mode.assert_called_once_with(0)  # One press = 0
 
 
@@ -190,14 +183,14 @@ async def test_units_select_change(
 ):
     """Test changing height units."""
     await hass.async_block_till_done()
-    
+
     # Set up coordinator data
     coordinator = await setup_coordinator_data(hass, mock_config_entry)
     mock_device = coordinator._device
-    
+
     # Mock the device method
     mock_device.set_unit = AsyncMock(return_value=True)
-    
+
     # Change to inches
     await hass.services.async_call(
         SELECT_DOMAIN,
@@ -208,9 +201,9 @@ async def test_units_select_change(
         },
         blocking=True,
     )
-    
+
     mock_device.set_unit.assert_called_once_with("in")
-    
+
     # Change back to cm
     mock_device.set_unit.reset_mock()
     await hass.services.async_call(
@@ -222,7 +215,7 @@ async def test_units_select_change(
         },
         blocking=True,
     )
-    
+
     mock_device.set_unit.assert_called_once_with("cm")
 
 
@@ -233,34 +226,34 @@ async def test_select_state_updates(
 ):
     """Test select states update when coordinator data changes."""
     await hass.async_block_till_done()
-    
+
     # Set up coordinator data
     coordinator = await setup_coordinator_data(hass, mock_config_entry)
-    
+
     # Initial states
     assert hass.states.get("select.desky_desk_collision_sensitivity").state == "Medium"
     assert hass.states.get("select.desky_desk_touch_mode").state == "One press"
     assert hass.states.get("select.desky_desk_display_unit").state == "cm"
-    
+
     # Update sensitivity to High
     coordinator.data["sensitivity_level"] = 1
     coordinator.async_set_updated_data(coordinator.data)
     await hass.async_block_till_done()
-    
+
     assert hass.states.get("select.desky_desk_collision_sensitivity").state == "High"
-    
+
     # Update touch mode to Press and hold
     coordinator.data["touch_mode"] = 1
     coordinator.async_set_updated_data(coordinator.data)
     await hass.async_block_till_done()
-    
+
     assert hass.states.get("select.desky_desk_touch_mode").state == "Press and hold"
-    
+
     # Update units to in
     coordinator.data["unit_preference"] = "in"
     coordinator.async_set_updated_data(coordinator.data)
     await hass.async_block_till_done()
-    
+
     assert hass.states.get("select.desky_desk_display_unit").state == "in"
 
 
@@ -271,16 +264,19 @@ async def test_selects_unavailable_when_disconnected(
 ):
     """Test selects become unavailable when disconnected."""
     await hass.async_block_till_done()
-    
+
     # Set up coordinator data
     coordinator = await setup_coordinator_data(hass, mock_config_entry)
-    
+
     # Simulate disconnection
     coordinator.data["is_connected"] = False
     coordinator.async_set_updated_data(coordinator.data)
     await hass.async_block_till_done()
-    
-    assert hass.states.get("select.desky_desk_collision_sensitivity").state == STATE_UNAVAILABLE
+
+    assert (
+        hass.states.get("select.desky_desk_collision_sensitivity").state
+        == STATE_UNAVAILABLE
+    )
     assert hass.states.get("select.desky_desk_touch_mode").state == STATE_UNAVAILABLE
     assert hass.states.get("select.desky_desk_display_unit").state == STATE_UNAVAILABLE
 
@@ -293,15 +289,15 @@ async def test_custom_sensitivity_service(
 ):
     """Test custom set_sensitivity service."""
     await hass.async_block_till_done()
-    
+
     # Set up coordinator data
     coordinator = await setup_coordinator_data(hass, mock_config_entry)
     mock_device = coordinator._device
-    
+
     # Mock the device method
     mock_device.set_sensitivity = AsyncMock(return_value=True)
     mock_device.get_sensitivity = AsyncMock(return_value=True)
-    
+
     # Call custom service
     await hass.services.async_call(
         DOMAIN,
@@ -312,5 +308,5 @@ async def test_custom_sensitivity_service(
         },
         blocking=True,
     )
-    
+
     mock_device.set_sensitivity.assert_called_once_with(3)  # Low = 3

@@ -1,4 +1,5 @@
 """Switch platform for Desky Desk."""
+
 from __future__ import annotations
 
 import logging
@@ -39,11 +40,11 @@ async def async_setup_entry(
 ) -> None:
     """Set up Desky switch platform."""
     coordinator = hass.data[DOMAIN][config_entry.entry_id]
-    
+
     entities = []
     for description in SWITCH_DESCRIPTIONS:
         entities.append(DeskSwitch(coordinator, config_entry, description))
-    
+
     async_add_entities(entities)
 
 
@@ -62,12 +63,12 @@ class DeskSwitch(DeskEntity, SwitchEntity):
         """Return true if the switch is on."""
         if not self.available:
             return False
-        
+
         if self.entity_description.key == "vibration":
             return self.coordinator.data.get("vibration_enabled", False)
-        elif self.entity_description.key == "lock":
+        if self.entity_description.key == "lock":
             return self.coordinator.data.get("lock_status", False)
-        
+
         return False
 
     async def async_turn_on(self, **kwargs: Any) -> None:
@@ -98,11 +99,11 @@ class DeskSwitch(DeskEntity, SwitchEntity):
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return entity specific state attributes."""
         attrs = super().extra_state_attributes
-        
+
         # Add vibration intensity for vibration switch
         if self.entity_description.key == "vibration":
             intensity = self.coordinator.data.get("vibration_intensity")
             if intensity is not None:
                 attrs["intensity"] = intensity
-        
+
         return attrs

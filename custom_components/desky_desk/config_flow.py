@@ -1,10 +1,9 @@
 """Config flow for Desky Desk integration."""
+
 from __future__ import annotations
 
 import logging
 from typing import Any
-
-import voluptuous as vol
 
 from homeassistant import config_entries
 from homeassistant.components.bluetooth import (
@@ -13,8 +12,8 @@ from homeassistant.components.bluetooth import (
 )
 from homeassistant.const import CONF_ADDRESS
 from homeassistant.data_entry_flow import FlowResult
+import voluptuous as vol
 
-from .bluetooth import DeskBLEDevice
 from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
@@ -35,12 +34,12 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     ) -> FlowResult:
         """Handle the bluetooth discovery step."""
         _LOGGER.debug("Discovered Desky desk: %s", discovery_info)
-        
+
         await self.async_set_unique_id(discovery_info.address)
         self._abort_if_unique_id_configured()
-        
+
         self._discovery_info = discovery_info
-        
+
         return await self.async_step_confirm()
 
     async def async_step_confirm(
@@ -70,11 +69,11 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Handle the initial step."""
         if user_input is not None:
             address = user_input[CONF_ADDRESS]
-            
+
             # Check if already configured
             await self.async_set_unique_id(address)
             self._abort_if_unique_id_configured()
-            
+
             # Try to find the device
             discovery_info = await self._async_get_device(address)
             if discovery_info:
@@ -82,12 +81,14 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     title=discovery_info.name or "Desky Desk",
                     data={CONF_ADDRESS: address},
                 )
-            
+
             return self.async_show_form(
                 step_id="user",
-                data_schema=vol.Schema({
-                    vol.Required(CONF_ADDRESS): str,
-                }),
+                data_schema=vol.Schema(
+                    {
+                        vol.Required(CONF_ADDRESS): str,
+                    }
+                ),
                 errors={"base": "cannot_connect"},
             )
 
@@ -102,9 +103,11 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="user",
-            data_schema=vol.Schema({
-                vol.Required(CONF_ADDRESS): str,
-            }),
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_ADDRESS): str,
+                }
+            ),
         )
 
     async def async_step_pick_device(
@@ -113,10 +116,10 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Handle picking a device from a list."""
         if user_input is not None:
             address = user_input[CONF_ADDRESS]
-            
+
             await self.async_set_unique_id(address)
             self._abort_if_unique_id_configured()
-            
+
             discovery_info = self._discovered_devices[address]
             return self.async_create_entry(
                 title=discovery_info.name or "Desky Desk",
@@ -127,12 +130,14 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             address: f"{info.name} ({address})"
             for address, info in self._discovered_devices.items()
         }
-        
+
         return self.async_show_form(
             step_id="pick_device",
-            data_schema=vol.Schema({
-                vol.Required(CONF_ADDRESS): vol.In(devices),
-            }),
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_ADDRESS): vol.In(devices),
+                }
+            ),
         )
 
     async def _async_get_device(self, address: str) -> BluetoothServiceInfoBleak | None:

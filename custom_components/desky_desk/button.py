@@ -1,4 +1,5 @@
 """Button platform for Desky Desk preset controls."""
+
 from __future__ import annotations
 
 import logging
@@ -23,7 +24,7 @@ async def async_setup_entry(
 ) -> None:
     """Set up Desky Desk button entities based on a config entry."""
     coordinator: DeskUpdateCoordinator = hass.data[DOMAIN][entry.entry_id]
-    
+
     buttons = [
         DeskyPresetButton(coordinator, 1),
         DeskyPresetButton(coordinator, 2),
@@ -32,7 +33,7 @@ async def async_setup_entry(
         DeskyMoveUpButton(coordinator),
         DeskyMoveDownButton(coordinator),
     ]
-    
+
     async_add_entities(buttons)
 
 
@@ -47,7 +48,7 @@ class DeskyPresetButton(CoordinatorEntity[DeskUpdateCoordinator], ButtonEntity):
         self._preset_number = preset_number
         self._attr_name = f"Preset {preset_number}"
         self._attr_unique_id = f"{coordinator.entry.unique_id}_preset_{preset_number}"
-        
+
     @property
     def device_info(self) -> dict[str, Any]:
         """Return device information."""
@@ -56,7 +57,11 @@ class DeskyPresetButton(CoordinatorEntity[DeskUpdateCoordinator], ButtonEntity):
     @property
     def available(self) -> bool:
         """Return True if entity is available."""
-        return self.coordinator.data.get("is_connected", False) if self.coordinator.data else False
+        return (
+            self.coordinator.data.get("is_connected", False)
+            if self.coordinator.data
+            else False
+        )
 
     async def async_press(self) -> None:
         """Handle the button press."""
@@ -75,7 +80,7 @@ class DeskyMoveUpButton(CoordinatorEntity[DeskUpdateCoordinator], ButtonEntity):
         """Initialize the move up button."""
         super().__init__(coordinator)
         self._attr_unique_id = f"{coordinator.entry.unique_id}_move_up"
-        
+
     @property
     def device_info(self) -> dict[str, Any]:
         """Return device information."""
@@ -84,7 +89,11 @@ class DeskyMoveUpButton(CoordinatorEntity[DeskUpdateCoordinator], ButtonEntity):
     @property
     def available(self) -> bool:
         """Return True if entity is available."""
-        return self.coordinator.data.get("is_connected", False) if self.coordinator.data else False
+        return (
+            self.coordinator.data.get("is_connected", False)
+            if self.coordinator.data
+            else False
+        )
 
     async def async_press(self) -> None:
         """Handle the button press."""
@@ -103,7 +112,7 @@ class DeskyMoveDownButton(CoordinatorEntity[DeskUpdateCoordinator], ButtonEntity
         """Initialize the move down button."""
         super().__init__(coordinator)
         self._attr_unique_id = f"{coordinator.entry.unique_id}_move_down"
-        
+
     @property
     def device_info(self) -> dict[str, Any]:
         """Return device information."""
@@ -112,7 +121,11 @@ class DeskyMoveDownButton(CoordinatorEntity[DeskUpdateCoordinator], ButtonEntity
     @property
     def available(self) -> bool:
         """Return True if entity is available."""
-        return self.coordinator.data.get("is_connected", False) if self.coordinator.data else False
+        return (
+            self.coordinator.data.get("is_connected", False)
+            if self.coordinator.data
+            else False
+        )
 
     async def async_press(self) -> None:
         """Handle the button press."""

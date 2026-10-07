@@ -1,4 +1,5 @@
 """Constants for the Desky Desk integration."""
+
 from typing import Final
 
 DOMAIN: Final = "desky_desk"
@@ -18,7 +19,9 @@ FIRMWARE_REVISION_CHAR_UUID: Final = "00002a26-0000-1000-8000-00805f9b34fb"
 SOFTWARE_REVISION_CHAR_UUID: Final = "00002a28-0000-1000-8000-00805f9b34fb"
 
 # BLE Commands (converted from Java byte arrays to Python bytes)
-COMMAND_HANDSHAKE: Final = bytes([0xF1, 0xF1, 0xFE, 0x00, 0xFE, 0x7E])  # Required initialization
+COMMAND_HANDSHAKE: Final = bytes(
+    [0xF1, 0xF1, 0xFE, 0x00, 0xFE, 0x7E]
+)  # Required initialization
 COMMAND_MOVE_UP: Final = bytes([0xF1, 0xF1, 0x01, 0x00, 0x01, 0x7E])
 COMMAND_MOVE_DOWN: Final = bytes([0xF1, 0xF1, 0x02, 0x00, 0x02, 0x7E])
 COMMAND_STOP: Final = bytes([0xF1, 0xF1, 0x2B, 0x00, 0x2B, 0x7E])
@@ -49,7 +52,9 @@ COMMAND_GET_LIMITS: Final = bytes([0xF1, 0xF1, 0x0C, 0x00, 0x0C, 0x7E])
 COMMAND_CLEAR_LIMITS: Final = bytes([0xF1, 0xF1, 0x23, 0x00, 0x23, 0x7E])
 
 # Controller info command
-COMMAND_CONTROLLER_DATA: Final = bytes([0xF1, 0xF1, 0xFE, 0x00, 0xFE, 0x7E])  # Same as handshake
+COMMAND_CONTROLLER_DATA: Final = bytes(
+    [0xF1, 0xF1, 0xFE, 0x00, 0xFE, 0x7E]
+)  # Same as handshake
 
 # Move to specific height command structure:
 # bytes([0xF1, 0xF1, 0x1B, 0x02, height_high_byte, height_low_byte, checksum, 0x7E])
@@ -57,8 +62,12 @@ COMMAND_CONTROLLER_DATA: Final = bytes([0xF1, 0xF1, 0xFE, 0x00, 0xFE, 0x7E])  # 
 # checksum = (0x1B + 0x02 + height_high + height_low) & 0xFF
 
 # Height notification headers
-HEIGHT_NOTIFICATION_HEADER: Final = bytes([0x98, 0x98])  # Movement/real-time notifications
-STATUS_NOTIFICATION_HEADER: Final = bytes([0xF2, 0xF2, 0x01, 0x03])  # Status response notifications
+HEIGHT_NOTIFICATION_HEADER: Final = bytes(
+    [0x98, 0x98]
+)  # Movement/real-time notifications
+STATUS_NOTIFICATION_HEADER: Final = bytes(
+    [0xF2, 0xF2, 0x01, 0x03]
+)  # Status response notifications
 
 # Desk height limits (in cm)
 MIN_HEIGHT: Final = 60.0
@@ -71,9 +80,9 @@ RECONNECT_INTERVAL_SECONDS: Final = 30
 
 # Connection timeouts
 DIRECT_CONNECTION_TIMEOUT: Final = 20.0  # Direct Bluetooth connection
-PROXY_CONNECTION_TIMEOUT: Final = 30.0   # ESPHome proxy connection
-PROXY_MAX_ATTEMPTS: Final = 5            # Retry attempts for proxy
-DIRECT_MAX_ATTEMPTS: Final = 3           # Retry attempts for direct
+PROXY_CONNECTION_TIMEOUT: Final = 30.0  # ESPHome proxy connection
+PROXY_MAX_ATTEMPTS: Final = 5  # Retry attempts for proxy
+DIRECT_MAX_ATTEMPTS: Final = 3  # Retry attempts for direct
 
 # Entity attributes
 ATTR_HEIGHT_CM: Final = "height_cm"
@@ -99,23 +108,16 @@ LIMIT_STATUS_RESPONSE_HEADER: Final = bytes([0xF2, 0xF2, 0x20, 0x01])
 # Light color options
 LIGHT_COLORS: Final = {
     1: "White",
-    2: "Red", 
+    2: "Red",
     3: "Green",
     4: "Blue",
     5: "Yellow",
     6: "Party mode",
-    7: "Off"
+    7: "Off",
 }
 
 # Sensitivity levels
-SENSITIVITY_LEVELS: Final = {
-    1: "High",
-    2: "Medium",
-    3: "Low"
-}
+SENSITIVITY_LEVELS: Final = {1: "High", 2: "Medium", 3: "Low"}
 
 # Touch modes
-TOUCH_MODES: Final = {
-    0: "One press",
-    1: "Press and hold"
-}
+TOUCH_MODES: Final = {0: "One press", 1: "Press and hold"}
