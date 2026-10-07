@@ -56,6 +56,7 @@ nav:
       - Removal: removal.md
   - Using the desk:
       - Use cases: use-cases.md
+      - Blueprints: blueprints.md
       - How data updates: data-updates.md
   - Devices and safety:
       - Supported devices and limitations: supported-devices.md

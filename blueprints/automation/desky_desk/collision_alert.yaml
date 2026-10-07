@@ -1,0 +1,47 @@
+blueprint:
+  name: Desky - Collision alert
+  description: >-
+    Sends a notification when the desk detects a collision: a commanded movement
+    that stopped early or bounced back.
+  domain: automation
+  author: Jordan Gardiner
+  source_url: https://github.com/j0rdsta/ha-desky/blob/main/blueprints/automation/desky_desk/collision_alert.yaml
+  homeassistant:
+    min_version: 2025.10.0
+  input:
+    collision_sensor:
+      name: Collision sensor
+      description: The desk's Collision detected sensor.
+      selector:
+        entity:
+          filter:
+            - integration: desky_desk
+              domain: binary_sensor
+    notify_action:
+      name: Notification action
+      description: >-
+        The action that sends the alert, for example
+        notify.mobile_app_your_phone. It is called with a title and a message.
+      default: persistent_notification.create
+      selector:
+        text:
+
+mode: queued
+max_exceeded: silent
+
+triggers:
+  - trigger: state
+    entity_id: !input collision_sensor
+    from: "off"
+    to: "on"
+
+variables:
+  desk: >-
+    {% set device = device_id(trigger.entity_id) %}
+    {{ device_attr(device, 'name_by_user') or device_attr(device, 'name') or 'The desk' }}
+
+actions:
+  - action: !input notify_action
+    data:
+      title: Desk collision
+      message: "{{ desk }} stopped early. Check what is under or above it."

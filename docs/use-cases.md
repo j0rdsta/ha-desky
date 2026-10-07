@@ -4,6 +4,9 @@ Ideas for using the desk in Home Assistant. The examples use the entity IDs of a
 "Desky Desk", such as `cover.desky_desk` and `button.desky_desk_preset_1`; yours are named after
 your desk. Read [Safety](safety.md) before you automate movement.
 
+For a sit/stand reminder, a scheduled stand or a collision alert, import one of the
+[blueprints](blueprints.md) instead of writing the YAML yourself.
+
 ## Sit and stand from a dashboard
 
 The cover entity gives you raise, lower, stop and a position slider, where 0 % is 60 cm and
