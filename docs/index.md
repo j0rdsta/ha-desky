@@ -41,3 +41,11 @@ to it as they happen. See [How data updates](data-updates.md).
 3. See what the desk gives you on the [entities](entities.md) and [actions](actions.md) pages.
 4. Look at the [use cases](use-cases.md) and [blueprints](blueprints.md) for ideas, and the
    [safety guidance](safety.md) before you write automations that move the desk.
+
+## Quality scale
+
+The integration meets the **Silver** tier of the Home Assistant
+[Integration Quality Scale](https://developers.home-assistant.io/docs/core/integration-quality-scale/).
+Home Assistant only checks the scale for its built-in integrations, so the status of each rule,
+and the reason for every exemption, is recorded in
+[`quality_scale.yaml`](https://github.com/j0rdsta/ha-desky/blob/main/custom_components/desky_desk/quality_scale.yaml).
