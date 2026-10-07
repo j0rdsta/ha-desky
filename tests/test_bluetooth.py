@@ -1185,7 +1185,7 @@ def test_continuous_movement_collision_slow_speed(mock_time, mock_ble_device):
     assert device._is_moving is False
     assert device.collision_detected is True
 @patch('time.time')
-def test_preset_clears_previous_commanded_direction(mock_time, mock_ble_device):
+async def test_preset_clears_previous_commanded_direction(mock_time, mock_ble_device):
     """Test that preset movements clear previous commanded direction to prevent false bounce detection."""
     device = DeskBLEDevice(mock_ble_device)
     
@@ -1195,7 +1195,7 @@ def test_preset_clears_previous_commanded_direction(mock_time, mock_ble_device):
     
     # Now call preset movement - should clear commanded direction
     mock_time.return_value = 0.0
-    asyncio.run(device.move_to_preset(1))
+    await device.move_to_preset(1)
     
     # Should clear the commanded direction to prevent false bounce detection
     assert device._commanded_direction is None
