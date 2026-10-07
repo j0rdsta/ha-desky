@@ -4,13 +4,10 @@ from __future__ import annotations
 
 import logging
 
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ConfigEntryNotReady
 
-from .const import DOMAIN
-from .coordinator import DeskUpdateCoordinator
+from .coordinator import DeskUpdateCoordinator, DeskyConfigEntry
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -26,36 +23,24 @@ PLATFORMS: list[Platform] = [
 ]
 
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+async def async_setup_entry(hass: HomeAssistant, entry: DeskyConfigEntry) -> bool:
     """Set up Desky Desk from a config entry."""
-    _LOGGER.debug("Setting up Desky Desk integration for %s", entry.data.get("address"))
+    _LOGGER.debug("Setting up Desky Desk integration for %s", entry.unique_id)
 
     coordinator = DeskUpdateCoordinator(hass, entry)
-
-    # Try to connect and get initial data
-    try:
-        await coordinator.async_config_entry_first_refresh()
-    except Exception as err:
-        raise ConfigEntryNotReady(f"Unable to connect to desk: {err}") from err
-
-    hass.data.setdefault(DOMAIN, {})
-    hass.data[DOMAIN][entry.entry_id] = coordinator
+    await coordinator.async_connect()
+    await coordinator.async_config_entry_first_refresh()
+    entry.runtime_data = coordinator
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     return True
 
 
-async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Unload a config entry."""
-    if unload_ok := await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
-        coordinator: DeskUpdateCoordinator = hass.data[DOMAIN].pop(entry.entry_id)
-        await coordinator.async_shutdown()
+async def async_unload_entry(hass: HomeAssistant, entry: DeskyConfigEntry) -> bool:
+    """Unload a config entry.
 
-    return unload_ok
-
-
-async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Reload config entry."""
-    await async_unload_entry(hass, entry)
-    await async_setup_entry(hass, entry)
+    The coordinator shuts down and disconnects from the desk when the entry
+    finishes unloading, and Home Assistant cancels its background tasks.
+    """
+    return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)

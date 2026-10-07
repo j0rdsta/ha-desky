@@ -1,315 +1,202 @@
-"""Test Desky Desk switch platform."""
+"""Test the Desky Desk switch platform."""
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock
+from typing import Any
+from unittest.mock import MagicMock
 
 from homeassistant.components.switch import (
     DOMAIN as SWITCH_DOMAIN,
-    SERVICE_TURN_OFF,
-    SERVICE_TURN_ON,
     SwitchEntityDescription,
 )
-from homeassistant.const import ATTR_ENTITY_ID, STATE_OFF, STATE_ON, STATE_UNAVAILABLE
+from homeassistant.const import (
+    ATTR_ENTITY_ID,
+    SERVICE_TURN_OFF,
+    SERVICE_TURN_ON,
+    STATE_OFF,
+    STATE_ON,
+    STATE_UNAVAILABLE,
+    EntityCategory,
+)
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
-from homeassistant.helpers.entity_component import DATA_INSTANCES
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.desky_desk.const import DOMAIN
-from custom_components.desky_desk.switch import DeskSwitch
+from custom_components.desky_desk.switch import SWITCH_DESCRIPTIONS, DeskSwitch
+
+from . import disconnect_desk, notify_desk, set_desk_state
+
+VIBRATION = "switch.desky_desk_vibration"
+LOCK = "switch.desky_desk_lock"
+
+DESCRIPTIONS = {description.key: description for description in SWITCH_DESCRIPTIONS}
 
 
-async def setup_coordinator_data(hass, mock_config_entry):
-    """Set up coordinator with mock data."""
-    coordinator = hass.data[DOMAIN][mock_config_entry.entry_id]
-    coordinator.data = {
-        "height_cm": 80.0,
-        "collision_detected": False,
-        "is_moving": False,
-        "is_connected": True,
-        "movement_direction": None,
-        "light_color": 1,  # White
-        "brightness": 50,
-        "lighting_enabled": True,
-        "vibration_enabled": True,
-        "vibration_intensity": 75,
-        "lock_status": False,
-        "sensitivity_level": 2,  # Medium
-        "height_limit_upper": 120.0,
-        "height_limit_lower": 65.0,
-        "limits_enabled": True,
-        "touch_mode": 0,  # One press
-        "unit_preference": "cm",
-    }
-    coordinator.async_set_updated_data(coordinator.data)
-    await hass.async_block_till_done()
-    return coordinator
-
-
-async def test_switch_entities_setup(
-    hass: HomeAssistant,
-    mock_config_entry: MockConfigEntry,
-    init_integration,
-):
-    """Test switch entities are set up correctly."""
-    await hass.async_block_till_done()
-
-    # Set up coordinator data
-    await setup_coordinator_data(hass, mock_config_entry)
-
-    entity_registry = er.async_get(hass)
-
-    # Check vibration switch
-    entity = entity_registry.async_get("switch.desky_desk_vibration")
-    assert entity
-    assert entity.unique_id == "AA:BB:CC:DD:EE:FF_vibration"
-
-    # Check lock switch
-    entity = entity_registry.async_get("switch.desky_desk_lock")
-    assert entity
-    assert entity.unique_id == "AA:BB:CC:DD:EE:FF_lock"
-
-    # Check states
-    vibration_state = hass.states.get("switch.desky_desk_vibration")
-    assert vibration_state
-    assert vibration_state.state == STATE_ON
-
-    lock_state = hass.states.get("switch.desky_desk_lock")
-    assert lock_state
-    assert lock_state.state == STATE_OFF
-
-
-async def test_vibration_switch_toggle(
-    hass: HomeAssistant,
-    mock_config_entry: MockConfigEntry,
-    init_integration,
-):
-    """Test toggling vibration switch."""
-    await hass.async_block_till_done()
-
-    # Set up coordinator data
-    coordinator = await setup_coordinator_data(hass, mock_config_entry)
-    mock_device = coordinator._device
-
-    # Mock the device method
-    mock_device.set_vibration = AsyncMock(return_value=True)
-
-    # Vibration starts ON, so turn it off first
-    await hass.services.async_call(
-        SWITCH_DOMAIN,
-        SERVICE_TURN_OFF,
-        {ATTR_ENTITY_ID: "switch.desky_desk_vibration"},
-        blocking=True,
-    )
-
-    mock_device.set_vibration.assert_called_once_with(False)
-
-    # Update coordinator data to reflect the change
-    coordinator.data["vibration_enabled"] = False
-    coordinator.async_set_updated_data(coordinator.data)
-    await hass.async_block_till_done()
-
-    # Turn on vibration
-    mock_device.set_vibration.reset_mock()
-    await hass.services.async_call(
-        SWITCH_DOMAIN,
-        SERVICE_TURN_ON,
-        {ATTR_ENTITY_ID: "switch.desky_desk_vibration"},
-        blocking=True,
-    )
-
-    mock_device.set_vibration.assert_called_once_with(True)
-
-
-async def test_lock_switch_toggle(
-    hass: HomeAssistant,
-    mock_config_entry: MockConfigEntry,
-    init_integration,
-):
-    """Test toggling lock switch."""
-    await hass.async_block_till_done()
-
-    # Set up coordinator data
-    coordinator = await setup_coordinator_data(hass, mock_config_entry)
-    mock_device = coordinator._device
-
-    # Mock the device method
-    mock_device.set_lock_status = AsyncMock(return_value=True)
-
-    # Lock starts OFF, so turn it on first
-    await hass.services.async_call(
-        SWITCH_DOMAIN,
-        SERVICE_TURN_ON,
-        {ATTR_ENTITY_ID: "switch.desky_desk_lock"},
-        blocking=True,
-    )
-
-    mock_device.set_lock_status.assert_called_once_with(True)
-
-    # Update coordinator data to reflect the change
-    coordinator.data["lock_status"] = True
-    coordinator.async_set_updated_data(coordinator.data)
-    await hass.async_block_till_done()
-
-    # Turn off lock
-    mock_device.set_lock_status.reset_mock()
-    await hass.services.async_call(
-        SWITCH_DOMAIN,
-        SERVICE_TURN_OFF,
-        {ATTR_ENTITY_ID: "switch.desky_desk_lock"},
-        blocking=True,
-    )
-
-    mock_device.set_lock_status.assert_called_once_with(False)
-
-
-async def test_switch_state_updates(
-    hass: HomeAssistant,
-    mock_config_entry: MockConfigEntry,
-    init_integration,
-):
-    """Test switch states update when coordinator data changes."""
-    await hass.async_block_till_done()
-
-    # Set up coordinator data
-    coordinator = await setup_coordinator_data(hass, mock_config_entry)
-
-    # Initial states (from setup_coordinator_data)
-    assert hass.states.get("switch.desky_desk_vibration").state == STATE_ON
-    assert hass.states.get("switch.desky_desk_lock").state == STATE_OFF
-
-    # Update vibration to off
-    coordinator.data["vibration_enabled"] = False
-    coordinator.async_set_updated_data(coordinator.data)
-    await hass.async_block_till_done()
-
-    assert hass.states.get("switch.desky_desk_vibration").state == STATE_OFF
-
-    # Update lock to on
-    coordinator.data["lock_status"] = True
-    coordinator.async_set_updated_data(coordinator.data)
-    await hass.async_block_till_done()
-
-    assert hass.states.get("switch.desky_desk_lock").state == STATE_ON
-
-
-async def test_switches_unavailable_when_disconnected(
-    hass: HomeAssistant,
-    mock_config_entry: MockConfigEntry,
-    init_integration,
-):
-    """Test switches become unavailable when disconnected."""
-    await hass.async_block_till_done()
-
-    # Set up coordinator data
-    coordinator = await setup_coordinator_data(hass, mock_config_entry)
-
-    # Simulate disconnection
-    coordinator.data["is_connected"] = False
-    coordinator.async_set_updated_data(coordinator.data)
-    await hass.async_block_till_done()
-
-    assert hass.states.get("switch.desky_desk_vibration").state == STATE_UNAVAILABLE
-    assert hass.states.get("switch.desky_desk_lock").state == STATE_UNAVAILABLE
-
-
-async def test_switch_error_handling(
-    hass: HomeAssistant,
-    mock_config_entry: MockConfigEntry,
-    init_integration,
-):
-    """Test error handling when switch commands fail."""
-    await hass.async_block_till_done()
-
-    # Set up coordinator data
-    coordinator = await setup_coordinator_data(hass, mock_config_entry)
-    mock_device = coordinator._device
-
-    # Mock the device method to fail
-    mock_device.set_vibration = AsyncMock(return_value=False)
-
-    # Try to turn off vibration (should fail silently)
-    await hass.services.async_call(
-        SWITCH_DOMAIN,
-        SERVICE_TURN_OFF,
-        {ATTR_ENTITY_ID: "switch.desky_desk_vibration"},
-        blocking=True,
-    )
-
-    mock_device.set_vibration.assert_called_once_with(False)
-
-    # State should remain unchanged since command failed
-    assert hass.states.get("switch.desky_desk_vibration").state == STATE_ON
-
-
-async def test_switch_is_off_when_unavailable(
-    hass: HomeAssistant,
-    mock_config_entry: MockConfigEntry,
-    init_integration,
-):
-    """Test a switch reports off while the desk is disconnected."""
-    coordinator = await setup_coordinator_data(hass, mock_config_entry)
-    entity = hass.data[DATA_INSTANCES][SWITCH_DOMAIN].get_entity(
-        "switch.desky_desk_vibration"
-    )
-    assert entity.is_on is True
-
-    coordinator.async_set_updated_data({**coordinator.data, "is_connected": False})
-    await hass.async_block_till_done()
-
-    assert entity.is_on is False
-
-
-# Lock starts off and vibration starts on, so each call would change state
 @pytest.mark.parametrize(
-    ("service", "entity_id", "expected_state"),
+    ("entity_id", "unique_id_suffix", "entity_category", "state"),
     [
-        (SERVICE_TURN_ON, "switch.desky_desk_lock", STATE_OFF),
-        (SERVICE_TURN_OFF, "switch.desky_desk_vibration", STATE_ON),
+        (VIBRATION, "vibration", EntityCategory.CONFIG, STATE_ON),
+        (LOCK, "lock", None, STATE_OFF),
     ],
 )
-async def test_switch_without_device(
+async def test_switch_setup(
     hass: HomeAssistant,
-    mock_config_entry: MockConfigEntry,
-    init_integration,
-    service: str,
+    entity_registry: er.EntityRegistry,
+    init_integration: MockConfigEntry,
     entity_id: str,
-    expected_state: str,
-):
-    """Test switching does nothing when the BLE device is gone."""
-    coordinator = await setup_coordinator_data(hass, mock_config_entry)
-    previous_device = coordinator._device
-    previous_device.set_lock_status.reset_mock()
-    previous_device.set_vibration.reset_mock()
-    coordinator._device = None
+    unique_id_suffix: str,
+    entity_category: EntityCategory | None,
+    state: str,
+) -> None:
+    """Test each switch is registered with the desk's state."""
+    entry = entity_registry.async_get(entity_id)
+    assert entry is not None
+    assert entry.unique_id == f"{init_integration.unique_id}_{unique_id_suffix}"
+    assert entry.entity_category == entity_category
 
+    assert hass.states.get(entity_id).state == state
+
+
+@pytest.mark.parametrize(
+    ("entity_id", "field", "value", "expected"),
+    [
+        (VIBRATION, "vibration_enabled", True, STATE_ON),
+        (VIBRATION, "vibration_enabled", False, STATE_OFF),
+        # The desk has not reported its vibration setting yet
+        (VIBRATION, "vibration_enabled", None, STATE_OFF),
+        (LOCK, "lock_status", True, STATE_ON),
+        (LOCK, "lock_status", False, STATE_OFF),
+    ],
+)
+async def test_switch_state(
+    hass: HomeAssistant,
+    init_integration: MockConfigEntry,
+    entity_id: str,
+    field: str,
+    value: Any,
+    expected: str,
+) -> None:
+    """Test each switch follows the desk's reported state."""
+    await set_desk_state(hass, init_integration, **{field: value})
+
+    assert hass.states.get(entity_id).state == expected
+
+
+@pytest.mark.parametrize(
+    ("entity_id", "service", "command", "argument", "follow_up"),
+    [
+        (VIBRATION, SERVICE_TURN_ON, "set_vibration", True, "get_vibration_status"),
+        (VIBRATION, SERVICE_TURN_OFF, "set_vibration", False, "get_vibration_status"),
+        (LOCK, SERVICE_TURN_ON, "set_lock_status", True, "get_lock_status"),
+        (LOCK, SERVICE_TURN_OFF, "set_lock_status", False, "get_lock_status"),
+    ],
+)
+async def test_switch_commands(
+    hass: HomeAssistant,
+    init_integration: MockConfigEntry,
+    mock_desk: MagicMock,
+    entity_id: str,
+    service: str,
+    command: str,
+    argument: bool,
+    follow_up: str,
+) -> None:
+    """Test turning a switch on or off sends the command, then reads it back."""
     await hass.services.async_call(
         SWITCH_DOMAIN, service, {ATTR_ENTITY_ID: entity_id}, blocking=True
     )
 
-    previous_device.set_lock_status.assert_not_called()
-    previous_device.set_vibration.assert_not_called()
-    assert hass.states.get(entity_id).state == expected_state
+    getattr(mock_desk, command).assert_awaited_once_with(argument)
+    getattr(mock_desk, follow_up).assert_awaited_once_with()
+
+
+@pytest.mark.parametrize(
+    ("entity_id", "service", "field", "value", "before", "after"),
+    [
+        (VIBRATION, SERVICE_TURN_OFF, "vibration_enabled", False, STATE_ON, STATE_OFF),
+        (LOCK, SERVICE_TURN_ON, "lock_status", True, STATE_OFF, STATE_ON),
+    ],
+)
+async def test_switch_state_follows_desk(
+    hass: HomeAssistant,
+    init_integration: MockConfigEntry,
+    mock_desk: MagicMock,
+    entity_id: str,
+    service: str,
+    field: str,
+    value: bool,
+    before: str,
+    after: str,
+) -> None:
+    """Test a switch only changes once the desk reports the new state.
+
+    A command the desk ignores leaves the switch as it was.
+    """
+    await hass.services.async_call(
+        SWITCH_DOMAIN, service, {ATTR_ENTITY_ID: entity_id}, blocking=True
+    )
+    await hass.async_block_till_done()
+    assert hass.states.get(entity_id).state == before
+
+    notify_desk(mock_desk, **{field: value})
+    await hass.async_block_till_done()
+    assert hass.states.get(entity_id).state == after
+
+
+async def test_vibration_intensity_attribute(
+    hass: HomeAssistant, init_integration: MockConfigEntry
+) -> None:
+    """Test the vibration switch reports the intensity only when it is known."""
+    assert hass.states.get(VIBRATION).attributes["intensity"] == 75
+    assert "intensity" not in hass.states.get(LOCK).attributes
+
+    await set_desk_state(hass, init_integration, vibration_intensity=40)
+    assert hass.states.get(VIBRATION).attributes["intensity"] == 40
+
+    await set_desk_state(hass, init_integration, vibration_intensity=None)
+    assert "intensity" not in hass.states.get(VIBRATION).attributes
+
+
+async def test_switches_unavailable_when_disconnected(
+    hass: HomeAssistant, init_integration: MockConfigEntry, mock_desk: MagicMock
+) -> None:
+    """Test the switches become unavailable and send nothing while disconnected."""
+    disconnect_desk(mock_desk)
+    await hass.async_block_till_done()
+
+    assert hass.states.get(VIBRATION).state == STATE_UNAVAILABLE
+    assert hass.states.get(LOCK).state == STATE_UNAVAILABLE
+
+    # Home Assistant skips unavailable entities, so call the entities directly too
+    for service in (SERVICE_TURN_ON, SERVICE_TURN_OFF):
+        await hass.services.async_call(
+            SWITCH_DOMAIN, service, {ATTR_ENTITY_ID: [VIBRATION, LOCK]}, blocking=True
+        )
+    for description in SWITCH_DESCRIPTIONS:
+        entity = DeskSwitch(init_integration.runtime_data, description)
+        await entity.async_turn_on()
+        await entity.async_turn_off()
+
+    mock_desk.set_vibration.assert_not_awaited()
+    mock_desk.set_lock_status.assert_not_awaited()
 
 
 async def test_switch_unknown_key(
-    hass: HomeAssistant,
-    mock_config_entry: MockConfigEntry,
-    init_integration,
-):
+    hass: HomeAssistant, init_integration: MockConfigEntry, mock_desk: MagicMock
+) -> None:
     """Test a switch with an unrecognised key is off and sends nothing."""
-    coordinator = await setup_coordinator_data(hass, mock_config_entry)
-    mock_device = AsyncMock()
-    coordinator._device = mock_device
     entity = DeskSwitch(
-        coordinator, mock_config_entry, SwitchEntityDescription(key="unknown")
+        init_integration.runtime_data, SwitchEntityDescription(key="unknown")
     )
 
     assert entity.is_on is False
+    assert entity.extra_state_attributes is None
 
     await entity.async_turn_on()
     await entity.async_turn_off()
 
-    assert mock_device.method_calls == []
+    mock_desk.set_vibration.assert_not_awaited()
+    mock_desk.set_lock_status.assert_not_awaited()
+    mock_desk.get_vibration_status.assert_not_awaited()
+    mock_desk.get_lock_status.assert_not_awaited()

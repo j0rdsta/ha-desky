@@ -85,13 +85,23 @@ never lower it to get a change through.
 Key fixtures in `conftest.py`:
 
 - `mock_config_entry`: a `MockConfigEntry` for a desk at `AA:BB:CC:DD:EE:FF`
-- `init_integration`: sets the integration up with a mocked BLE device and returns the entry
-- `mock_coordinator_data`: a full coordinator data dict for a connected desk
+- `mock_desk`: the desk's BLE device, autospecced from `DeskBLEDevice` and connected; assert
+  commands on it, such as `mock_desk.move_to_preset.assert_awaited_once_with(2)`
+- `init_integration`: sets the integration up through Home Assistant with `mock_desk` and
+  returns the entry; the coordinator is `entry.runtime_data`
+- `mock_coordinator_data`: the `DeskData` snapshot matching `mock_desk`
 - `mock_ble_device`, `mock_service_info`: discovery inputs
 - `mock_bleak_client`: a Bleak client mock specced to the real `BleakClient`
 - `mock_bleak_client_with_device_info`: the same client with the Device Information Service
 
 Custom integrations are enabled for every test automatically.
+
+Helpers in `__init__.py` change the desk's state:
+
+- `set_desk_state(hass, entry, **changes)`: replaces fields of the coordinator data
+- `notify_desk(desk, **changes)`: changes `mock_desk` and sends a notification, as the desk does
+- `disconnect_desk(desk)`: disconnects `mock_desk`
+- `desk_data(**changes)`: builds a `DeskData` for a connected desk
 
 ## Writing tests
 

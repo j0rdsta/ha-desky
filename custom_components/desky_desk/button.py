@@ -5,130 +5,80 @@ from __future__ import annotations
 import logging
 
 from homeassistant.components.button import ButtonEntity
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN
-from .coordinator import DeskUpdateCoordinator
+from .coordinator import DeskUpdateCoordinator, DeskyConfigEntry
+from .entity import DeskEntity
 
 _LOGGER = logging.getLogger(__name__)
+
+# Commands go to one BLE connection, so send them one at a time
+PARALLEL_UPDATES = 1
 
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    entry: ConfigEntry,
+    entry: DeskyConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up Desky Desk button entities based on a config entry."""
-    coordinator: DeskUpdateCoordinator = hass.data[DOMAIN][entry.entry_id]
+    coordinator = entry.runtime_data
 
-    buttons = [
-        DeskyPresetButton(coordinator, 1),
-        DeskyPresetButton(coordinator, 2),
-        DeskyPresetButton(coordinator, 3),
-        DeskyPresetButton(coordinator, 4),
-        DeskyMoveUpButton(coordinator),
-        DeskyMoveDownButton(coordinator),
-    ]
-
-    async_add_entities(buttons)
+    async_add_entities(
+        [
+            *(DeskyPresetButton(coordinator, preset) for preset in range(1, 5)),
+            DeskyMoveUpButton(coordinator),
+            DeskyMoveDownButton(coordinator),
+        ]
+    )
 
 
-class DeskyPresetButton(CoordinatorEntity[DeskUpdateCoordinator], ButtonEntity):
+class DeskyPresetButton(DeskEntity, ButtonEntity):
     """Representation of a desk preset button."""
 
-    _attr_has_entity_name = True
+    _attr_translation_key = "preset"
 
     def __init__(self, coordinator: DeskUpdateCoordinator, preset_number: int) -> None:
         """Initialize the preset button."""
-        super().__init__(coordinator)
+        super().__init__(coordinator, f"preset_{preset_number}")
         self._preset_number = preset_number
-        self._attr_name = f"Preset {preset_number}"
-        self._attr_unique_id = f"{coordinator.entry.unique_id}_preset_{preset_number}"
-
-    @property
-    def device_info(self) -> DeviceInfo:
-        """Return device information."""
-        return self.coordinator.get_device_info()
-
-    @property
-    def available(self) -> bool:
-        """Return True if entity is available."""
-        return (
-            self.coordinator.data.get("is_connected", False)
-            if self.coordinator.data
-            else False
-        )
+        self._attr_translation_placeholders = {"number": str(preset_number)}
 
     async def async_press(self) -> None:
         """Handle the button press."""
-        if self.coordinator.device:
+        if self._device:
             _LOGGER.debug("Moving desk to preset %d", self._preset_number)
-            await self.coordinator.device.move_to_preset(self._preset_number)
+            await self._device.move_to_preset(self._preset_number)
 
 
-class DeskyMoveUpButton(CoordinatorEntity[DeskUpdateCoordinator], ButtonEntity):
+class DeskyMoveUpButton(DeskEntity, ButtonEntity):
     """Representation of a desk move up button."""
 
-    _attr_has_entity_name = True
-    _attr_name = "Move Up"
+    _attr_translation_key = "move_up"
 
     def __init__(self, coordinator: DeskUpdateCoordinator) -> None:
         """Initialize the move up button."""
-        super().__init__(coordinator)
-        self._attr_unique_id = f"{coordinator.entry.unique_id}_move_up"
-
-    @property
-    def device_info(self) -> DeviceInfo:
-        """Return device information."""
-        return self.coordinator.get_device_info()
-
-    @property
-    def available(self) -> bool:
-        """Return True if entity is available."""
-        return (
-            self.coordinator.data.get("is_connected", False)
-            if self.coordinator.data
-            else False
-        )
+        super().__init__(coordinator, "move_up")
 
     async def async_press(self) -> None:
         """Handle the button press."""
-        if self.coordinator.device:
+        if self._device:
             _LOGGER.debug("Moving desk up")
-            await self.coordinator.device.move_up()
+            await self._device.move_up()
 
 
-class DeskyMoveDownButton(CoordinatorEntity[DeskUpdateCoordinator], ButtonEntity):
+class DeskyMoveDownButton(DeskEntity, ButtonEntity):
     """Representation of a desk move down button."""
 
-    _attr_has_entity_name = True
-    _attr_name = "Move Down"
+    _attr_translation_key = "move_down"
 
     def __init__(self, coordinator: DeskUpdateCoordinator) -> None:
         """Initialize the move down button."""
-        super().__init__(coordinator)
-        self._attr_unique_id = f"{coordinator.entry.unique_id}_move_down"
-
-    @property
-    def device_info(self) -> DeviceInfo:
-        """Return device information."""
-        return self.coordinator.get_device_info()
-
-    @property
-    def available(self) -> bool:
-        """Return True if entity is available."""
-        return (
-            self.coordinator.data.get("is_connected", False)
-            if self.coordinator.data
-            else False
-        )
+        super().__init__(coordinator, "move_down")
 
     async def async_press(self) -> None:
         """Handle the button press."""
-        if self.coordinator.device:
+        if self._device:
             _LOGGER.debug("Moving desk down")
-            await self.coordinator.device.move_down()
+            await self._device.move_down()

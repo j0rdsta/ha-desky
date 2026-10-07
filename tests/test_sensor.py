@@ -2,287 +2,179 @@
 
 from __future__ import annotations
 
-from homeassistant.components.sensor import (
-    DOMAIN as SENSOR_DOMAIN,
-    SensorEntityDescription,
-)
+from unittest.mock import MagicMock
+
+from homeassistant.components.sensor import SensorEntityDescription
 from homeassistant.const import (
+    ATTR_UNIT_OF_MEASUREMENT,
     PERCENTAGE,
     STATE_UNAVAILABLE,
-    STATE_UNKNOWN,
     UnitOfLength,
 )
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import entity_registry as er
-from homeassistant.helpers.entity_component import DATA_INSTANCES
+import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.desky_desk.const import DOMAIN, LIGHT_COLORS
+from custom_components.desky_desk.const import LIGHT_COLORS
 from custom_components.desky_desk.sensor import DeskSensor
 
+from . import disconnect_desk, set_desk_state
 
-async def setup_coordinator_data(hass, mock_config_entry):
-    """Set up coordinator with mock data."""
-    coordinator = hass.data[DOMAIN][mock_config_entry.entry_id]
-    coordinator.data = {
-        "height_cm": 80.0,
-        "collision_detected": False,
-        "is_moving": False,
-        "is_connected": True,
-        "movement_direction": None,
-        "light_color": 1,  # White
-        "brightness": 50,
-        "lighting_enabled": True,
-        "vibration_enabled": True,
-        "vibration_intensity": 75,
-        "lock_status": False,
-        "sensitivity_level": 2,  # Medium
-        "height_limit_upper": 120.0,
-        "height_limit_lower": 65.0,
-        "limits_enabled": True,
-        "touch_mode": 0,  # One press
-        "unit_preference": "cm",
-    }
-    coordinator.async_set_updated_data(coordinator.data)
-    await hass.async_block_till_done()
-    return coordinator
+HEIGHT_DISPLAY = "sensor.desky_desk_height_display"
+LED_COLOR = "sensor.desky_desk_led_color"
+VIBRATION_INTENSITY = "sensor.desky_desk_vibration_intensity_display"
 
 
-async def test_sensor_entities_setup(
+async def test_sensor_states(
+    hass: HomeAssistant, init_integration: MockConfigEntry
+) -> None:
+    """Test the sensors report the desk's state with their units and attributes."""
+    height = hass.states.get(HEIGHT_DISPLAY)
+    assert height is not None
+    assert height.state == "80.0"
+    assert height.attributes[ATTR_UNIT_OF_MEASUREMENT] == UnitOfLength.CENTIMETERS
+    assert height.attributes["height_cm"] == 80.0
+    assert height.attributes["upper_limit_cm"] == 120.0
+    assert height.attributes["lower_limit_cm"] == 65.0
+
+    led_color = hass.states.get(LED_COLOR)
+    assert led_color is not None
+    assert led_color.state == "White"
+    assert led_color.attributes["color_value"] == 1
+    assert led_color.attributes["brightness"] == 50
+    assert led_color.attributes["lighting_enabled"] is True
+
+    vibration = hass.states.get(VIBRATION_INTENSITY)
+    assert vibration is not None
+    assert vibration.state == "75"
+    assert vibration.attributes[ATTR_UNIT_OF_MEASUREMENT] == PERCENTAGE
+    assert vibration.attributes["vibration_enabled"] is True
+
+
+async def test_height_display_in_inches(
+    hass: HomeAssistant, init_integration: MockConfigEntry
+) -> None:
+    """Test the height display follows the desk's display unit."""
+    await set_desk_state(hass, init_integration, unit_preference="in", height_cm=101.6)
+
+    state = hass.states.get(HEIGHT_DISPLAY)
+    assert state is not None
+    assert state.state == "40.0"
+    assert state.attributes[ATTR_UNIT_OF_MEASUREMENT] == UnitOfLength.INCHES
+    assert state.attributes["height_cm"] == 101.6
+
+    await set_desk_state(hass, init_integration, unit_preference="cm")
+
+    state = hass.states.get(HEIGHT_DISPLAY)
+    assert state is not None
+    assert state.state == "101.6"
+    assert state.attributes[ATTR_UNIT_OF_MEASUREMENT] == UnitOfLength.CENTIMETERS
+
+
+@pytest.mark.parametrize(
+    ("height_cm", "expected"),
+    [
+        (65.0, "65.0"),
+        (80.5, "80.5"),
+        (100.25, "100.2"),  # 100.25 is stored just below .25, so it rounds down
+        (120.99, "121.0"),
+    ],
+)
+async def test_height_display_precision(
     hass: HomeAssistant,
-    mock_config_entry: MockConfigEntry,
-    init_integration,
-):
-    """Test sensor entities are set up correctly."""
-    await hass.async_block_till_done()
+    init_integration: MockConfigEntry,
+    height_cm: float,
+    expected: str,
+) -> None:
+    """Test the height display is rounded to one decimal place."""
+    await set_desk_state(hass, init_integration, height_cm=height_cm)
 
-    # Set up coordinator data
-    await setup_coordinator_data(hass, mock_config_entry)
-
-    entity_registry = er.async_get(hass)
-
-    # Check height display sensor
-    entity = entity_registry.async_get("sensor.desky_desk_height_display")
-    assert entity
-    assert entity.unique_id == "AA:BB:CC:DD:EE:FF_height_display"
-
-    # Check LED color sensor
-    entity = entity_registry.async_get("sensor.desky_desk_led_color")
-    assert entity
-    assert entity.unique_id == "AA:BB:CC:DD:EE:FF_led_color"
-
-    # Check vibration intensity sensor
-    entity = entity_registry.async_get("sensor.desky_desk_vibration_intensity_display")
-    assert entity
-    assert entity.unique_id == "AA:BB:CC:DD:EE:FF_vibration_intensity_display"
-
-    # Check states
-    height_state = hass.states.get("sensor.desky_desk_height_display")
-    assert height_state
-    assert height_state.state == "80.0"
-    assert (
-        height_state.attributes.get("unit_of_measurement") == UnitOfLength.CENTIMETERS
-    )
-
-    led_color_state = hass.states.get("sensor.desky_desk_led_color")
-    assert led_color_state
-    assert led_color_state.state == "White"
-
-    vibration_state = hass.states.get("sensor.desky_desk_vibration_intensity_display")
-    assert vibration_state
-    assert vibration_state.state == "75"
-    assert vibration_state.attributes.get("unit_of_measurement") == PERCENTAGE
+    state = hass.states.get(HEIGHT_DISPLAY)
+    assert state is not None
+    assert state.state == expected
 
 
-async def test_height_display_with_units(
+async def test_height_display_without_limits(
+    hass: HomeAssistant, init_integration: MockConfigEntry
+) -> None:
+    """Test the height limit attributes are only present while limits are enabled."""
+    await set_desk_state(hass, init_integration, limits_enabled=False)
+
+    state = hass.states.get(HEIGHT_DISPLAY)
+    assert state is not None
+    assert state.attributes["height_cm"] == 80.0
+    assert "upper_limit_cm" not in state.attributes
+    assert "lower_limit_cm" not in state.attributes
+
+
+@pytest.mark.parametrize(("light_color", "name"), LIGHT_COLORS.items())
+async def test_led_color(
     hass: HomeAssistant,
-    mock_config_entry: MockConfigEntry,
-    init_integration,
-):
-    """Test height display sensor shows correct units."""
-    await hass.async_block_till_done()
+    init_integration: MockConfigEntry,
+    light_color: int,
+    name: str,
+) -> None:
+    """Test the LED colour sensor names every known colour."""
+    await set_desk_state(hass, init_integration, light_color=light_color)
 
-    # Set up coordinator data
-    coordinator = await setup_coordinator_data(hass, mock_config_entry)
-
-    # Check cm display
-    state = hass.states.get("sensor.desky_desk_height_display")
-    assert state.state == "80.0"
-    assert state.attributes.get("unit_of_measurement") == UnitOfLength.CENTIMETERS
-
-    # Change to inches
-    coordinator.data["unit_preference"] = "inch"
-    coordinator.data["height_cm"] = 100.0  # 100cm = 39.37 inches
-    coordinator.async_set_updated_data(coordinator.data)
-    await hass.async_block_till_done()
-
-    state = hass.states.get("sensor.desky_desk_height_display")
-    assert state.state == "39.4"  # Rounded to 1 decimal
-    assert state.attributes.get("unit_of_measurement") == UnitOfLength.INCHES
+    state = hass.states.get(LED_COLOR)
+    assert state is not None
+    assert state.state == name
+    assert state.attributes["color_value"] == light_color
 
 
-async def test_led_color_display(
-    hass: HomeAssistant,
-    mock_config_entry: MockConfigEntry,
-    init_integration,
-):
-    """Test LED color sensor shows correct color names."""
-    await hass.async_block_till_done()
-
-    # Set up coordinator data
-    coordinator = await setup_coordinator_data(hass, mock_config_entry)
-
-    # Test all color mappings
-    for color_id, color_name in LIGHT_COLORS.items():
-        coordinator.data["light_color"] = color_id
-        coordinator.async_set_updated_data(coordinator.data)
-        await hass.async_block_till_done()
-
-        state = hass.states.get("sensor.desky_desk_led_color")
-        assert state.state == color_name
-
-
+@pytest.mark.parametrize("light_color", [99, 0, None])
 async def test_led_color_unknown(
     hass: HomeAssistant,
-    mock_config_entry: MockConfigEntry,
-    init_integration,
-):
-    """Test LED color sensor shows Unknown for invalid color."""
-    await hass.async_block_till_done()
+    init_integration: MockConfigEntry,
+    light_color: int | None,
+) -> None:
+    """Test the LED colour sensor reports Unknown for an unrecognised colour."""
+    await set_desk_state(hass, init_integration, light_color=light_color)
 
-    # Set up coordinator data
-    coordinator = await setup_coordinator_data(hass, mock_config_entry)
-
-    # Set invalid color
-    coordinator.data["light_color"] = 99
-    coordinator.async_set_updated_data(coordinator.data)
-    await hass.async_block_till_done()
-
-    state = hass.states.get("sensor.desky_desk_led_color")
+    state = hass.states.get(LED_COLOR)
+    assert state is not None
     assert state.state == "Unknown"
 
 
-async def test_vibration_intensity_display(
+@pytest.mark.parametrize(
+    ("intensity", "expected"),
+    [(0, "0"), (25, "25"), (100, "100"), (None, "0")],
+)
+async def test_vibration_intensity(
     hass: HomeAssistant,
-    mock_config_entry: MockConfigEntry,
-    init_integration,
-):
-    """Test vibration intensity sensor."""
-    await hass.async_block_till_done()
+    init_integration: MockConfigEntry,
+    intensity: int | None,
+    expected: str,
+) -> None:
+    """Test the vibration intensity sensor, which reads 0 before the desk reports."""
+    await set_desk_state(hass, init_integration, vibration_intensity=intensity)
 
-    # Set up coordinator data
-    coordinator = await setup_coordinator_data(hass, mock_config_entry)
-
-    # Test different intensity values
-    for intensity in [0, 25, 50, 75, 100]:
-        coordinator.data["vibration_intensity"] = intensity
-        coordinator.async_set_updated_data(coordinator.data)
-        await hass.async_block_till_done()
-
-        state = hass.states.get("sensor.desky_desk_vibration_intensity_display")
-        assert state.state == str(intensity)
-        assert state.attributes.get("unit_of_measurement") == PERCENTAGE
+    state = hass.states.get(VIBRATION_INTENSITY)
+    assert state is not None
+    assert state.state == expected
+    assert state.attributes[ATTR_UNIT_OF_MEASUREMENT] == PERCENTAGE
 
 
 async def test_sensors_unavailable_when_disconnected(
-    hass: HomeAssistant,
-    mock_config_entry: MockConfigEntry,
-    init_integration,
-):
-    """Test sensors become unavailable when disconnected."""
+    hass: HomeAssistant, init_integration: MockConfigEntry, mock_desk: MagicMock
+) -> None:
+    """Test the sensors become unavailable when the desk disconnects."""
+    disconnect_desk(mock_desk)
     await hass.async_block_till_done()
 
-    # Set up coordinator data
-    coordinator = await setup_coordinator_data(hass, mock_config_entry)
-
-    # Simulate disconnection
-    coordinator.data["is_connected"] = False
-    coordinator.async_set_updated_data(coordinator.data)
-    await hass.async_block_till_done()
-
-    assert (
-        hass.states.get("sensor.desky_desk_height_display").state == STATE_UNAVAILABLE
-    )
-    assert hass.states.get("sensor.desky_desk_led_color").state == STATE_UNAVAILABLE
-    assert (
-        hass.states.get("sensor.desky_desk_vibration_intensity_display").state
-        == STATE_UNAVAILABLE
-    )
+    for entity_id in (HEIGHT_DISPLAY, LED_COLOR, VIBRATION_INTENSITY):
+        state = hass.states.get(entity_id)
+        assert state is not None
+        assert state.state == STATE_UNAVAILABLE
 
 
-async def test_height_sensor_precision(
-    hass: HomeAssistant,
-    mock_config_entry: MockConfigEntry,
-    init_integration,
-):
-    """Test height sensor maintains proper precision."""
-    await hass.async_block_till_done()
-
-    # Set up coordinator data
-    coordinator = await setup_coordinator_data(hass, mock_config_entry)
-
-    # Test various height values
-    test_heights = [
-        (65.0, "65.0"),
-        (80.5, "80.5"),
-        (100.25, "100.2"),  # Banker's rounding: .25 rounds to even digit
-        (120.99, "121.0"),  # Should round to 1 decimal
-    ]
-
-    for height, expected in test_heights:
-        coordinator.data["height_cm"] = height
-        coordinator.async_set_updated_data(coordinator.data)
-        await hass.async_block_till_done()
-
-        state = hass.states.get("sensor.desky_desk_height_display")
-        assert state.state == expected
-
-
-async def test_sensor_native_value_when_unavailable(
-    hass: HomeAssistant,
-    mock_config_entry: MockConfigEntry,
-    init_integration,
-):
-    """Test a sensor reports no value while the desk is disconnected."""
-    coordinator = await setup_coordinator_data(hass, mock_config_entry)
-    entity = hass.data[DATA_INSTANCES][SENSOR_DOMAIN].get_entity(
-        "sensor.desky_desk_led_color"
-    )
-
-    coordinator.async_set_updated_data({**coordinator.data, "is_connected": False})
-    await hass.async_block_till_done()
-
-    assert entity.native_value is None
-
-
-async def test_height_display_without_height(
-    hass: HomeAssistant,
-    mock_config_entry: MockConfigEntry,
-    init_integration,
-):
-    """Test the height display is unknown when no height has been reported."""
-    coordinator = await setup_coordinator_data(hass, mock_config_entry)
-
-    data = dict(coordinator.data)
-    del data["height_cm"]
-    coordinator.async_set_updated_data(data)
-    await hass.async_block_till_done()
-
-    state = hass.states.get("sensor.desky_desk_height_display")
-    assert state.state == STATE_UNKNOWN
-    assert state.attributes["height_cm"] is None
-
-
-async def test_sensor_unknown_key(
-    hass: HomeAssistant,
-    mock_config_entry: MockConfigEntry,
-    init_integration,
-):
-    """Test a sensor with an unrecognised key has no value or extra attributes."""
-    coordinator = await setup_coordinator_data(hass, mock_config_entry)
+async def test_sensor_unknown_key(init_integration: MockConfigEntry) -> None:
+    """Test a sensor with an unrecognised key has no value, unit or attributes."""
     entity = DeskSensor(
-        coordinator, mock_config_entry, SensorEntityDescription(key="unknown")
+        init_integration.runtime_data, SensorEntityDescription(key="unknown")
     )
 
     assert entity.native_value is None
-    assert entity.extra_state_attributes == {"connected": True}
+    assert entity.native_unit_of_measurement is None
+    assert entity.extra_state_attributes is None

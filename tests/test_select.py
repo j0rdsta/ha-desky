@@ -1,352 +1,214 @@
-"""Test Desky Desk select platform."""
+"""Test the Desky Desk select platform."""
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock
+from typing import Any
+from unittest.mock import MagicMock
 
 from homeassistant.components.select import (
+    ATTR_OPTIONS,
     DOMAIN as SELECT_DOMAIN,
     SERVICE_SELECT_OPTION,
     SelectEntityDescription,
 )
-from homeassistant.const import ATTR_ENTITY_ID, ATTR_OPTION, STATE_UNAVAILABLE
+from homeassistant.const import (
+    ATTR_ENTITY_ID,
+    ATTR_OPTION,
+    STATE_UNAVAILABLE,
+    STATE_UNKNOWN,
+    EntityCategory,
+)
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
-from homeassistant.helpers.entity_component import DATA_INSTANCES
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.desky_desk.const import DOMAIN
-from custom_components.desky_desk.select import DeskSelect
+from custom_components.desky_desk.select import SELECT_DESCRIPTIONS, DeskSelect
+
+from . import disconnect_desk, set_desk_state
+
+SENSITIVITY = "select.desky_desk_collision_sensitivity"
+TOUCH_MODE = "select.desky_desk_touch_mode"
+UNIT = "select.desky_desk_display_unit"
+
+DESCRIPTIONS = {description.key: description for description in SELECT_DESCRIPTIONS}
 
 
-async def setup_coordinator_data(hass, mock_config_entry):
-    """Set up coordinator with mock data."""
-    coordinator = hass.data[DOMAIN][mock_config_entry.entry_id]
-    coordinator.data = {
-        "height_cm": 80.0,
-        "collision_detected": False,
-        "is_moving": False,
-        "is_connected": True,
-        "movement_direction": None,
-        "light_color": 1,  # White
-        "brightness": 50,
-        "lighting_enabled": True,
-        "vibration_enabled": True,
-        "vibration_intensity": 75,
-        "lock_status": False,
-        "sensitivity_level": 2,  # Medium
-        "height_limit_upper": 120.0,
-        "height_limit_lower": 65.0,
-        "limits_enabled": True,
-        "touch_mode": 0,  # One press
-        "unit_preference": "cm",
-    }
-    coordinator.async_set_updated_data(coordinator.data)
-    await hass.async_block_till_done()
-    return coordinator
-
-
-async def test_select_entities_setup(
+@pytest.mark.parametrize(
+    ("entity_id", "unique_id_suffix", "state", "options"),
+    [
+        (SENSITIVITY, "sensitivity", "Medium", ["High", "Medium", "Low"]),
+        (TOUCH_MODE, "touch_mode", "One press", ["One press", "Press and hold"]),
+        (UNIT, "unit", "cm", ["cm", "in"]),
+    ],
+)
+async def test_select_setup(
     hass: HomeAssistant,
-    mock_config_entry: MockConfigEntry,
-    init_integration,
-):
-    """Test select entities are set up correctly."""
-    await hass.async_block_till_done()
+    entity_registry: er.EntityRegistry,
+    init_integration: MockConfigEntry,
+    entity_id: str,
+    unique_id_suffix: str,
+    state: str,
+    options: list[str],
+) -> None:
+    """Test each select is registered as configuration with the desk's option."""
+    entry = entity_registry.async_get(entity_id)
+    assert entry is not None
+    assert entry.unique_id == f"{init_integration.unique_id}_{unique_id_suffix}"
+    assert entry.entity_category is EntityCategory.CONFIG
 
-    # Set up coordinator data
-    await setup_coordinator_data(hass, mock_config_entry)
-
-    entity_registry = er.async_get(hass)
-
-    # Check sensitivity select
-    entity = entity_registry.async_get("select.desky_desk_collision_sensitivity")
-    assert entity
-    assert entity.unique_id == "AA:BB:CC:DD:EE:FF_sensitivity"
-
-    # Check touch mode select
-    entity = entity_registry.async_get("select.desky_desk_touch_mode")
-    assert entity
-    assert entity.unique_id == "AA:BB:CC:DD:EE:FF_touch_mode"
-
-    # Check units select
-    entity = entity_registry.async_get("select.desky_desk_display_unit")
-    assert entity
-    assert entity.unique_id == "AA:BB:CC:DD:EE:FF_unit"
-
-    # Check states
-    sensitivity_state = hass.states.get("select.desky_desk_collision_sensitivity")
-    assert sensitivity_state
-    assert sensitivity_state.state == "Medium"
-    assert sensitivity_state.attributes.get("options") == ["High", "Medium", "Low"]
-
-    touch_mode_state = hass.states.get("select.desky_desk_touch_mode")
-    assert touch_mode_state
-    assert touch_mode_state.state == "One press"
-    assert touch_mode_state.attributes.get("options") == ["One press", "Press and hold"]
-
-    units_state = hass.states.get("select.desky_desk_display_unit")
-    assert units_state
-    assert units_state.state == "cm"
-    assert units_state.attributes.get("options") == ["cm", "in"]
+    select_state = hass.states.get(entity_id)
+    assert select_state is not None
+    assert select_state.state == state
+    # Option values are kept as they were so existing automations keep working
+    assert select_state.attributes[ATTR_OPTIONS] == options
 
 
-async def test_sensitivity_select_change(
+@pytest.mark.parametrize(
+    ("entity_id", "field", "value", "expected"),
+    [
+        (SENSITIVITY, "sensitivity_level", 1, "High"),
+        (SENSITIVITY, "sensitivity_level", 2, "Medium"),
+        (SENSITIVITY, "sensitivity_level", 3, "Low"),
+        (SENSITIVITY, "sensitivity_level", None, STATE_UNKNOWN),
+        (SENSITIVITY, "sensitivity_level", 0, STATE_UNKNOWN),
+        (SENSITIVITY, "sensitivity_level", 4, STATE_UNKNOWN),
+        (TOUCH_MODE, "touch_mode", 0, "One press"),
+        (TOUCH_MODE, "touch_mode", 1, "Press and hold"),
+        (TOUCH_MODE, "touch_mode", None, STATE_UNKNOWN),
+        (TOUCH_MODE, "touch_mode", 2, STATE_UNKNOWN),
+        (UNIT, "unit_preference", "cm", "cm"),
+        (UNIT, "unit_preference", "in", "in"),
+        (UNIT, "unit_preference", None, STATE_UNKNOWN),
+    ],
+)
+async def test_select_current_option(
     hass: HomeAssistant,
-    mock_config_entry: MockConfigEntry,
-    init_integration,
-):
-    """Test changing collision sensitivity."""
-    await hass.async_block_till_done()
+    init_integration: MockConfigEntry,
+    entity_id: str,
+    field: str,
+    value: Any,
+    expected: str,
+) -> None:
+    """Test each select maps the desk's reported value to an option."""
+    await set_desk_state(hass, init_integration, **{field: value})
 
-    # Set up coordinator data
-    coordinator = await setup_coordinator_data(hass, mock_config_entry)
-    mock_device = coordinator._device
-
-    # Mock the device method
-    mock_device.set_sensitivity = AsyncMock(return_value=True)
-    mock_device.get_sensitivity = AsyncMock(return_value=True)
-
-    # Change to High sensitivity
-    await hass.services.async_call(
-        SELECT_DOMAIN,
-        SERVICE_SELECT_OPTION,
-        {
-            ATTR_ENTITY_ID: "select.desky_desk_collision_sensitivity",
-            ATTR_OPTION: "High",
-        },
-        blocking=True,
-    )
-
-    mock_device.set_sensitivity.assert_called_once_with(1)  # High = 1
-
-    # Change to Low sensitivity
-    mock_device.set_sensitivity.reset_mock()
-    await hass.services.async_call(
-        SELECT_DOMAIN,
-        SERVICE_SELECT_OPTION,
-        {
-            ATTR_ENTITY_ID: "select.desky_desk_collision_sensitivity",
-            ATTR_OPTION: "Low",
-        },
-        blocking=True,
-    )
-
-    mock_device.set_sensitivity.assert_called_once_with(3)  # Low = 3
+    assert hass.states.get(entity_id).state == expected
 
 
-async def test_touch_mode_select_change(
+@pytest.mark.parametrize(
+    ("entity_id", "option", "command", "argument", "follow_up"),
+    [
+        (SENSITIVITY, "High", "set_sensitivity", 1, "get_sensitivity"),
+        (SENSITIVITY, "Low", "set_sensitivity", 3, "get_sensitivity"),
+        # The desk has no command to read the touch mode or unit back
+        (TOUCH_MODE, "Press and hold", "set_touch_mode", 1, None),
+        (TOUCH_MODE, "One press", "set_touch_mode", 0, None),
+        (UNIT, "in", "set_unit", "in", None),
+        (UNIT, "cm", "set_unit", "cm", None),
+    ],
+)
+async def test_select_option(
     hass: HomeAssistant,
-    mock_config_entry: MockConfigEntry,
-    init_integration,
-):
-    """Test changing touch mode."""
-    await hass.async_block_till_done()
-
-    # Set up coordinator data
-    coordinator = await setup_coordinator_data(hass, mock_config_entry)
-    mock_device = coordinator._device
-
-    # Mock the device method
-    mock_device.set_touch_mode = AsyncMock(return_value=True)
-
-    # Change to Press and hold
+    init_integration: MockConfigEntry,
+    mock_desk: MagicMock,
+    entity_id: str,
+    option: str,
+    command: str,
+    argument: Any,
+    follow_up: str | None,
+) -> None:
+    """Test selecting an option sends the matching command to the desk."""
     await hass.services.async_call(
         SELECT_DOMAIN,
         SERVICE_SELECT_OPTION,
-        {
-            ATTR_ENTITY_ID: "select.desky_desk_touch_mode",
-            ATTR_OPTION: "Press and hold",
-        },
+        {ATTR_ENTITY_ID: entity_id, ATTR_OPTION: option},
         blocking=True,
     )
 
-    mock_device.set_touch_mode.assert_called_once_with(1)  # Press and hold = 1
+    getattr(mock_desk, command).assert_awaited_once_with(argument)
+    if follow_up is None:
+        mock_desk.get_sensitivity.assert_not_awaited()
+    else:
+        getattr(mock_desk, follow_up).assert_awaited_once_with()
 
-    # Change back to One press
-    mock_device.set_touch_mode.reset_mock()
+
+async def test_select_state_follows_desk(
+    hass: HomeAssistant, init_integration: MockConfigEntry, mock_desk: MagicMock
+) -> None:
+    """Test the option only changes once the desk reports the new value."""
     await hass.services.async_call(
         SELECT_DOMAIN,
         SERVICE_SELECT_OPTION,
-        {
-            ATTR_ENTITY_ID: "select.desky_desk_touch_mode",
-            ATTR_OPTION: "One press",
-        },
+        {ATTR_ENTITY_ID: SENSITIVITY, ATTR_OPTION: "Low"},
         blocking=True,
     )
+    assert hass.states.get(SENSITIVITY).state == "Medium"
 
-    mock_device.set_touch_mode.assert_called_once_with(0)  # One press = 0
-
-
-async def test_units_select_change(
-    hass: HomeAssistant,
-    mock_config_entry: MockConfigEntry,
-    init_integration,
-):
-    """Test changing height units."""
-    await hass.async_block_till_done()
-
-    # Set up coordinator data
-    coordinator = await setup_coordinator_data(hass, mock_config_entry)
-    mock_device = coordinator._device
-
-    # Mock the device method
-    mock_device.set_unit = AsyncMock(return_value=True)
-
-    # Change to inches
-    await hass.services.async_call(
-        SELECT_DOMAIN,
-        SERVICE_SELECT_OPTION,
-        {
-            ATTR_ENTITY_ID: "select.desky_desk_display_unit",
-            ATTR_OPTION: "in",
-        },
-        blocking=True,
-    )
-
-    mock_device.set_unit.assert_called_once_with("in")
-
-    # Change back to cm
-    mock_device.set_unit.reset_mock()
-    await hass.services.async_call(
-        SELECT_DOMAIN,
-        SERVICE_SELECT_OPTION,
-        {
-            ATTR_ENTITY_ID: "select.desky_desk_display_unit",
-            ATTR_OPTION: "cm",
-        },
-        blocking=True,
-    )
-
-    mock_device.set_unit.assert_called_once_with("cm")
-
-
-async def test_select_state_updates(
-    hass: HomeAssistant,
-    mock_config_entry: MockConfigEntry,
-    init_integration,
-):
-    """Test select states update when coordinator data changes."""
-    await hass.async_block_till_done()
-
-    # Set up coordinator data
-    coordinator = await setup_coordinator_data(hass, mock_config_entry)
-
-    # Initial states
-    assert hass.states.get("select.desky_desk_collision_sensitivity").state == "Medium"
-    assert hass.states.get("select.desky_desk_touch_mode").state == "One press"
-    assert hass.states.get("select.desky_desk_display_unit").state == "cm"
-
-    # Update sensitivity to High
-    coordinator.data["sensitivity_level"] = 1
-    coordinator.async_set_updated_data(coordinator.data)
-    await hass.async_block_till_done()
-
-    assert hass.states.get("select.desky_desk_collision_sensitivity").state == "High"
-
-    # Update touch mode to Press and hold
-    coordinator.data["touch_mode"] = 1
-    coordinator.async_set_updated_data(coordinator.data)
-    await hass.async_block_till_done()
-
-    assert hass.states.get("select.desky_desk_touch_mode").state == "Press and hold"
-
-    # Update units to in
-    coordinator.data["unit_preference"] = "in"
-    coordinator.async_set_updated_data(coordinator.data)
-    await hass.async_block_till_done()
-
-    assert hass.states.get("select.desky_desk_display_unit").state == "in"
+    await set_desk_state(hass, init_integration, sensitivity_level=3)
+    assert hass.states.get(SENSITIVITY).state == "Low"
 
 
 async def test_selects_unavailable_when_disconnected(
-    hass: HomeAssistant,
-    mock_config_entry: MockConfigEntry,
-    init_integration,
-):
-    """Test selects become unavailable when disconnected."""
+    hass: HomeAssistant, init_integration: MockConfigEntry, mock_desk: MagicMock
+) -> None:
+    """Test the selects become unavailable and send nothing while disconnected."""
+    disconnect_desk(mock_desk)
     await hass.async_block_till_done()
 
-    # Set up coordinator data
-    coordinator = await setup_coordinator_data(hass, mock_config_entry)
+    for entity_id in (SENSITIVITY, TOUCH_MODE, UNIT):
+        assert hass.states.get(entity_id).state == STATE_UNAVAILABLE
 
-    # Simulate disconnection
-    coordinator.data["is_connected"] = False
-    coordinator.async_set_updated_data(coordinator.data)
-    await hass.async_block_till_done()
-
-    assert (
-        hass.states.get("select.desky_desk_collision_sensitivity").state
-        == STATE_UNAVAILABLE
-    )
-    assert hass.states.get("select.desky_desk_touch_mode").state == STATE_UNAVAILABLE
-    assert hass.states.get("select.desky_desk_display_unit").state == STATE_UNAVAILABLE
-
-
-@pytest.mark.skip(reason="Custom service not implemented yet")
-async def test_custom_sensitivity_service(
-    hass: HomeAssistant,
-    mock_config_entry: MockConfigEntry,
-    init_integration,
-):
-    """Test custom set_sensitivity service."""
-    await hass.async_block_till_done()
-
-    # Set up coordinator data
-    coordinator = await setup_coordinator_data(hass, mock_config_entry)
-    mock_device = coordinator._device
-
-    # Mock the device method
-    mock_device.set_sensitivity = AsyncMock(return_value=True)
-    mock_device.get_sensitivity = AsyncMock(return_value=True)
-
-    # Call custom service
+    # Home Assistant skips unavailable entities, so call the entity directly too
     await hass.services.async_call(
-        DOMAIN,
-        "set_sensitivity",
-        {
-            ATTR_ENTITY_ID: "cover.desky_desk",
-            "level": "Low",
-        },
+        SELECT_DOMAIN,
+        SERVICE_SELECT_OPTION,
+        {ATTR_ENTITY_ID: SENSITIVITY, ATTR_OPTION: "High"},
         blocking=True,
     )
+    entity = DeskSelect(init_integration.runtime_data, DESCRIPTIONS["sensitivity"])
+    await entity.async_select_option("High")
 
-    mock_device.set_sensitivity.assert_called_once_with(3)  # Low = 3
-
-
-def _get_select(hass: HomeAssistant, entity_id: str):
-    """Return the select entity object for an entity id."""
-    return hass.data[DATA_INSTANCES][SELECT_DOMAIN].get_entity(entity_id)
+    mock_desk.set_sensitivity.assert_not_awaited()
+    mock_desk.get_sensitivity.assert_not_awaited()
 
 
-async def test_select_current_option_when_unavailable(
+@pytest.mark.parametrize(
+    ("key", "option"),
+    [
+        ("sensitivity", "Extreme"),
+        ("touch_mode", "Double tap"),
+        ("unit", "mm"),
+    ],
+)
+async def test_select_unknown_option_sends_nothing(
     hass: HomeAssistant,
-    mock_config_entry: MockConfigEntry,
-    init_integration,
-):
-    """Test a select reports no option while the desk is disconnected."""
-    coordinator = await setup_coordinator_data(hass, mock_config_entry)
-    entity = _get_select(hass, "select.desky_desk_collision_sensitivity")
+    init_integration: MockConfigEntry,
+    mock_desk: MagicMock,
+    key: str,
+    option: str,
+) -> None:
+    """Test an option outside the known mapping sends no command to the desk.
 
-    coordinator.async_set_updated_data({**coordinator.data, "is_connected": False})
-    await hass.async_block_till_done()
+    Home Assistant rejects such options before they reach the entity, so this
+    calls the entity directly.
+    """
+    entity = DeskSelect(init_integration.runtime_data, DESCRIPTIONS[key])
 
-    assert entity.current_option is None
+    await entity.async_select_option(option)
+
+    mock_desk.set_sensitivity.assert_not_awaited()
+    mock_desk.get_sensitivity.assert_not_awaited()
+    mock_desk.set_touch_mode.assert_not_awaited()
+    mock_desk.set_unit.assert_not_awaited()
 
 
 async def test_select_unknown_key(
-    hass: HomeAssistant,
-    mock_config_entry: MockConfigEntry,
-    init_integration,
-):
+    hass: HomeAssistant, init_integration: MockConfigEntry, mock_desk: MagicMock
+) -> None:
     """Test a select with an unrecognised key has no option and sends nothing."""
-    coordinator = await setup_coordinator_data(hass, mock_config_entry)
-    mock_device = AsyncMock()
-    coordinator._device = mock_device
     entity = DeskSelect(
-        coordinator,
-        mock_config_entry,
+        init_integration.runtime_data,
         SelectEntityDescription(key="unknown", options=["a", "b"]),
     )
 
@@ -354,54 +216,6 @@ async def test_select_unknown_key(
 
     await entity.async_select_option("a")
 
-    assert mock_device.method_calls == []
-
-
-async def test_select_option_without_device(
-    hass: HomeAssistant,
-    mock_config_entry: MockConfigEntry,
-    init_integration,
-):
-    """Test selecting an option does nothing when the BLE device is gone."""
-    coordinator = await setup_coordinator_data(hass, mock_config_entry)
-    previous_device = coordinator._device
-    previous_device.set_sensitivity.reset_mock()
-    coordinator._device = None
-
-    await hass.services.async_call(
-        SELECT_DOMAIN,
-        SERVICE_SELECT_OPTION,
-        {
-            ATTR_ENTITY_ID: "select.desky_desk_collision_sensitivity",
-            ATTR_OPTION: "High",
-        },
-        blocking=True,
-    )
-
-    previous_device.set_sensitivity.assert_not_called()
-    assert hass.states.get("select.desky_desk_collision_sensitivity").state == "Medium"
-
-
-@pytest.mark.parametrize(
-    ("entity_id", "option"),
-    [
-        ("select.desky_desk_collision_sensitivity", "Extreme"),
-        ("select.desky_desk_touch_mode", "Double tap"),
-        ("select.desky_desk_display_unit", "mm"),
-    ],
-)
-async def test_select_unrecognised_option_sends_nothing(
-    hass: HomeAssistant,
-    mock_config_entry: MockConfigEntry,
-    init_integration,
-    entity_id: str,
-    option: str,
-):
-    """Test an option outside the known mapping sends no command to the desk."""
-    coordinator = await setup_coordinator_data(hass, mock_config_entry)
-    mock_device = AsyncMock()
-    coordinator._device = mock_device
-
-    await _get_select(hass, entity_id).async_select_option(option)
-
-    assert mock_device.method_calls == []
+    mock_desk.set_sensitivity.assert_not_awaited()
+    mock_desk.set_touch_mode.assert_not_awaited()
+    mock_desk.set_unit.assert_not_awaited()

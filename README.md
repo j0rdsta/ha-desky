@@ -19,10 +19,32 @@ Control your Desky standing desk via Bluetooth Low Energy (BLE) in Home Assistan
 - **Cover Entity**: Control desk as a cover (0% = minimum height, 100% = maximum height)
 
 ### Supported Entities
-- **Cover**: Main control entity for desk movement with proper direction tracking
-- **Number**: Current height in cm (60-130cm range)
-- **Buttons**: Four preset position buttons + Move Up/Down manual controls
-- **Binary Sensor**: Collision detection
+All entities belong to one device per desk. Their names are translated and prefixed with the
+device name; the entity IDs below are for a desk named "Desky Desk". Entities created by earlier
+versions keep their existing entity IDs.
+
+| Platform | Name | Entity ID | Description |
+| --- | --- | --- | --- |
+| Cover | Desky Desk | `cover.desky_desk` | Main control: raise, lower, stop and move to a position (0% = 60 cm, 100% = 130 cm) |
+| Number | Height | `number.desky_desk_height` | Current height in cm; set it to move the desk (60–130 cm) |
+| Number | Upper height limit | `number.desky_desk_upper_height_limit` | Highest height the desk will move to |
+| Number | Lower height limit | `number.desky_desk_lower_height_limit` | Lowest height the desk will move to |
+| Number | Vibration intensity | `number.desky_desk_vibration_intensity` | Vibration strength (0–100%) |
+| Button | Preset 1 – Preset 4 | `button.desky_desk_preset_1` … `_4` | Move to a saved preset position |
+| Button | Move up / Move down | `button.desky_desk_move_up`, `button.desky_desk_move_down` | Manual movement |
+| Binary sensor | Collision detected | `binary_sensor.desky_desk_collision_detected` | On when the desk detects a collision |
+| Light | LED strip | `light.desky_desk_led_strip` | LED strip brightness and colour (as effects) |
+| Switch | Vibration | `switch.desky_desk_vibration` | Vibration on or off |
+| Switch | Lock | `switch.desky_desk_lock` | Lock the desk controls |
+| Select | Collision sensitivity | `select.desky_desk_collision_sensitivity` | High, Medium or Low |
+| Select | Touch mode | `select.desky_desk_touch_mode` | One press or Press and hold |
+| Select | Display unit | `select.desky_desk_display_unit` | cm or in |
+| Sensor | Height display | `sensor.desky_desk_height_display` | Height in the desk's display unit |
+| Sensor | LED color | `sensor.desky_desk_led_color` | Current LED colour |
+| Sensor | Vibration intensity display | `sensor.desky_desk_vibration_intensity_display` | Current vibration strength |
+
+Not every desk supports every feature. All entities are unavailable while the desk is not
+connected.
 
 ### Services
 - `desky_desk.move_to_height`: Move to specific height in cm
@@ -171,7 +193,7 @@ automation:
     trigger:
       # Trigger after standing for 45 minutes
       - platform: state
-        entity_id: sensor.desky_desk_height
+        entity_id: number.desky_desk_height
         to: "110"  # Standing height
         for: "00:45:00"
     condition:
@@ -224,7 +246,7 @@ entities:
     name: Storage
   - type: section
     label: Status
-  - entity: binary_sensor.desky_desk_collision
+  - entity: binary_sensor.desky_desk_collision_detected
     name: Collision Status
 ```
 
@@ -290,11 +312,11 @@ automation:
           # Time to stand
           - conditions:
               - condition: numeric_state
-                entity_id: sensor.desky_desk_height
+                entity_id: number.desky_desk_height
                 below: 85  # Currently sitting
               - condition: template
                 value_template: >
-                  {{ (now() - states.sensor.desky_desk_height.last_changed).seconds > 1800 }}
+                  {{ (now() - states.number.desky_desk_height.last_changed).seconds > 1800 }}
             sequence:
               # Pre-movement safety protocol
               - service: light.turn_on
@@ -317,7 +339,7 @@ automation:
                 entity_id: binary_sensor.office_definitely_occupied
                 state: "on"
               - condition: state
-                entity_id: binary_sensor.desky_desk_collision
+                entity_id: binary_sensor.desky_desk_collision_detected
                 state: "off"
               # Move to standing
               - service: cover.open_cover
@@ -334,11 +356,11 @@ automation:
           # Time to sit
           - conditions:
               - condition: numeric_state
-                entity_id: sensor.desky_desk_height
+                entity_id: number.desky_desk_height
                 above: 100  # Currently standing
               - condition: template
                 value_template: >
-                  {{ (now() - states.sensor.desky_desk_height.last_changed).seconds >
+                  {{ (now() - states.number.desky_desk_height.last_changed).seconds >
                      (states('input_number.desk_standing_duration') | int * 60) }}
             sequence:
               # Sitting reminder only - no automatic lowering for safety
@@ -359,7 +381,7 @@ automation:
   - alias: "Desk Emergency Stop on Collision"
     trigger:
       - platform: state
-        entity_id: binary_sensor.desky_desk_collision
+        entity_id: binary_sensor.desky_desk_collision_detected
         to: "on"
     action:
       - service: cover.stop_cover

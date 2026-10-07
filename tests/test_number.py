@@ -2,550 +2,294 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock, patch
 
 from homeassistant.components.number import (
+    ATTR_MAX,
+    ATTR_MIN,
+    ATTR_STEP,
     ATTR_VALUE,
     DOMAIN as NUMBER_DOMAIN,
     SERVICE_SET_VALUE,
     NumberEntityDescription,
 )
-from homeassistant.const import ATTR_ENTITY_ID, STATE_UNAVAILABLE, UnitOfLength
+from homeassistant.const import (
+    ATTR_ENTITY_ID,
+    ATTR_FRIENDLY_NAME,
+    ATTR_UNIT_OF_MEASUREMENT,
+    PERCENTAGE,
+    STATE_UNAVAILABLE,
+    STATE_UNKNOWN,
+    UnitOfLength,
+)
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_component import DATA_INSTANCES
+import pytest
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.desky_desk.const import DOMAIN, MAX_HEIGHT, MIN_HEIGHT
-from custom_components.desky_desk.number import DeskNumber
+from custom_components.desky_desk.const import MAX_HEIGHT, MIN_HEIGHT
+from custom_components.desky_desk.coordinator import DeskUpdateCoordinator
+from custom_components.desky_desk.number import DeskNumber, DeskyHeightNumber
+
+from . import disconnect_desk, notify_desk, set_desk_state
+
+HEIGHT = "number.desky_desk_height"
+UPPER_LIMIT = "number.desky_desk_upper_height_limit"
+LOWER_LIMIT = "number.desky_desk_lower_height_limit"
+VIBRATION_INTENSITY = "number.desky_desk_vibration_intensity"
+NUMBERS = [HEIGHT, UPPER_LIMIT, LOWER_LIMIT, VIBRATION_INTENSITY]
 
 
-async def test_number_setup(hass: HomeAssistant, init_integration):
-    """Test number entity setup."""
-    # First, trigger an update to set entities as available
-    coordinator = hass.data[DOMAIN][init_integration.entry_id]
-    coordinator.async_set_updated_data(
-        {
-            "height_cm": 80.0,
-            "collision_detected": False,
-            "is_moving": False,
-            "is_connected": True,
-        }
+async def _set_value(hass: HomeAssistant, entity_id: str, value: float) -> None:
+    """Set a number through the number service."""
+    await hass.services.async_call(
+        NUMBER_DOMAIN,
+        SERVICE_SET_VALUE,
+        {ATTR_ENTITY_ID: entity_id, ATTR_VALUE: value},
+        blocking=True,
     )
-    await hass.async_block_till_done()
 
-    state = hass.states.get("number.desky_desk_height")
 
+async def test_height_number(
+    hass: HomeAssistant, init_integration: MockConfigEntry, mock_desk: MagicMock
+) -> None:
+    """Test the height number reports the desk height in centimetres."""
+    state = hass.states.get(HEIGHT)
     assert state is not None
     assert state.state == "80.0"
-    assert state.attributes.get("min") == MIN_HEIGHT
-    assert state.attributes.get("max") == MAX_HEIGHT
-    assert state.attributes.get("step") == 0.1
-    assert state.attributes.get("unit_of_measurement") == UnitOfLength.CENTIMETERS
+    assert state.attributes[ATTR_FRIENDLY_NAME] == "Desky Desk Height"
+    assert state.attributes[ATTR_MIN] == MIN_HEIGHT
+    assert state.attributes[ATTR_MAX] == MAX_HEIGHT
+    assert state.attributes[ATTR_STEP] == 0.1
+    assert state.attributes[ATTR_UNIT_OF_MEASUREMENT] == UnitOfLength.CENTIMETERS
 
-
-async def test_number_value_updates(hass: HomeAssistant, init_integration):
-    """Test number value updates from coordinator."""
-    coordinator = hass.data[DOMAIN][init_integration.entry_id]
-
-    # Test value update
-    coordinator.async_set_updated_data(
-        {
-            "height_cm": 95.5,
-            "collision_detected": False,
-            "is_moving": False,
-            "is_connected": True,
-        }
-    )
+    notify_desk(mock_desk, height_cm=95.5)
     await hass.async_block_till_done()
 
-    state = hass.states.get("number.desky_desk_height")
-    assert state.state == "95.5"
+    assert hass.states.get(HEIGHT).state == "95.5"
 
 
-async def test_number_availability(hass: HomeAssistant, init_integration):
-    """Test number availability based on connection."""
-    coordinator = hass.data[DOMAIN][init_integration.entry_id]
+@pytest.mark.parametrize("height", [MIN_HEIGHT, 85.7, 100.0, MAX_HEIGHT])
+async def test_set_height(
+    hass: HomeAssistant,
+    init_integration: MockConfigEntry,
+    mock_desk: MagicMock,
+    height: float,
+) -> None:
+    """Test setting the height moves the desk there and polls it for progress."""
+    mock_desk.get_status.reset_mock()
 
-    # Test disconnected
-    coordinator.async_set_updated_data(
-        {
-            "height_cm": 80.0,
-            "collision_detected": False,
-            "is_moving": False,
-            "is_connected": False,
-        }
-    )
-    await hass.async_block_till_done()
+    await _set_value(hass, HEIGHT, height)
 
-    state = hass.states.get("number.desky_desk_height")
-    assert state.state == STATE_UNAVAILABLE
+    mock_desk.move_to_height.assert_awaited_once_with(height)
+    # The coordinator refresh asks the desk for its status
+    mock_desk.get_status.assert_awaited_once_with()
 
 
-async def test_number_set_value_direct_height(hass: HomeAssistant, init_integration):
-    """Test setting number value uses move_to_height."""
-    coordinator = hass.data[DOMAIN][init_integration.entry_id]
-
-    # First make sure the entity is available
-    coordinator.async_set_updated_data(
-        {
-            "height_cm": 80.0,
-            "collision_detected": False,
-            "is_moving": False,
-            "is_connected": True,
-        }
-    )
-    await hass.async_block_till_done()
-
-    # Now replace the device with a fresh mock for testing
-    mock_device = MagicMock()
-    mock_device.move_to_height = AsyncMock()
-    coordinator._device = mock_device
-    coordinator.async_request_refresh = AsyncMock()
-
-    # Test setting to 100cm
-    await hass.services.async_call(
-        NUMBER_DOMAIN,
-        SERVICE_SET_VALUE,
-        {
-            ATTR_ENTITY_ID: "number.desky_desk_height",
-            ATTR_VALUE: 100.0,
-        },
-        blocking=True,
-    )
-
-    mock_device.move_to_height.assert_called_once_with(100.0)
-    coordinator.async_request_refresh.assert_called_once()
-
-    # Reset mocks
-    mock_device.move_to_height.reset_mock()
-    coordinator.async_request_refresh.reset_mock()
-
-    # Test setting to minimum height
-    await hass.services.async_call(
-        NUMBER_DOMAIN,
-        SERVICE_SET_VALUE,
-        {
-            ATTR_ENTITY_ID: "number.desky_desk_height",
-            ATTR_VALUE: MIN_HEIGHT,
-        },
-        blocking=True,
-    )
-
-    mock_device.move_to_height.assert_called_once_with(MIN_HEIGHT)
-
-    # Reset mocks
-    mock_device.move_to_height.reset_mock()
-
-    # Test setting to maximum height
-    await hass.services.async_call(
-        NUMBER_DOMAIN,
-        SERVICE_SET_VALUE,
-        {
-            ATTR_ENTITY_ID: "number.desky_desk_height",
-            ATTR_VALUE: MAX_HEIGHT,
-        },
-        blocking=True,
-    )
-
-    mock_device.move_to_height.assert_called_once_with(MAX_HEIGHT)
-
-
-async def test_number_set_value_edge_cases(hass: HomeAssistant, init_integration):
-    """Test setting number value with edge cases."""
-    coordinator = hass.data[DOMAIN][init_integration.entry_id]
-
-    # First make sure the entity is available
-    coordinator.async_set_updated_data(
-        {
-            "height_cm": 80.0,
-            "collision_detected": False,
-            "is_moving": False,
-            "is_connected": True,
-        }
-    )
-    await hass.async_block_till_done()
-
-    # Now replace the device with a fresh mock for testing
-    mock_device = MagicMock()
-    mock_device.move_to_height = AsyncMock()
-    coordinator._device = mock_device
-    coordinator.async_request_refresh = AsyncMock()
-
-    # Test decimal precision
-    await hass.services.async_call(
-        NUMBER_DOMAIN,
-        SERVICE_SET_VALUE,
-        {
-            ATTR_ENTITY_ID: "number.desky_desk_height",
-            ATTR_VALUE: 85.7,
-        },
-        blocking=True,
-    )
-
-    mock_device.move_to_height.assert_called_once_with(85.7)
-
-
-async def test_number_no_data(hass: HomeAssistant, init_integration):
-    """Test number when no data available."""
-    coordinator = hass.data[DOMAIN][init_integration.entry_id]
-
-    # Set data to None and notify listeners
-    coordinator.async_set_updated_data(None)
-    await hass.async_block_till_done()
-
-    state = hass.states.get("number.desky_desk_height")
-    assert state.state == STATE_UNAVAILABLE
-
-
-async def test_vibration_intensity_number(hass: HomeAssistant, init_integration):
-    """Test vibration intensity number entity."""
-    coordinator = hass.data[DOMAIN][init_integration.entry_id]
-
-    # Update with vibration data
-    coordinator.async_set_updated_data(
-        {
-            "height_cm": 80.0,
-            "collision_detected": False,
-            "is_moving": False,
-            "is_connected": True,
-            "movement_direction": None,
-            "vibration_intensity": 75,
-            "vibration_enabled": True,
-            "light_color": 1,
-            "brightness": 50,
-            "lighting_enabled": True,
-            "lock_status": False,
-            "sensitivity_level": 2,
-            "height_limit_upper": 120.0,
-            "height_limit_lower": 65.0,
-            "limits_enabled": True,
-            "touch_mode": 0,
-            "unit_preference": "cm",
-        }
-    )
-    await hass.async_block_till_done()
-
-    state = hass.states.get("number.desky_desk_vibration_intensity")
+@pytest.mark.parametrize(
+    ("entity_id", "friendly_name", "value", "unit", "step"),
+    [
+        (
+            UPPER_LIMIT,
+            "Desky Desk Upper height limit",
+            "120.0",
+            UnitOfLength.CENTIMETERS,
+            1.0,
+        ),
+        (
+            LOWER_LIMIT,
+            "Desky Desk Lower height limit",
+            "65.0",
+            UnitOfLength.CENTIMETERS,
+            1.0,
+        ),
+        (VIBRATION_INTENSITY, "Desky Desk Vibration intensity", "75", PERCENTAGE, 1),
+    ],
+)
+async def test_desk_number_state(
+    hass: HomeAssistant,
+    init_integration: MockConfigEntry,
+    entity_id: str,
+    friendly_name: str,
+    value: str,
+    unit: str,
+    step: float,
+) -> None:
+    """Test the setting numbers report the desk's configured values."""
+    state = hass.states.get(entity_id)
     assert state is not None
-    assert state.state == "75"
-    assert state.attributes.get("min") == 0
-    assert state.attributes.get("max") == 100
-    assert state.attributes.get("step") == 1
-    assert state.attributes.get("unit_of_measurement") == "%"
+    assert state.state == value
+    assert state.attributes[ATTR_FRIENDLY_NAME] == friendly_name
+    assert state.attributes[ATTR_UNIT_OF_MEASUREMENT] == unit
+    assert state.attributes[ATTR_STEP] == step
 
-    # Test setting value
-    mock_device = MagicMock()
-    mock_device.set_vibration_intensity = AsyncMock(return_value=True)
-    mock_device.get_vibration_intensity = AsyncMock(return_value=True)
-    coordinator._device = mock_device
-    coordinator.async_request_refresh = AsyncMock()
 
-    await hass.services.async_call(
-        NUMBER_DOMAIN,
-        SERVICE_SET_VALUE,
-        {
-            ATTR_ENTITY_ID: "number.desky_desk_vibration_intensity",
-            ATTR_VALUE: 50,
-        },
-        blocking=True,
+@pytest.mark.parametrize(
+    ("entity_id", "minimum", "maximum"),
+    [
+        (UPPER_LIMIT, MIN_HEIGHT, MAX_HEIGHT),
+        (LOWER_LIMIT, MIN_HEIGHT, MAX_HEIGHT),
+        (VIBRATION_INTENSITY, 0, 100),
+    ],
+)
+async def test_desk_number_range(
+    hass: HomeAssistant,
+    init_integration: MockConfigEntry,
+    entity_id: str,
+    minimum: float,
+    maximum: float,
+) -> None:
+    """Test the setting numbers expose the range the desk accepts."""
+    state = hass.states.get(entity_id)
+    assert state.attributes[ATTR_MIN] == minimum
+    assert state.attributes[ATTR_MAX] == maximum
+
+
+@pytest.mark.parametrize(
+    ("entity_id", "value", "setter", "sent", "getter"),
+    [
+        (UPPER_LIMIT, 125.0, "set_height_limit_upper", 125.0, "get_limits"),
+        (LOWER_LIMIT, 70.0, "set_height_limit_lower", 70.0, "get_limits"),
+        (
+            VIBRATION_INTENSITY,
+            50,
+            "set_vibration_intensity",
+            50,
+            "get_vibration_intensity",
+        ),
+    ],
+)
+async def test_set_desk_number(
+    hass: HomeAssistant,
+    init_integration: MockConfigEntry,
+    mock_desk: MagicMock,
+    entity_id: str,
+    value: float,
+    setter: str,
+    sent: float,
+    getter: str,
+) -> None:
+    """Test setting a value sends it to the desk and reads it back."""
+    await _set_value(hass, entity_id, value)
+
+    getattr(mock_desk, setter).assert_awaited_once_with(sent)
+    getattr(mock_desk, getter).assert_awaited_once_with()
+
+
+async def test_vibration_intensity_sent_as_integer(
+    hass: HomeAssistant, init_integration: MockConfigEntry, mock_desk: MagicMock
+) -> None:
+    """Test the vibration intensity is sent to the desk as a whole number."""
+    await _set_value(hass, VIBRATION_INTENSITY, 42.0)
+
+    mock_desk.set_vibration_intensity.assert_awaited_once_with(42)
+    assert isinstance(mock_desk.set_vibration_intensity.call_args.args[0], int)
+
+
+async def test_limits_enabled_attribute(
+    hass: HomeAssistant, init_integration: MockConfigEntry
+) -> None:
+    """Test only the height limit numbers report whether the limits are enabled."""
+    assert hass.states.get(UPPER_LIMIT).attributes["limits_enabled"] is True
+    assert hass.states.get(LOWER_LIMIT).attributes["limits_enabled"] is True
+    assert "limits_enabled" not in hass.states.get(VIBRATION_INTENSITY).attributes
+    assert "limits_enabled" not in hass.states.get(HEIGHT).attributes
+
+    await set_desk_state(hass, init_integration, limits_enabled=False)
+
+    assert hass.states.get(UPPER_LIMIT).attributes["limits_enabled"] is False
+    assert hass.states.get(LOWER_LIMIT).attributes["limits_enabled"] is False
+
+
+async def test_desk_numbers_without_values(
+    hass: HomeAssistant, init_integration: MockConfigEntry
+) -> None:
+    """Test settings the desk has not reported show as unknown."""
+    await set_desk_state(
+        hass,
+        init_integration,
+        height_limit_upper=None,
+        height_limit_lower=None,
+        vibration_intensity=None,
     )
 
-    mock_device.set_vibration_intensity.assert_called_once_with(50)
-    mock_device.get_vibration_intensity.assert_called_once()
+    assert hass.states.get(UPPER_LIMIT).state == STATE_UNKNOWN
+    assert hass.states.get(LOWER_LIMIT).state == STATE_UNKNOWN
+    assert hass.states.get(VIBRATION_INTENSITY).state == STATE_UNKNOWN
+    assert hass.states.get(HEIGHT).state == "80.0"
 
 
-async def test_height_limit_upper_number(hass: HomeAssistant, init_integration):
-    """Test upper height limit number entity."""
-    coordinator = hass.data[DOMAIN][init_integration.entry_id]
-
-    # Update with limit data
-    coordinator.async_set_updated_data(
-        {
-            "height_cm": 80.0,
-            "collision_detected": False,
-            "is_moving": False,
-            "is_connected": True,
-            "movement_direction": None,
-            "height_limit_upper": 120.0,
-            "height_limit_lower": 65.0,
-            "limits_enabled": True,
-            "vibration_intensity": 75,
-            "vibration_enabled": True,
-            "light_color": 1,
-            "brightness": 50,
-            "lighting_enabled": True,
-            "lock_status": False,
-            "sensitivity_level": 2,
-            "touch_mode": 0,
-            "unit_preference": "cm",
-        }
-    )
+async def test_numbers_follow_connection(
+    hass: HomeAssistant, init_integration: MockConfigEntry, mock_desk: MagicMock
+) -> None:
+    """Test the numbers go unavailable on disconnect and come back on reconnect."""
+    disconnect_desk(mock_desk)
     await hass.async_block_till_done()
-
-    state = hass.states.get("number.desky_desk_upper_height_limit")
-    assert state is not None
-    assert state.state == "120.0"
-    assert state.attributes.get("min") == MIN_HEIGHT
-    assert state.attributes.get("max") == MAX_HEIGHT
-    assert state.attributes.get("step") == 1.0
-    assert state.attributes.get("unit_of_measurement") == UnitOfLength.CENTIMETERS
-
-    # Test setting value
-    mock_device = MagicMock()
-    mock_device.set_height_limit_upper = AsyncMock(return_value=True)
-    mock_device.get_limits = AsyncMock(return_value=True)
-    coordinator._device = mock_device
-    coordinator.async_request_refresh = AsyncMock()
-
-    await hass.services.async_call(
-        NUMBER_DOMAIN,
-        SERVICE_SET_VALUE,
-        {
-            ATTR_ENTITY_ID: "number.desky_desk_upper_height_limit",
-            ATTR_VALUE: 125.0,
-        },
-        blocking=True,
+    assert all(
+        hass.states.get(entity_id).state == STATE_UNAVAILABLE for entity_id in NUMBERS
     )
 
-    mock_device.set_height_limit_upper.assert_called_once_with(125.0)
-    mock_device.get_limits.assert_called_once()
+    # Setting an unavailable number sends nothing to the desk
+    await _set_value(hass, UPPER_LIMIT, 110.0)
+    mock_desk.set_height_limit_upper.assert_not_called()
 
-
-async def test_height_limit_lower_number(hass: HomeAssistant, init_integration):
-    """Test lower height limit number entity."""
-    coordinator = hass.data[DOMAIN][init_integration.entry_id]
-
-    # Update with limit data
-    coordinator.async_set_updated_data(
-        {
-            "height_cm": 80.0,
-            "collision_detected": False,
-            "is_moving": False,
-            "is_connected": True,
-            "movement_direction": None,
-            "height_limit_upper": 120.0,
-            "height_limit_lower": 65.0,
-            "limits_enabled": True,
-            "vibration_intensity": 75,
-            "vibration_enabled": True,
-            "light_color": 1,
-            "brightness": 50,
-            "lighting_enabled": True,
-            "lock_status": False,
-            "sensitivity_level": 2,
-            "touch_mode": 0,
-            "unit_preference": "cm",
-        }
-    )
+    notify_desk(mock_desk, is_connected=True, height_cm=90.0)
     await hass.async_block_till_done()
-
-    state = hass.states.get("number.desky_desk_lower_height_limit")
-    assert state is not None
-    assert state.state == "65.0"
-    assert state.attributes.get("min") == MIN_HEIGHT
-    assert state.attributes.get("max") == MAX_HEIGHT
-    assert state.attributes.get("step") == 1.0
-    assert state.attributes.get("unit_of_measurement") == UnitOfLength.CENTIMETERS
-
-    # Test setting value
-    mock_device = MagicMock()
-    mock_device.set_height_limit_lower = AsyncMock(return_value=True)
-    mock_device.get_limits = AsyncMock(return_value=True)
-    coordinator._device = mock_device
-    coordinator.async_request_refresh = AsyncMock()
-
-    await hass.services.async_call(
-        NUMBER_DOMAIN,
-        SERVICE_SET_VALUE,
-        {
-            ATTR_ENTITY_ID: "number.desky_desk_lower_height_limit",
-            ATTR_VALUE: 70.0,
-        },
-        blocking=True,
-    )
-
-    mock_device.set_height_limit_lower.assert_called_once_with(70.0)
-    mock_device.get_limits.assert_called_once()
+    assert hass.states.get(HEIGHT).state == "90.0"
+    assert hass.states.get(UPPER_LIMIT).state == "120.0"
+    assert hass.states.get(LOWER_LIMIT).state == "65.0"
+    assert hass.states.get(VIBRATION_INTENSITY).state == "75"
 
 
-async def test_all_number_entities_setup(hass: HomeAssistant, init_integration):
-    """Test all number entities are properly set up."""
-    coordinator = hass.data[DOMAIN][init_integration.entry_id]
-
-    # Update with all data
-    coordinator.async_set_updated_data(
-        {
-            "height_cm": 85.0,
-            "collision_detected": False,
-            "is_moving": False,
-            "is_connected": True,
-            "movement_direction": None,
-            "height_limit_upper": 115.0,
-            "height_limit_lower": 68.0,
-            "limits_enabled": True,
-            "vibration_intensity": 50,
-            "vibration_enabled": True,
-            "light_color": 1,
-            "brightness": 50,
-            "lighting_enabled": True,
-            "lock_status": False,
-            "sensitivity_level": 2,
-            "touch_mode": 0,
-            "unit_preference": "cm",
-        }
-    )
+@pytest.mark.parametrize(
+    "key", ["height_limit_upper", "height_limit_lower", "vibration_intensity"]
+)
+async def test_desk_number_ignores_set_while_disconnected(
+    hass: HomeAssistant,
+    init_integration: MockConfigEntry,
+    mock_desk: MagicMock,
+    key: str,
+) -> None:
+    """Test a setting number drops a value set while the desk is disconnected."""
+    disconnect_desk(mock_desk)
     await hass.async_block_till_done()
+    mock_desk.reset_mock()
+    entity = DeskNumber(init_integration.runtime_data, NumberEntityDescription(key=key))
+    assert not entity.available
 
-    # Check all number entities exist and have correct values
-    assert hass.states.get("number.desky_desk_height").state == "85.0"
-    assert hass.states.get("number.desky_desk_vibration_intensity").state == "50"
-    assert hass.states.get("number.desky_desk_upper_height_limit").state == "115.0"
-    assert hass.states.get("number.desky_desk_lower_height_limit").state == "68.0"
+    await entity.async_set_native_value(100.0)
 
-    # Test they all become unavailable when disconnected
-    coordinator.async_set_updated_data(
-        {
-            "height_cm": 85.0,
-            "collision_detected": False,
-            "is_moving": False,
-            "is_connected": False,
-            "movement_direction": None,
-            "height_limit_upper": 115.0,
-            "height_limit_lower": 68.0,
-            "limits_enabled": True,
-            "vibration_intensity": 50,
-            "vibration_enabled": True,
-            "light_color": 1,
-            "brightness": 50,
-            "lighting_enabled": True,
-            "lock_status": False,
-            "sensitivity_level": 2,
-            "touch_mode": 0,
-            "unit_preference": "cm",
-        }
-    )
-    await hass.async_block_till_done()
-
-    assert hass.states.get("number.desky_desk_height").state == STATE_UNAVAILABLE
-    assert (
-        hass.states.get("number.desky_desk_vibration_intensity").state
-        == STATE_UNAVAILABLE
-    )
-    assert (
-        hass.states.get("number.desky_desk_upper_height_limit").state
-        == STATE_UNAVAILABLE
-    )
-    assert (
-        hass.states.get("number.desky_desk_lower_height_limit").state
-        == STATE_UNAVAILABLE
-    )
+    assert mock_desk.method_calls == []
 
 
-CONNECTED_DATA = {
-    "height_cm": 80.0,
-    "collision_detected": False,
-    "is_moving": False,
-    "is_connected": True,
-    "height_limit_upper": 120.0,
-    "height_limit_lower": 65.0,
-    "limits_enabled": True,
-    "vibration_intensity": 75,
-}
-
-
-async def test_height_number_native_value_without_data(
-    hass: HomeAssistant, init_integration
-):
-    """Test the height number reports no value when the coordinator has no data."""
-    coordinator = hass.data[DOMAIN][init_integration.entry_id]
-    entity = hass.data[DATA_INSTANCES][NUMBER_DOMAIN].get_entity(
-        "number.desky_desk_height"
-    )
-
-    coordinator.async_set_updated_data({})
-    await hass.async_block_till_done()
-
-    assert hass.states.get("number.desky_desk_height").state == STATE_UNAVAILABLE
-    assert entity.native_value is None
-
-
-async def test_height_number_set_value_without_device(
-    hass: HomeAssistant, init_integration
-):
-    """Test setting the height does nothing when the BLE device is gone."""
-    coordinator = hass.data[DOMAIN][init_integration.entry_id]
-    coordinator.async_set_updated_data(dict(CONNECTED_DATA))
-    await hass.async_block_till_done()
-
-    previous_device = coordinator._device
-    coordinator._device = None
-    coordinator.async_request_refresh = AsyncMock()
-
-    await hass.services.async_call(
-        NUMBER_DOMAIN,
-        SERVICE_SET_VALUE,
-        {ATTR_ENTITY_ID: "number.desky_desk_height", ATTR_VALUE: 100.0},
-        blocking=True,
-    )
-
-    previous_device.move_to_height.assert_not_called()
-    coordinator.async_request_refresh.assert_not_called()
-    assert hass.states.get("number.desky_desk_height").state == "80.0"
-
-
-async def test_desk_number_native_value_when_unavailable(
-    hass: HomeAssistant, init_integration
-):
-    """Test the limit number reports no value while the desk is disconnected."""
-    coordinator = hass.data[DOMAIN][init_integration.entry_id]
-    entity = hass.data[DATA_INSTANCES][NUMBER_DOMAIN].get_entity(
-        "number.desky_desk_upper_height_limit"
-    )
-
-    coordinator.async_set_updated_data({**CONNECTED_DATA, "is_connected": False})
-    await hass.async_block_till_done()
-
-    assert (
-        hass.states.get("number.desky_desk_upper_height_limit").state
-        == STATE_UNAVAILABLE
-    )
-    assert entity.native_value is None
-
-
-async def test_desk_number_set_value_without_device(
-    hass: HomeAssistant, init_integration
-):
-    """Test setting a limit does nothing when the BLE device is gone."""
-    coordinator = hass.data[DOMAIN][init_integration.entry_id]
-    coordinator.async_set_updated_data(dict(CONNECTED_DATA))
-    await hass.async_block_till_done()
-
-    previous_device = coordinator._device
-    coordinator._device = None
-
-    await hass.services.async_call(
-        NUMBER_DOMAIN,
-        SERVICE_SET_VALUE,
-        {ATTR_ENTITY_ID: "number.desky_desk_upper_height_limit", ATTR_VALUE: 110.0},
-        blocking=True,
-    )
-
-    previous_device.set_height_limit_upper.assert_not_called()
-    previous_device.get_limits.assert_not_called()
-    assert hass.states.get("number.desky_desk_upper_height_limit").state == "120.0"
-
-
-async def test_desk_number_set_value_unknown_key(hass: HomeAssistant, init_integration):
-    """Test a number with an unrecognised key sends no command to the desk."""
-    coordinator = hass.data[DOMAIN][init_integration.entry_id]
-    coordinator.async_set_updated_data(dict(CONNECTED_DATA))
-    await hass.async_block_till_done()
-
-    mock_device = AsyncMock()
-    coordinator._device = mock_device
+async def test_desk_number_unknown_key(
+    hass: HomeAssistant, init_integration: MockConfigEntry, mock_desk: MagicMock
+) -> None:
+    """Test a number with an unrecognised key has no value and sends nothing."""
     entity = DeskNumber(
-        coordinator, init_integration, NumberEntityDescription(key="unknown")
+        init_integration.runtime_data, NumberEntityDescription(key="unknown")
     )
+    mock_desk.reset_mock()
+
+    assert entity.available
+    assert entity.native_value is None
+    assert entity.extra_state_attributes is None
 
     await entity.async_set_native_value(42.0)
 
-    assert mock_device.method_calls == []
+    assert mock_desk.method_calls == []
+
+
+async def test_set_height_without_device(
+    hass: HomeAssistant, init_integration: MockConfigEntry, mock_desk: MagicMock
+) -> None:
+    """Test setting the height is ignored when the coordinator has no BLE device."""
+    # A coordinator that never connected has no device
+    coordinator = DeskUpdateCoordinator(hass, init_integration)
+    assert coordinator.device is None
+    entity = DeskyHeightNumber(coordinator)
+
+    with patch.object(coordinator, "async_request_refresh") as request_refresh:
+        await entity.async_set_native_value(100.0)
+
+    request_refresh.assert_not_called()
+    mock_desk.move_to_height.assert_not_called()

@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
+from .bluetooth import DeskBLEDevice
 from .coordinator import DeskUpdateCoordinator
 
 
@@ -13,35 +13,21 @@ class DeskEntity(CoordinatorEntity[DeskUpdateCoordinator]):
 
     _attr_has_entity_name = True
 
-    def __init__(self, coordinator: DeskUpdateCoordinator, config_entry) -> None:
-        """Initialize the entity."""
-        super().__init__(coordinator)
-        self._config_entry = config_entry
+    def __init__(self, coordinator: DeskUpdateCoordinator, key: str) -> None:
+        """Initialize the entity.
 
-    @property
-    def device_info(self) -> DeviceInfo:
-        """Return device information."""
-        return DeviceInfo(**self.coordinator.get_device_info())
+        The unique ID is `<config entry unique ID>_<key>` and must never change.
+        """
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{coordinator.config_entry.unique_id}_{key}"
+        self._attr_device_info = coordinator.get_device_info()
 
     @property
     def available(self) -> bool:
         """Return if entity is available."""
-        if self.coordinator.data is None:
-            return False
-        return self.coordinator.data.get("is_connected", False)
+        return super().available and self.coordinator.data.is_connected
 
     @property
-    def _device(self):
+    def _device(self) -> DeskBLEDevice | None:
         """Return the BLE device."""
         return self.coordinator.device
-
-    @property
-    def extra_state_attributes(self) -> dict:
-        """Return common state attributes."""
-        if self.coordinator.data is None:
-            return {
-                "connected": False,
-            }
-        return {
-            "connected": self.coordinator.data.get("is_connected", False),
-        }

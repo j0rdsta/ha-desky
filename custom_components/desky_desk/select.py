@@ -5,38 +5,35 @@ from __future__ import annotations
 import logging
 
 from homeassistant.components.select import SelectEntity, SelectEntityDescription
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DOMAIN, SENSITIVITY_LEVELS, TOUCH_MODES
+from .const import SENSITIVITY_LEVELS, TOUCH_MODES
+from .coordinator import DeskUpdateCoordinator, DeskyConfigEntry
 from .entity import DeskEntity
 
 _LOGGER = logging.getLogger(__name__)
+
+# Commands go to one BLE connection, so send them one at a time
+PARALLEL_UPDATES = 1
 
 SELECT_DESCRIPTIONS = [
     SelectEntityDescription(
         key="sensitivity",
         translation_key="sensitivity",
-        name="Collision Sensitivity",
-        icon="mdi:car-brake-alert",
         options=["High", "Medium", "Low"],
         entity_category=EntityCategory.CONFIG,
     ),
     SelectEntityDescription(
         key="touch_mode",
         translation_key="touch_mode",
-        name="Touch Mode",
-        icon="mdi:gesture-tap",
         options=["One press", "Press and hold"],
         entity_category=EntityCategory.CONFIG,
     ),
     SelectEntityDescription(
         key="unit",
         translation_key="unit",
-        name="Display Unit",
-        icon="mdi:ruler",
         options=["cm", "in"],
         entity_category=EntityCategory.CONFIG,
     ),
@@ -45,44 +42,41 @@ SELECT_DESCRIPTIONS = [
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    config_entry: ConfigEntry,
+    entry: DeskyConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up Desky select platform."""
-    coordinator = hass.data[DOMAIN][config_entry.entry_id]
-
-    entities = []
-    for description in SELECT_DESCRIPTIONS:
-        entities.append(DeskSelect(coordinator, config_entry, description))
-
-    async_add_entities(entities)
+    async_add_entities(
+        DeskSelect(entry.runtime_data, description)
+        for description in SELECT_DESCRIPTIONS
+    )
 
 
 class DeskSelect(DeskEntity, SelectEntity):
     """Representation of a Desky desk select entity."""
 
-    def __init__(self, coordinator, config_entry, description: SelectEntityDescription):
+    def __init__(
+        self, coordinator: DeskUpdateCoordinator, description: SelectEntityDescription
+    ) -> None:
         """Initialize the select entity."""
-        super().__init__(coordinator, config_entry)
+        super().__init__(coordinator, description.key)
         self.entity_description = description
-        self._attr_unique_id = f"{config_entry.unique_id}_{description.key}"
 
     @property
     def current_option(self) -> str | None:
         """Return the current selected option."""
-        if not self.available:
-            return None
+        data = self.coordinator.data
 
         if self.entity_description.key == "sensitivity":
-            level = self.coordinator.data.get("sensitivity_level")
+            level = data.sensitivity_level
             if level and level in SENSITIVITY_LEVELS:
                 return SENSITIVITY_LEVELS[level]
         elif self.entity_description.key == "touch_mode":
-            mode = self.coordinator.data.get("touch_mode")
+            mode = data.touch_mode
             if mode is not None and mode in TOUCH_MODES:
                 return TOUCH_MODES[mode]
         elif self.entity_description.key == "unit":
-            return self.coordinator.data.get("unit_preference")
+            return data.unit_preference
 
         return None
 

@@ -6,67 +6,60 @@ import logging
 from typing import Any
 
 from homeassistant.components.switch import SwitchEntity, SwitchEntityDescription
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DOMAIN
+from .coordinator import DeskUpdateCoordinator, DeskyConfigEntry
 from .entity import DeskEntity
 
 _LOGGER = logging.getLogger(__name__)
+
+# Commands go to one BLE connection, so send them one at a time
+PARALLEL_UPDATES = 1
 
 SWITCH_DESCRIPTIONS = [
     SwitchEntityDescription(
         key="vibration",
         translation_key="vibration",
-        name="Vibration",
-        icon="mdi:vibrate",
-        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_category=EntityCategory.CONFIG,
     ),
     SwitchEntityDescription(
         key="lock",
         translation_key="lock",
-        name="Lock",
-        icon="mdi:lock",
     ),
 ]
 
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    config_entry: ConfigEntry,
+    entry: DeskyConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up Desky switch platform."""
-    coordinator = hass.data[DOMAIN][config_entry.entry_id]
-
-    entities = []
-    for description in SWITCH_DESCRIPTIONS:
-        entities.append(DeskSwitch(coordinator, config_entry, description))
-
-    async_add_entities(entities)
+    async_add_entities(
+        DeskSwitch(entry.runtime_data, description)
+        for description in SWITCH_DESCRIPTIONS
+    )
 
 
 class DeskSwitch(DeskEntity, SwitchEntity):
     """Representation of a Desky desk switch."""
 
-    def __init__(self, coordinator, config_entry, description: SwitchEntityDescription):
+    def __init__(
+        self, coordinator: DeskUpdateCoordinator, description: SwitchEntityDescription
+    ) -> None:
         """Initialize the switch."""
-        super().__init__(coordinator, config_entry)
+        super().__init__(coordinator, description.key)
         self.entity_description = description
-        self._attr_unique_id = f"{config_entry.unique_id}_{description.key}"
 
     @property
     def is_on(self) -> bool:
         """Return true if the switch is on."""
-        if not self.available:
-            return False
-
         if self.entity_description.key == "vibration":
-            return self.coordinator.data.get("vibration_enabled", False)
+            return bool(self.coordinator.data.vibration_enabled)
         if self.entity_description.key == "lock":
-            return self.coordinator.data.get("lock_status", False)
+            return self.coordinator.data.lock_status
 
         return False
 
@@ -95,14 +88,11 @@ class DeskSwitch(DeskEntity, SwitchEntity):
             await self._device.get_lock_status()
 
     @property
-    def extra_state_attributes(self) -> dict[str, Any]:
+    def extra_state_attributes(self) -> dict[str, Any] | None:
         """Return entity specific state attributes."""
-        attrs = super().extra_state_attributes
-
-        # Add vibration intensity for vibration switch
+        # The vibration switch reports the vibration intensity
         if self.entity_description.key == "vibration":
-            intensity = self.coordinator.data.get("vibration_intensity")
+            intensity = self.coordinator.data.vibration_intensity
             if intensity is not None:
-                attrs["intensity"] = intensity
-
-        return attrs
+                return {"intensity": intensity}
+        return None

@@ -2,387 +2,221 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock, PropertyMock, patch
 
 from homeassistant.components.cover import (
+    ATTR_CURRENT_POSITION,
     ATTR_POSITION,
     DOMAIN as COVER_DOMAIN,
     SERVICE_CLOSE_COVER,
     SERVICE_OPEN_COVER,
     SERVICE_SET_COVER_POSITION,
     SERVICE_STOP_COVER,
+    CoverEntityFeature,
 )
-from homeassistant.const import ATTR_ENTITY_ID, STATE_UNAVAILABLE
+from homeassistant.const import (
+    ATTR_DEVICE_CLASS,
+    ATTR_ENTITY_ID,
+    ATTR_SUPPORTED_FEATURES,
+    STATE_CLOSED,
+    STATE_CLOSING,
+    STATE_OPEN,
+    STATE_OPENING,
+    STATE_UNAVAILABLE,
+)
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_component import DATA_INSTANCES
+from homeassistant.helpers import entity_registry as er
+import pytest
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.desky_desk.const import DOMAIN, MAX_HEIGHT, MIN_HEIGHT
+from custom_components.desky_desk.const import MAX_HEIGHT, MIN_HEIGHT
+from custom_components.desky_desk.coordinator import DeskUpdateCoordinator
+
+from . import disconnect_desk, notify_desk
+
+ENTITY_ID = "cover.desky_desk"
 
 
-async def test_cover_setup(hass: HomeAssistant, init_integration):
-    """Test cover entity setup."""
-    # First, trigger an update to set entities as available
-    coordinator = hass.data[DOMAIN][init_integration.entry_id]
-    coordinator.async_set_updated_data(
-        {
-            "height_cm": 80.0,
-            "collision_detected": False,
-            "is_moving": False,
-            "is_connected": True,
-        }
+async def _call(hass: HomeAssistant, service: str, **data: object) -> None:
+    """Call a cover service on the desk."""
+    await hass.services.async_call(
+        COVER_DOMAIN,
+        service,
+        {ATTR_ENTITY_ID: ENTITY_ID, **data},
+        blocking=True,
     )
-    await hass.async_block_till_done()
 
-    state = hass.states.get("cover.desky_desk")
 
+async def test_cover_setup(
+    hass: HomeAssistant,
+    entity_registry: er.EntityRegistry,
+    init_integration: MockConfigEntry,
+) -> None:
+    """Test the cover takes the device name and has no device class."""
+    state = hass.states.get(ENTITY_ID)
     assert state is not None
-    assert state.state == "open"  # Default position
-    assert state.attributes.get("current_position") == 28  # (80-60)/(130-60)*100
-
-
-async def test_cover_position_calculations(hass: HomeAssistant, init_integration):
-    """Test cover position calculations."""
-    coordinator = hass.data[DOMAIN][init_integration.entry_id]
-
-    # Test minimum height (closed)
-    coordinator.async_set_updated_data(
-        {
-            "height_cm": MIN_HEIGHT,
-            "collision_detected": False,
-            "is_moving": False,
-            "is_connected": True,
-        }
+    assert state.state == STATE_OPEN
+    # (80 - 60) / (130 - 60) * 100, truncated
+    assert state.attributes[ATTR_CURRENT_POSITION] == 28
+    assert ATTR_DEVICE_CLASS not in state.attributes
+    assert state.attributes[ATTR_SUPPORTED_FEATURES] == (
+        CoverEntityFeature.OPEN
+        | CoverEntityFeature.CLOSE
+        | CoverEntityFeature.STOP
+        | CoverEntityFeature.SET_POSITION
     )
+
+    entry = entity_registry.async_get(ENTITY_ID)
+    assert entry is not None
+    assert entry.unique_id == "AA:BB:CC:DD:EE:FF_cover"
+    assert entry.translation_key == "desk"
+    assert entry.original_name is None
+    assert entry.original_device_class is None
+
+
+@pytest.mark.parametrize(
+    ("height", "expected_state", "expected_position"),
+    [
+        (50.0, STATE_CLOSED, 0),  # Below the range clamps to closed
+        (MIN_HEIGHT, STATE_CLOSED, 0),
+        (60.5, STATE_CLOSED, 0),  # Truncates to 0, so still closed
+        (61.0, STATE_OPEN, 1),
+        (95.0, STATE_OPEN, 50),
+        (MAX_HEIGHT, STATE_OPEN, 100),
+        (140.0, STATE_OPEN, 100),  # Above the range clamps to fully open
+    ],
+)
+async def test_cover_position(
+    hass: HomeAssistant,
+    init_integration: MockConfigEntry,
+    mock_desk: MagicMock,
+    height: float,
+    expected_state: str,
+    expected_position: int,
+) -> None:
+    """Test the desk height maps onto a 0-100 cover position."""
+    notify_desk(mock_desk, height_cm=height)
     await hass.async_block_till_done()
 
-    state = hass.states.get("cover.desky_desk")
-    assert state.state == "closed"
-    assert state.attributes.get("current_position") == 0
+    state = hass.states.get(ENTITY_ID)
+    assert state.state == expected_state
+    assert state.attributes[ATTR_CURRENT_POSITION] == expected_position
 
-    # Test maximum height (open)
-    coordinator.async_set_updated_data(
-        {
-            "height_cm": MAX_HEIGHT,
-            "collision_detected": False,
-            "is_moving": False,
-            "is_connected": True,
-        }
-    )
+
+@pytest.mark.parametrize(
+    ("is_moving", "direction", "expected_state"),
+    [
+        (True, "up", STATE_OPENING),
+        (True, "down", STATE_CLOSING),
+        (True, None, STATE_OPEN),
+        (False, "up", STATE_OPEN),
+        (False, "down", STATE_OPEN),
+        (False, None, STATE_OPEN),
+    ],
+)
+async def test_cover_movement(
+    hass: HomeAssistant,
+    init_integration: MockConfigEntry,
+    mock_desk: MagicMock,
+    is_moving: bool,
+    direction: str | None,
+    expected_state: str,
+) -> None:
+    """Test the cover is opening or closing only while the desk moves."""
+    notify_desk(mock_desk, is_moving=is_moving, movement_direction=direction)
     await hass.async_block_till_done()
 
-    state = hass.states.get("cover.desky_desk")
-    assert state.state == "open"
-    assert state.attributes.get("current_position") == 100
+    assert hass.states.get(ENTITY_ID).state == expected_state
 
-    # Test mid position
-    coordinator.async_set_updated_data(
-        {
-            "height_cm": 95.0,  # Midpoint between 60 and 130
-            "collision_detected": False,
-            "is_moving": False,
-            "is_connected": True,
-        }
-    )
+
+@pytest.mark.parametrize(
+    ("service", "command"),
+    [
+        (SERVICE_OPEN_COVER, "move_up"),
+        (SERVICE_CLOSE_COVER, "move_down"),
+        (SERVICE_STOP_COVER, "stop"),
+    ],
+)
+async def test_cover_commands(
+    hass: HomeAssistant,
+    init_integration: MockConfigEntry,
+    mock_desk: MagicMock,
+    service: str,
+    command: str,
+) -> None:
+    """Test open, close and stop send the matching desk command."""
+    await _call(hass, service)
+
+    getattr(mock_desk, command).assert_awaited_once_with()
+
+
+@pytest.mark.parametrize(
+    ("position", "height"),
+    [
+        (0, MIN_HEIGHT),
+        (50, 95.0),
+        (75, 112.5),
+        (100, MAX_HEIGHT),
+    ],
+)
+async def test_cover_set_position(
+    hass: HomeAssistant,
+    init_integration: MockConfigEntry,
+    mock_desk: MagicMock,
+    position: int,
+    height: float,
+) -> None:
+    """Test setting a position moves the desk to the matching height."""
+    mock_desk.get_status.reset_mock()
+
+    await _call(hass, SERVICE_SET_COVER_POSITION, **{ATTR_POSITION: position})
     await hass.async_block_till_done()
 
-    state = hass.states.get("cover.desky_desk")
-    assert state.state == "open"
-    assert state.attributes.get("current_position") == 50
-
-
-async def test_cover_availability(hass: HomeAssistant, init_integration):
-    """Test cover availability based on connection."""
-    coordinator = hass.data[DOMAIN][init_integration.entry_id]
-
-    # Test disconnected
-    coordinator.async_set_updated_data(
-        {
-            "height_cm": 80.0,
-            "collision_detected": False,
-            "is_moving": False,
-            "is_connected": False,
-        }
-    )
-    await hass.async_block_till_done()
-
-    state = hass.states.get("cover.desky_desk")
-    assert state.state == STATE_UNAVAILABLE
-
-
-async def test_cover_open_service(hass: HomeAssistant, init_integration):
-    """Test opening the cover (raising desk)."""
-    coordinator = hass.data[DOMAIN][init_integration.entry_id]
-
-    # First make sure the entity is available
-    coordinator.async_set_updated_data(
-        {
-            "height_cm": 80.0,
-            "collision_detected": False,
-            "is_moving": False,
-            "is_connected": True,
-        }
-    )
-    await hass.async_block_till_done()
-
-    # Now replace the device with a fresh mock for testing
-    mock_device = MagicMock()
-    mock_device.move_up = AsyncMock()
-    coordinator._device = mock_device
-
-    await hass.services.async_call(
-        COVER_DOMAIN,
-        SERVICE_OPEN_COVER,
-        {ATTR_ENTITY_ID: "cover.desky_desk"},
-        blocking=True,
-    )
-
-    mock_device.move_up.assert_called_once()
-
-
-async def test_cover_close_service(hass: HomeAssistant, init_integration):
-    """Test closing the cover (lowering desk)."""
-    coordinator = hass.data[DOMAIN][init_integration.entry_id]
-
-    # First make sure the entity is available
-    coordinator.async_set_updated_data(
-        {
-            "height_cm": 80.0,
-            "collision_detected": False,
-            "is_moving": False,
-            "is_connected": True,
-        }
-    )
-    await hass.async_block_till_done()
-
-    # Now replace the device with a fresh mock for testing
-    mock_device = MagicMock()
-    mock_device.move_down = AsyncMock()
-    coordinator._device = mock_device
-
-    await hass.services.async_call(
-        COVER_DOMAIN,
-        SERVICE_CLOSE_COVER,
-        {ATTR_ENTITY_ID: "cover.desky_desk"},
-        blocking=True,
-    )
-
-    mock_device.move_down.assert_called_once()
-
-
-async def test_cover_stop_service(hass: HomeAssistant, init_integration):
-    """Test stopping the cover."""
-    coordinator = hass.data[DOMAIN][init_integration.entry_id]
-
-    # First make sure the entity is available
-    coordinator.async_set_updated_data(
-        {
-            "height_cm": 80.0,
-            "collision_detected": False,
-            "is_moving": False,
-            "is_connected": True,
-        }
-    )
-    await hass.async_block_till_done()
-
-    # Now replace the device with a fresh mock for testing
-    mock_device = MagicMock()
-    mock_device.stop = AsyncMock()
-    coordinator._device = mock_device
-
-    await hass.services.async_call(
-        COVER_DOMAIN,
-        SERVICE_STOP_COVER,
-        {ATTR_ENTITY_ID: "cover.desky_desk"},
-        blocking=True,
-    )
-
-    mock_device.stop.assert_called_once()
-
-
-async def test_cover_set_position_service(hass: HomeAssistant, init_integration):
-    """Test setting cover position uses move_to_height."""
-    coordinator = hass.data[DOMAIN][init_integration.entry_id]
-
-    # First make sure the entity is available
-    coordinator.async_set_updated_data(
-        {
-            "height_cm": 80.0,
-            "collision_detected": False,
-            "is_moving": False,
-            "is_connected": True,
-        }
-    )
-    await hass.async_block_till_done()
-
-    # Now replace the device with a fresh mock for testing
-    mock_device = MagicMock()
-    mock_device.move_to_height = AsyncMock()
-    coordinator._device = mock_device
-    coordinator.async_request_refresh = AsyncMock()
-
-    # Test moving to 75% position
-    # 75% = MIN_HEIGHT + 0.75 * (MAX_HEIGHT - MIN_HEIGHT) = 60 + 0.75 * 70 = 112.5
-    await hass.services.async_call(
-        COVER_DOMAIN,
-        SERVICE_SET_COVER_POSITION,
-        {
-            ATTR_ENTITY_ID: "cover.desky_desk",
-            ATTR_POSITION: 75,
-        },
-        blocking=True,
-    )
-
-    mock_device.move_to_height.assert_called_once_with(112.5)
-    coordinator.async_request_refresh.assert_called_once()
-
-    # Reset mocks
-    mock_device.move_to_height.reset_mock()
-    coordinator.async_request_refresh.reset_mock()
-
-    # Test moving to 0% position (minimum height)
-    await hass.services.async_call(
-        COVER_DOMAIN,
-        SERVICE_SET_COVER_POSITION,
-        {
-            ATTR_ENTITY_ID: "cover.desky_desk",
-            ATTR_POSITION: 0,
-        },
-        blocking=True,
-    )
-
-    mock_device.move_to_height.assert_called_once_with(MIN_HEIGHT)
-
-    # Reset mocks
-    mock_device.move_to_height.reset_mock()
-
-    # Test moving to 100% position (maximum height)
-    await hass.services.async_call(
-        COVER_DOMAIN,
-        SERVICE_SET_COVER_POSITION,
-        {
-            ATTR_ENTITY_ID: "cover.desky_desk",
-            ATTR_POSITION: 100,
-        },
-        blocking=True,
-    )
-
-    mock_device.move_to_height.assert_called_once_with(MAX_HEIGHT)
-
-
-async def test_cover_movement_state(hass: HomeAssistant, init_integration):
-    """Test cover movement state."""
-    coordinator = hass.data[DOMAIN][init_integration.entry_id]
-
-    # Test moving up state
-    coordinator.async_set_updated_data(
-        {
-            "height_cm": 80.0,
-            "collision_detected": False,
-            "is_moving": True,
-            "movement_direction": "up",
-            "is_connected": True,
-        }
-    )
-    await hass.async_block_till_done()
-
-    state = hass.states.get("cover.desky_desk")
-    assert state.state == "opening"
-
-    # Test moving down state
-    coordinator.async_set_updated_data(
-        {
-            "height_cm": 80.0,
-            "collision_detected": False,
-            "is_moving": True,
-            "movement_direction": "down",
-            "is_connected": True,
-        }
-    )
-    await hass.async_block_till_done()
-
-    state = hass.states.get("cover.desky_desk")
-    assert state.state == "closing"
-
-    # Test stopped state
-    coordinator.async_set_updated_data(
-        {
-            "height_cm": 80.0,
-            "collision_detected": False,
-            "is_moving": False,
-            "movement_direction": None,
-            "is_connected": True,
-        }
-    )
-    await hass.async_block_till_done()
-
-    state = hass.states.get("cover.desky_desk")
-    assert state.state == "open"  # Position is 28% which is > 0
-
-
-def _get_cover_entity(hass: HomeAssistant):
-    """Return the desk entity object registered with the cover component."""
-    return hass.data[DATA_INSTANCES][COVER_DOMAIN].get_entity("cover.desky_desk")
-
-
-async def test_cover_properties_without_data(hass: HomeAssistant, init_integration):
-    """Test the cover reports no position or movement when it has no data."""
-    coordinator = hass.data[DOMAIN][init_integration.entry_id]
-    cover = _get_cover_entity(hass)
-
-    coordinator.async_set_updated_data(None)
-    await hass.async_block_till_done()
-
-    assert hass.states.get("cover.desky_desk").state == STATE_UNAVAILABLE
-    assert cover.available is False
-    assert cover.current_cover_position is None
-    assert cover.is_closed is None
-    assert cover.is_opening is False
-    assert cover.is_closing is False
+    mock_desk.move_to_height.assert_awaited_once_with(height)
+    # The cover asks the coordinator to refresh so it tracks the movement
+    mock_desk.get_status.assert_awaited_once_with()
 
 
 async def test_cover_commands_skipped_without_device(
-    hass: HomeAssistant, init_integration
-):
-    """Test cover services do nothing when the desk device is gone."""
-    coordinator = hass.data[DOMAIN][init_integration.entry_id]
-    coordinator.async_set_updated_data(
-        {
-            "height_cm": 80.0,
-            "collision_detected": False,
-            "is_moving": False,
-            "is_connected": True,
-        }
-    )
+    hass: HomeAssistant,
+    init_integration: MockConfigEntry,
+    mock_desk: MagicMock,
+) -> None:
+    """Test cover services do nothing when the coordinator has no desk device."""
+    mock_desk.get_status.reset_mock()
+
+    with patch.object(
+        DeskUpdateCoordinator, "device", new_callable=PropertyMock, return_value=None
+    ):
+        for service, data in (
+            (SERVICE_OPEN_COVER, {}),
+            (SERVICE_CLOSE_COVER, {}),
+            (SERVICE_STOP_COVER, {}),
+            (SERVICE_SET_COVER_POSITION, {ATTR_POSITION: 50}),
+        ):
+            await _call(hass, service, **data)
+        await hass.async_block_till_done()
+
+    mock_desk.move_up.assert_not_called()
+    mock_desk.move_down.assert_not_called()
+    mock_desk.stop.assert_not_called()
+    mock_desk.move_to_height.assert_not_called()
+    mock_desk.get_status.assert_not_called()
+
+
+async def test_cover_availability(
+    hass: HomeAssistant,
+    init_integration: MockConfigEntry,
+    mock_desk: MagicMock,
+) -> None:
+    """Test the cover is unavailable while disconnected and recovers on reconnect."""
+    disconnect_desk(mock_desk)
+    await hass.async_block_till_done()
+    assert hass.states.get(ENTITY_ID).state == STATE_UNAVAILABLE
+
+    notify_desk(mock_desk, is_connected=True, height_cm=MAX_HEIGHT)
     await hass.async_block_till_done()
 
-    old_device = MagicMock()
-    old_device.move_up = AsyncMock()
-    old_device.move_down = AsyncMock()
-    old_device.stop = AsyncMock()
-    old_device.move_to_height = AsyncMock()
-    coordinator._device = old_device
-    # The desk drops off and the coordinator loses its device
-    coordinator._device = None
-    coordinator.async_request_refresh = AsyncMock()
-
-    for service, data in (
-        (SERVICE_OPEN_COVER, {}),
-        (SERVICE_CLOSE_COVER, {}),
-        (SERVICE_STOP_COVER, {}),
-        (SERVICE_SET_COVER_POSITION, {ATTR_POSITION: 50}),
-    ):
-        await hass.services.async_call(
-            COVER_DOMAIN,
-            service,
-            {ATTR_ENTITY_ID: "cover.desky_desk", **data},
-            blocking=True,
-        )
-
-    old_device.move_up.assert_not_called()
-    old_device.move_down.assert_not_called()
-    old_device.stop.assert_not_called()
-    old_device.move_to_height.assert_not_called()
-    coordinator.async_request_refresh.assert_not_called()
-    state = hass.states.get("cover.desky_desk")
-    assert state.state == "open"
-    assert state.attributes.get("current_position") == 28
+    state = hass.states.get(ENTITY_ID)
+    assert state.state == STATE_OPEN
+    assert state.attributes[ATTR_CURRENT_POSITION] == 100
