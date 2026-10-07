@@ -67,6 +67,9 @@ class DeskyCover(CoordinatorEntity[DeskUpdateCoordinator], CoverEntity):
             return None
 
         height = self.coordinator.data.get("height_cm", MIN_HEIGHT)
+        if height is None:
+            # No height reading yet, so the position is unknown.
+            return None
 
         # Calculate position based on height range
         position = int((height - MIN_HEIGHT) / (MAX_HEIGHT - MIN_HEIGHT) * 100)

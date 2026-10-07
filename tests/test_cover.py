@@ -12,7 +12,7 @@ from homeassistant.components.cover import (
     SERVICE_SET_COVER_POSITION,
     SERVICE_STOP_COVER,
 )
-from homeassistant.const import ATTR_ENTITY_ID, STATE_UNAVAILABLE
+from homeassistant.const import ATTR_ENTITY_ID, STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_component import DATA_INSTANCES
 
@@ -338,6 +338,30 @@ async def test_cover_properties_without_data(hass: HomeAssistant, init_integrati
     assert cover.is_closed is None
     assert cover.is_opening is False
     assert cover.is_closing is False
+
+
+async def test_cover_position_unknown_when_height_is_none(
+    hass: HomeAssistant, init_integration
+):
+    """Test a None height reports an unknown position instead of raising."""
+    coordinator = hass.data[DOMAIN][init_integration.entry_id]
+    cover = _get_cover_entity(hass)
+
+    coordinator.async_set_updated_data(
+        {
+            "height_cm": None,
+            "collision_detected": False,
+            "is_moving": False,
+            "is_connected": True,
+        }
+    )
+    await hass.async_block_till_done()
+
+    state = hass.states.get("cover.desky_desk")
+    assert state.state == STATE_UNKNOWN
+    assert state.attributes.get("current_position") is None
+    assert cover.current_cover_position is None
+    assert cover.is_closed is None
 
 
 async def test_cover_commands_skipped_without_device(
