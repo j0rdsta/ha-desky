@@ -308,7 +308,10 @@ async def test_options_flow_sets_standing_threshold(
 
 
 async def test_options_flow_suggests_current_threshold(
-    hass: HomeAssistant, mock_config_entry: MockConfigEntry, mock_setup_entry
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_setup_entry,
+    mock_bluetooth: None,
 ) -> None:
     """Test the form starts from the saved threshold."""
     mock_config_entry.add_to_hass(hass)
@@ -326,7 +329,11 @@ async def test_options_flow_suggests_current_threshold(
 
 @pytest.mark.parametrize("threshold", [59, 131, 140])
 async def test_options_flow_rejects_out_of_range_threshold(
-    hass: HomeAssistant, mock_config_entry: MockConfigEntry, mock_setup_entry, threshold
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_setup_entry,
+    mock_bluetooth: None,
+    threshold,
 ) -> None:
     """Test a threshold outside the desk's range is rejected and nothing is saved."""
     mock_config_entry.add_to_hass(hass)
