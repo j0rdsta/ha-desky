@@ -1,10 +1,10 @@
 """Base entity for Desky Desk integration."""
+
 from __future__ import annotations
 
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN
 from .coordinator import DeskUpdateCoordinator
 
 
@@ -29,7 +29,7 @@ class DeskEntity(CoordinatorEntity[DeskUpdateCoordinator]):
         if self.coordinator.data is None:
             return False
         return self.coordinator.data.get("is_connected", False)
-    
+
     @property
     def _device(self):
         """Return the BLE device."""

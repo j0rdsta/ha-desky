@@ -1,5 +1,10 @@
 # Desky Standing Desk Integration for Home Assistant
 
+[![Test](https://github.com/j0rdsta/ha-desky/actions/workflows/test.yml/badge.svg)](https://github.com/j0rdsta/ha-desky/actions/workflows/test.yml)
+[![Lint](https://github.com/j0rdsta/ha-desky/actions/workflows/lint.yml/badge.svg)](https://github.com/j0rdsta/ha-desky/actions/workflows/lint.yml)
+[![Validate](https://github.com/j0rdsta/ha-desky/actions/workflows/validate.yml/badge.svg)](https://github.com/j0rdsta/ha-desky/actions/workflows/validate.yml)
+[![codecov](https://codecov.io/gh/j0rdsta/ha-desky/graph/badge.svg)](https://codecov.io/gh/j0rdsta/ha-desky)
+[![GitHub release](https://img.shields.io/github/v/release/j0rdsta/ha-desky)](https://github.com/j0rdsta/ha-desky/releases)
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
 
 Control your Desky standing desk via Bluetooth Low Energy (BLE) in Home Assistant. This integration supports ESPHome Bluetooth proxies and works with all Home Assistant installation types.
@@ -233,7 +238,7 @@ input_boolean:
   desk_automation_enabled:
     name: "Desk Automation Enabled"
     icon: mdi:desk
-    
+
 input_number:
   desk_standing_duration:
     name: "Standing Duration (minutes)"
@@ -250,7 +255,7 @@ binary_sensor:
         friendly_name: "Office Definitely Occupied"
         device_class: presence
         value_template: >
-          {{ is_state('binary_sensor.office_motion', 'on') 
+          {{ is_state('binary_sensor.office_motion', 'on')
              and is_state('binary_sensor.desk_chair_occupied', 'on')
              and is_state('device_tracker.work_laptop', 'home') }}
 
@@ -325,7 +330,7 @@ automation:
               - service: notify.mobile_app_your_phone
                 data:
                   message: "Desk raised to standing position"
-                  
+
           # Time to sit
           - conditions:
               - condition: numeric_state
@@ -333,7 +338,7 @@ automation:
                 above: 100  # Currently standing
               - condition: template
                 value_template: >
-                  {{ (now() - states.sensor.desky_desk_height.last_changed).seconds > 
+                  {{ (now() - states.sensor.desky_desk_height.last_changed).seconds >
                      (states('input_number.desk_standing_duration') | int * 60) }}
             sequence:
               # Sitting reminder only - no automatic lowering for safety
@@ -435,12 +440,7 @@ The desk sends height notifications with height data at bytes 4-5 (little-endian
 
 ## Contributing
 
-Contributions are welcome! Please:
-1. Fork the repository
-2. Create a feature branch
-3. Commit your changes
-4. Push to the branch
-5. Create a Pull Request
+Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, checks and the pull request process.
 
 ## Disclaimer
 

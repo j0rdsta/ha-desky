@@ -1,4 +1,5 @@
 """Select platform for Desky Desk."""
+
 from __future__ import annotations
 
 import logging
@@ -49,11 +50,11 @@ async def async_setup_entry(
 ) -> None:
     """Set up Desky select platform."""
     coordinator = hass.data[DOMAIN][config_entry.entry_id]
-    
+
     entities = []
     for description in SELECT_DESCRIPTIONS:
         entities.append(DeskSelect(coordinator, config_entry, description))
-    
+
     async_add_entities(entities)
 
 
@@ -65,15 +66,13 @@ class DeskSelect(DeskEntity, SelectEntity):
         super().__init__(coordinator, config_entry)
         self.entity_description = description
         self._attr_unique_id = f"{config_entry.unique_id}_{description.key}"
-        self._attr_name = description.name
-        self._attr_options = description.options
 
     @property
     def current_option(self) -> str | None:
         """Return the current selected option."""
         if not self.available:
             return None
-        
+
         if self.entity_description.key == "sensitivity":
             level = self.coordinator.data.get("sensitivity_level")
             if level and level in SENSITIVITY_LEVELS:
@@ -84,7 +83,7 @@ class DeskSelect(DeskEntity, SelectEntity):
                 return TOUCH_MODES[mode]
         elif self.entity_description.key == "unit":
             return self.coordinator.data.get("unit_preference")
-        
+
         return None
 
     async def async_select_option(self, option: str) -> None:
@@ -99,11 +98,11 @@ class DeskSelect(DeskEntity, SelectEntity):
                 if value == option:
                     level = key
                     break
-            
+
             if level:
                 await self._device.set_sensitivity(level)
                 await self._device.get_sensitivity()
-                
+
         elif self.entity_description.key == "touch_mode":
             # Find the mode key for the selected option
             mode = None
@@ -111,11 +110,11 @@ class DeskSelect(DeskEntity, SelectEntity):
                 if value == option:
                     mode = key
                     break
-            
+
             if mode is not None:
                 await self._device.set_touch_mode(mode)
                 # Note: There's no get_touch_mode command in the Android app
-                
+
         elif self.entity_description.key == "unit":
             if option in ["cm", "in"]:
                 await self._device.set_unit(option)

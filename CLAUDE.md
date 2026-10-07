@@ -4,29 +4,36 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Common Development Commands
 
-**IMPORTANT**: All Python commands should be run within an activated virtual environment (see Virtual Environment Setup below).
+**IMPORTANT**: All Python commands run inside an activated virtual environment. The latest
+stable Home Assistant needs Python 3.14; the minimum supported release (2025.10) needs 3.13.
 
-### Testing the Integration
+### Virtual Environment Setup
 ```bash
-# Activate virtual environment first (see Virtual Environment Setup)
-source venv/bin/activate  # On Unix/macOS
-# OR
-venv\Scripts\activate     # On Windows
-
-# Run Home Assistant in development mode with this integration
-hass -c config --debug
-
-# Validate HACS compatibility
-hacs validate
-
-# Check integration structure
-python -m pytest tests/
+python3.14 -m venv .venv
+source .venv/bin/activate               # Windows: .venv\Scripts\activate
+pip install -r requirements_test.txt    # or requirements_test_min.txt on Python 3.13
+pip install -r <(python script/ha_test_requirements.py)  # HA bluetooth stack pins
+pre-commit install
 ```
 
-### Development Setup
-1. Clone this repository into `custom_components/desky_desk` in your Home Assistant config directory
-2. Set up a virtual environment (see Virtual Environment Setup below)
-3. Enable debug logging by adding to `configuration.yaml`:
+`script/ha_test_requirements.py` prints the requirements of the HA components this
+integration loads, pinned to whatever Home Assistant version is installed.
+
+### Lint, Type-check and Test
+```bash
+pre-commit run --all-files   # everything below plus file hygiene checks
+ruff check .                 # lint (add --fix to autofix)
+ruff format .                # format
+mypy                         # type-check custom_components/desky_desk
+pytest --cov                 # tests with coverage
+```
+
+CI runs the same checks: `lint.yml` (ruff, mypy), `test.yml` (pytest against HA 2025.10 and
+latest stable, plus a non-blocking beta job) and `validate.yml` (hassfest, HACS).
+
+### Running in Home Assistant
+1. Copy or symlink `custom_components/desky_desk` into your Home Assistant config directory
+2. Enable debug logging in `configuration.yaml`:
 ```yaml
 logger:
   default: info
@@ -34,26 +41,11 @@ logger:
     custom_components.desky_desk: debug
 ```
 
-### Virtual Environment Setup
-Always use a virtual environment when working with this project to avoid dependency conflicts:
-
-```bash
-# Create virtual environment
-python -m venv venv
-
-# Activate virtual environment
-# On Unix/macOS:
-source venv/bin/activate
-
-# On Windows:
-venv\Scripts\activate
-
-# Install test dependencies
-pip install -r requirements_test.txt
-
-# When done working, deactivate virtual environment
-deactivate
-```
+### Pull Requests and Releases
+PR titles must follow Conventional Commits (`feat:`, `fix:`, `docs:`, `ci:` ...). PRs are
+squash-merged, so the title becomes the commit on `main`. release-please turns those commits
+into a release PR that bumps `manifest.json` and updates `CHANGELOG.md`; merging it publishes
+the GitHub release HACS installs from. See `CONTRIBUTING.md`.
 
 ## Codebase Architecture
 

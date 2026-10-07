@@ -1,25 +1,34 @@
 """Test the Desky Desk update coordinator."""
+
 from __future__ import annotations
 
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
-import pytest
 
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers.update_coordinator import UpdateFailed
+import pytest
 
+from custom_components.desky_desk.const import (
+    DOMAIN,
+    RECONNECT_INTERVAL_SECONDS,
+    UPDATE_INTERVAL_SECONDS,
+)
 from custom_components.desky_desk.coordinator import DeskUpdateCoordinator
-from custom_components.desky_desk.const import DOMAIN, RECONNECT_INTERVAL_SECONDS, UPDATE_INTERVAL_SECONDS
 
-async def test_coordinator_init(hass: HomeAssistant, mock_config_entry, enable_custom_integrations):
+
+async def test_coordinator_init(
+    hass: HomeAssistant, mock_config_entry, enable_custom_integrations
+):
     """Test coordinator initialization."""
     coordinator = DeskUpdateCoordinator(hass, mock_config_entry)
-    
+
     assert coordinator.entry == mock_config_entry
     assert coordinator._device is None
     assert coordinator.update_interval.total_seconds() == UPDATE_INTERVAL_SECONDS
     assert coordinator._shutdown is False
+
 
 async def test_coordinator_first_refresh_success(
     hass: HomeAssistant,
@@ -30,7 +39,7 @@ async def test_coordinator_first_refresh_success(
 ):
     """Test successful first refresh."""
     coordinator = DeskUpdateCoordinator(hass, mock_config_entry)
-    
+
     with patch(
         "custom_components.desky_desk.coordinator.DeskBLEDevice"
     ) as mock_desk_device:
@@ -50,14 +59,14 @@ async def test_coordinator_first_refresh_success(
         mock_device_instance.hardware_revision = None
         mock_device_instance.firmware_revision = None
         mock_device_instance.software_revision = None
-        
+
         # Patch asyncio.create_task to prevent the reconnect task from running
         with patch("asyncio.create_task") as mock_create_task:
             mock_task = MagicMock()
             mock_create_task.return_value = mock_task
-            
+
             await coordinator.async_config_entry_first_refresh()
-        
+
             assert coordinator._device == mock_device_instance
             # Initial data should show disconnected state (set by async_config_entry_first_refresh)
             assert coordinator.data == {
@@ -88,6 +97,7 @@ async def test_coordinator_first_refresh_success(
                 "software_revision": None,
             }
 
+
 async def test_coordinator_first_refresh_no_device(
     hass: HomeAssistant,
     mock_config_entry,
@@ -95,13 +105,14 @@ async def test_coordinator_first_refresh_no_device(
 ):
     """Test first refresh when device is not found."""
     coordinator = DeskUpdateCoordinator(hass, mock_config_entry)
-    
+
     with patch(
         "homeassistant.components.bluetooth.async_ble_device_from_address",
         return_value=None,
     ):
         with pytest.raises(ConfigEntryNotReady):
             await coordinator.async_config_entry_first_refresh()
+
 
 async def test_coordinator_first_refresh_connection_failed(
     hass: HomeAssistant,
@@ -111,7 +122,7 @@ async def test_coordinator_first_refresh_connection_failed(
 ):
     """Test first refresh when connection fails - starts reconnect task."""
     coordinator = DeskUpdateCoordinator(hass, mock_config_entry)
-    
+
     with patch(
         "custom_components.desky_desk.coordinator.DeskBLEDevice"
     ) as mock_desk_device:
@@ -119,23 +130,23 @@ async def test_coordinator_first_refresh_connection_failed(
         mock_device_instance.connect = AsyncMock(return_value=False)
         mock_device_instance.register_notification_callback = MagicMock()
         mock_device_instance.register_disconnect_callback = MagicMock()
-        
+
         # Patch asyncio.create_task to prevent the reconnect task from running
         with patch("asyncio.create_task") as mock_create_task:
             mock_task = MagicMock()
             mock_create_task.return_value = mock_task
-            
+
             # Should not raise - starts reconnect in background
             await coordinator.async_config_entry_first_refresh()
-            
+
             # Verify device was created and callbacks registered
             assert coordinator._device == mock_device_instance
             mock_device_instance.register_notification_callback.assert_called_once()
             mock_device_instance.register_disconnect_callback.assert_called_once()
-            
+
             # Verify reconnect task was created
             mock_create_task.assert_called_once()
-            
+
             # Initial data should show disconnected state
             assert coordinator.data == {
                 "height_cm": 0,
@@ -165,6 +176,7 @@ async def test_coordinator_first_refresh_connection_failed(
                 "software_revision": None,
             }
 
+
 async def test_coordinator_update_data_connected(
     hass: HomeAssistant,
     mock_config_entry,
@@ -172,7 +184,7 @@ async def test_coordinator_update_data_connected(
 ):
     """Test data update when connected."""
     coordinator = DeskUpdateCoordinator(hass, mock_config_entry)
-    
+
     mock_device = MagicMock()
     mock_device.is_connected = True
     mock_device.height_cm = 90.0
@@ -201,9 +213,9 @@ async def test_coordinator_update_data_connected(
     mock_device.firmware_revision = None
     mock_device.software_revision = None
     coordinator._device = mock_device
-    
+
     data = await coordinator._async_update_data()
-    
+
     assert data == {
         "height_cm": 90.0,
         "collision_detected": True,
@@ -233,6 +245,7 @@ async def test_coordinator_update_data_connected(
     }
     mock_device.get_status.assert_called_once()
 
+
 async def test_coordinator_update_data_not_connected(
     hass: HomeAssistant,
     mock_config_entry,
@@ -240,21 +253,22 @@ async def test_coordinator_update_data_not_connected(
 ):
     """Test data update when not connected."""
     coordinator = DeskUpdateCoordinator(hass, mock_config_entry)
-    
+
     mock_device = MagicMock()
     mock_device.is_connected = False
     coordinator._device = mock_device
-    
+
     # Patch create_task to prevent reconnect task from running
     with patch("asyncio.create_task") as mock_create_task:
         mock_task = MagicMock()
         mock_create_task.return_value = mock_task
-        
+
         with pytest.raises(UpdateFailed):
             await coordinator._async_update_data()
-        
+
         # Verify reconnect task was created
         mock_create_task.assert_called_once()
+
 
 async def test_coordinator_notification_callback(
     hass: HomeAssistant,
@@ -263,7 +277,7 @@ async def test_coordinator_notification_callback(
 ):
     """Test notification callback updates data."""
     coordinator = DeskUpdateCoordinator(hass, mock_config_entry)
-    
+
     # Set up a mock device to provide movement_direction and other attributes
     mock_device = MagicMock()
     mock_device.movement_direction = "down"
@@ -287,37 +301,40 @@ async def test_coordinator_notification_callback(
     mock_device.firmware_revision = None
     mock_device.software_revision = None
     coordinator._device = mock_device
-    
+
     with patch.object(coordinator, "async_set_updated_data") as mock_set_data:
         coordinator._handle_notification(85.5, True, False)
-        
-        mock_set_data.assert_called_once_with({
-            "height_cm": 85.5,
-            "collision_detected": True,
-            "is_moving": False,
-            "movement_direction": "down",
-            "is_connected": True,
-            # New device features
-            "light_color": 1,
-            "brightness": 50,
-            "lighting_enabled": True,
-            "vibration_enabled": True,
-            "vibration_intensity": 75,
-            "lock_status": False,
-            "sensitivity_level": 2,
-            "height_limit_upper": 120.0,
-            "height_limit_lower": 65.0,
-            "limits_enabled": True,
-            "touch_mode": 0,
-            "unit_preference": "cm",
-            # Device information
-            "manufacturer_name": None,
-            "model_number": None,
-            "serial_number": None,
-            "hardware_revision": None,
-            "firmware_revision": None,
-            "software_revision": None,
-        })
+
+        mock_set_data.assert_called_once_with(
+            {
+                "height_cm": 85.5,
+                "collision_detected": True,
+                "is_moving": False,
+                "movement_direction": "down",
+                "is_connected": True,
+                # New device features
+                "light_color": 1,
+                "brightness": 50,
+                "lighting_enabled": True,
+                "vibration_enabled": True,
+                "vibration_intensity": 75,
+                "lock_status": False,
+                "sensitivity_level": 2,
+                "height_limit_upper": 120.0,
+                "height_limit_lower": 65.0,
+                "limits_enabled": True,
+                "touch_mode": 0,
+                "unit_preference": "cm",
+                # Device information
+                "manufacturer_name": None,
+                "model_number": None,
+                "serial_number": None,
+                "hardware_revision": None,
+                "firmware_revision": None,
+                "software_revision": None,
+            }
+        )
+
 
 async def test_coordinator_disconnect_callback(
     hass: HomeAssistant,
@@ -326,7 +343,7 @@ async def test_coordinator_disconnect_callback(
 ):
     """Test disconnect callback updates data."""
     coordinator = DeskUpdateCoordinator(hass, mock_config_entry)
-    
+
     mock_device = MagicMock()
     mock_device.height_cm = 75.0
     # Add new device attributes
@@ -350,37 +367,40 @@ async def test_coordinator_disconnect_callback(
     mock_device.firmware_revision = None
     mock_device.software_revision = None
     coordinator._device = mock_device
-    
+
     with patch.object(coordinator, "async_set_updated_data") as mock_set_data:
         coordinator._handle_disconnect()
-        
-        mock_set_data.assert_called_once_with({
-            "height_cm": 75.0,
-            "collision_detected": False,
-            "is_moving": False,
-            "movement_direction": None,
-            "is_connected": False,
-            # New device features retain values on disconnect
-            "light_color": 1,
-            "brightness": 50,
-            "lighting_enabled": True,
-            "vibration_enabled": True,
-            "vibration_intensity": 75,
-            "lock_status": False,
-            "sensitivity_level": 2,
-            "height_limit_upper": 120.0,
-            "height_limit_lower": 65.0,
-            "limits_enabled": True,
-            "touch_mode": 0,
-            "unit_preference": "cm",
-            # Device information preserved during disconnect
-            "manufacturer_name": None,
-            "model_number": None,
-            "serial_number": None,
-            "hardware_revision": None,
-            "firmware_revision": None,
-            "software_revision": None,
-        })
+
+        mock_set_data.assert_called_once_with(
+            {
+                "height_cm": 75.0,
+                "collision_detected": False,
+                "is_moving": False,
+                "movement_direction": None,
+                "is_connected": False,
+                # New device features retain values on disconnect
+                "light_color": 1,
+                "brightness": 50,
+                "lighting_enabled": True,
+                "vibration_enabled": True,
+                "vibration_intensity": 75,
+                "lock_status": False,
+                "sensitivity_level": 2,
+                "height_limit_upper": 120.0,
+                "height_limit_lower": 65.0,
+                "limits_enabled": True,
+                "touch_mode": 0,
+                "unit_preference": "cm",
+                # Device information preserved during disconnect
+                "manufacturer_name": None,
+                "model_number": None,
+                "serial_number": None,
+                "hardware_revision": None,
+                "firmware_revision": None,
+                "software_revision": None,
+            }
+        )
+
 
 async def test_coordinator_reconnect(
     hass: HomeAssistant,
@@ -390,37 +410,39 @@ async def test_coordinator_reconnect(
 ):
     """Test reconnection logic."""
     coordinator = DeskUpdateCoordinator(hass, mock_config_entry)
-    
+
     mock_device = MagicMock()
     mock_device.is_connected = False
     mock_device.connect = AsyncMock(side_effect=[False, True])
     mock_device._ble_device = MagicMock()
     coordinator._device = mock_device
-    
+
     # Patch the reconnect method to simulate one failed and one successful connection attempt
     connect_count = 0
-    
+
     async def mock_connect():
         nonlocal connect_count
         connect_count += 1
         if connect_count == 1:
             return False
-        else:
-            # Set shutdown to exit the loop after success
-            coordinator._shutdown = True
-            return True
-    
+        # Set shutdown to exit the loop after success
+        coordinator._shutdown = True
+        return True
+
     mock_device.connect = mock_connect
-    
+
     with patch.object(coordinator, "async_set_updated_data") as mock_set_data:
-        with patch.object(coordinator, "_async_update_data", new_callable=AsyncMock) as mock_update:
+        with patch.object(
+            coordinator, "_async_update_data", new_callable=AsyncMock
+        ) as mock_update:
             mock_update.return_value = {"test": "data"}
             with patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
                 await coordinator._reconnect()
-                
+
                 assert connect_count == 2
                 mock_set_data.assert_called_once_with({"test": "data"})
                 mock_sleep.assert_called_once_with(RECONNECT_INTERVAL_SECONDS)
+
 
 async def test_coordinator_shutdown(
     hass: HomeAssistant,
@@ -429,16 +451,16 @@ async def test_coordinator_shutdown(
 ):
     """Test coordinator shutdown."""
     coordinator = DeskUpdateCoordinator(hass, mock_config_entry)
-    
+
     mock_device = MagicMock()
     mock_device.disconnect = AsyncMock()
     coordinator._device = mock_device
-    
+
     reconnect_task = asyncio.create_task(asyncio.sleep(10))
     coordinator._reconnect_task = reconnect_task
-    
+
     await coordinator.async_shutdown()
-    
+
     assert coordinator._shutdown is True
     assert reconnect_task.cancelled()
     mock_device.disconnect.assert_called_once()
@@ -451,7 +473,7 @@ async def test_coordinator_update_new_device_attributes(
 ):
     """Test coordinator properly updates new device attributes."""
     coordinator = DeskUpdateCoordinator(hass, mock_config_entry)
-    
+
     mock_device = MagicMock()
     mock_device.is_connected = True
     mock_device.height_cm = 80.0
@@ -459,7 +481,7 @@ async def test_coordinator_update_new_device_attributes(
     mock_device.is_moving = False
     mock_device.movement_direction = None
     mock_device.get_status = AsyncMock()
-    
+
     # Set all new attributes to different values
     mock_device.light_color = 4  # Blue
     mock_device.brightness = 100
@@ -473,12 +495,12 @@ async def test_coordinator_update_new_device_attributes(
     mock_device.limits_enabled = True
     mock_device.touch_mode = 1  # Double press
     mock_device.unit_preference = "inch"
-    
+
     coordinator._device = mock_device
-    
+
     # Update data
     data = await coordinator._async_update_data()
-    
+
     # Verify all attributes are properly read
     assert data["light_color"] == 4
     assert data["brightness"] == 100
@@ -501,7 +523,7 @@ async def test_coordinator_notification_with_new_attributes(
 ):
     """Test notification callback includes all new device attributes."""
     coordinator = DeskUpdateCoordinator(hass, mock_config_entry)
-    
+
     # Create a mock device with specific attribute values
     mock_device = MagicMock()
     mock_device.movement_direction = "up"
@@ -517,13 +539,13 @@ async def test_coordinator_notification_with_new_attributes(
     mock_device.limits_enabled = False
     mock_device.touch_mode = 0  # One press
     mock_device.unit_preference = "cm"
-    
+
     coordinator._device = mock_device
-    
+
     with patch.object(coordinator, "async_set_updated_data") as mock_set_data:
         # Trigger notification with new height
         coordinator._handle_notification(95.0, False, True)
-        
+
         # Verify all attributes are included in the update
         called_data = mock_set_data.call_args[0][0]
         assert called_data["height_cm"] == 95.0
@@ -550,7 +572,7 @@ async def test_coordinator_data_includes_device_info(
 ):
     """Test coordinator data includes device information."""
     coordinator = DeskUpdateCoordinator(hass, mock_config_entry)
-    
+
     mock_device = MagicMock()
     mock_device.is_connected = True
     mock_device.height_cm = 80.0
@@ -558,7 +580,7 @@ async def test_coordinator_data_includes_device_info(
     mock_device.is_moving = False
     mock_device.movement_direction = None
     mock_device.get_status = AsyncMock()
-    
+
     # Set device info attributes
     mock_device.manufacturer_name = "FlexiSpot"
     mock_device.model_number = "E7"
@@ -566,7 +588,7 @@ async def test_coordinator_data_includes_device_info(
     mock_device.hardware_revision = "2.0"
     mock_device.firmware_revision = "3.1.0"
     mock_device.software_revision = "2.0.1"
-    
+
     # Set other device attributes to None/defaults
     mock_device.light_color = None
     mock_device.brightness = None
@@ -580,11 +602,11 @@ async def test_coordinator_data_includes_device_info(
     mock_device.limits_enabled = False
     mock_device.touch_mode = None
     mock_device.unit_preference = None
-    
+
     coordinator._device = mock_device
-    
+
     data = await coordinator._async_update_data()
-    
+
     # Verify device info is included
     assert data["manufacturer_name"] == "FlexiSpot"
     assert data["model_number"] == "E7"
@@ -601,23 +623,23 @@ async def test_get_device_info_method(
 ):
     """Test get_device_info helper method."""
     coordinator = DeskUpdateCoordinator(hass, mock_config_entry)
-    
+
     # Test with no device info in data
     coordinator.data = {
         "height_cm": 80.0,
         "is_connected": True,
         # Device info fields missing - should use fallbacks
     }
-    
+
     device_info = coordinator.get_device_info()
-    
+
     assert device_info["name"] == "Desky Desk"
     assert device_info["manufacturer"] == "Desky"
     assert device_info["model"] == "Standing Desk"
     assert device_info["identifiers"] == {(DOMAIN, "AA:BB:CC:DD:EE:FF")}
     # Connections not included in device_info method - only in DeviceInfo from entity
-    
-    # Test with device info in data  
+
+    # Test with device info in data
     coordinator.data = {
         "height_cm": 80.0,
         "is_connected": True,
@@ -628,9 +650,9 @@ async def test_get_device_info_method(
         "firmware_revision": "4.2.1",
         "software_revision": "3.1.0",
     }
-    
+
     device_info = coordinator.get_device_info()
-    
+
     assert device_info["name"] == "Desky Desk"  # Always uses friendly name
     assert device_info["manufacturer"] == "FlexiSpot"
     assert device_info["model"] == "E7 Pro"
@@ -646,7 +668,7 @@ async def test_device_info_preserved_during_disconnect(
 ):
     """Test device information is preserved when device disconnects."""
     coordinator = DeskUpdateCoordinator(hass, mock_config_entry)
-    
+
     mock_device = MagicMock()
     mock_device.height_cm = 85.0
     mock_device.manufacturer_name = "Jarvis"
@@ -655,7 +677,7 @@ async def test_device_info_preserved_during_disconnect(
     mock_device.hardware_revision = "1.5"
     mock_device.firmware_revision = "2.3.4"
     mock_device.software_revision = "1.8.2"
-    
+
     # Set other attributes
     mock_device.light_color = 3
     mock_device.brightness = 80
@@ -669,14 +691,14 @@ async def test_device_info_preserved_during_disconnect(
     mock_device.limits_enabled = False
     mock_device.touch_mode = 1
     mock_device.unit_preference = "inch"
-    
+
     coordinator._device = mock_device
-    
+
     with patch.object(coordinator, "async_set_updated_data") as mock_set_data:
         coordinator._handle_disconnect()
-        
+
         called_data = mock_set_data.call_args[0][0]
-        
+
         # Verify device info is preserved during disconnect
         assert called_data["manufacturer_name"] == "Jarvis"
         assert called_data["model_number"] == "Bamboo Top"
@@ -684,7 +706,7 @@ async def test_device_info_preserved_during_disconnect(
         assert called_data["hardware_revision"] == "1.5"
         assert called_data["firmware_revision"] == "2.3.4"
         assert called_data["software_revision"] == "1.8.2"
-        
+
         # Verify connection state changed but device info remained
         assert called_data["is_connected"] is False
         assert called_data["height_cm"] == 85.0
@@ -730,7 +752,7 @@ async def test_async_update_device_registry(
             model="E7 Pro",
             serial_number="FS123456",
             hw_version="2.0",
-            sw_version="3.1.0"
+            sw_version="3.1.0",
         )
 
         # async_get_device is deprecated in HA 2026.9 and removed in 2027.8
@@ -773,7 +795,7 @@ async def test_async_update_device_registry_with_placeholders(
             identifiers={(DOMAIN, mock_config_entry.unique_id)},
             name="Desky Desk",
             model="L-BTMEB95",
-            sw_version="Rev01"
+            sw_version="Rev01",
         )
 
 
@@ -816,5 +838,5 @@ async def test_async_update_device_registry_when_device_not_yet_registered(
             identifiers={(DOMAIN, mock_config_entry.unique_id)},
             name="Desky Desk",
             model="L-BTMEB95",
-            sw_version="Rev01"
+            sw_version="Rev01",
         )

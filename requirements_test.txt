@@ -1,10 +1,4 @@
-pytest>=7.2.0
-pytest-asyncio==0.24.0
-pytest-homeassistant-custom-component==0.13.199
-pytest-cov>=4.0.0
-pytest-timeout>=2.1.0
-pytest-xdist>=3.0.2
-bleak>=0.20.0
-bleak-retry-connector>=3.1.0
-pyserial>=3.5
-pyudev>=0.24.0
+# Latest stable Home Assistant (2026.9). Install HA component requirements afterwards with:
+#   pip install -r <(python script/ha_test_requirements.py)
+-r requirements_dev.txt
+pytest-homeassistant-custom-component==0.13.367

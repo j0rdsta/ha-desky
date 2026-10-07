@@ -1,5 +1,4 @@
 """Simple test to verify async testing setup."""
-import pytest
 
 
 async def test_simple_async():

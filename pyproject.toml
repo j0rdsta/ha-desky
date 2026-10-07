@@ -1,3 +1,72 @@
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+
+[tool.coverage.run]
+source = ["custom_components/desky_desk"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+exclude_also = [
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+]
+
+[tool.ruff]
+target-version = "py313"
+line-length = 88
+extend-exclude = ["*.md"]
+
+[tool.ruff.lint]
+select = [
+    "A",     # flake8-builtins
+    "ASYNC", # flake8-async
+    "B",     # flake8-bugbear
+    "C4",    # flake8-comprehensions
+    "D",     # pydocstyle
+    "E",     # pycodestyle errors
+    "F",     # pyflakes
+    "G",     # flake8-logging-format
+    "I",     # isort
+    "LOG",   # flake8-logging
+    "PIE",   # flake8-pie
+    "PL",    # pylint
+    "RET",   # flake8-return
+    "RUF",   # ruff-specific
+    "SIM",   # flake8-simplify
+    "UP",    # pyupgrade
+    "W",     # pycodestyle warnings
+]
+ignore = [
+    "D202",    # no blank line after function docstring
+    "D203",    # one blank line before class (conflicts with D211)
+    "D213",    # multi-line summary on second line (conflicts with D212)
+    "E501",    # line length is handled by the formatter
+    "PLR0911", # too many return statements
+    "PLR0912", # too many branches
+    "PLR0913", # too many arguments
+    "PLR0915", # too many statements
+    "PLR2004", # magic values are protocol bytes in this integration
+    "RUF012",  # HA entities declare _attr_ collections as class attributes
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["PLC0415", "PLR0917", "SIM105", "SIM117"]
+
+[tool.ruff.lint.isort]
+force-sort-within-sections = true
+known-first-party = ["custom_components.desky_desk"]
+combine-as-imports = true
+split-on-trailing-comma = false
+
+[tool.mypy]
+python_version = "3.13"
+files = ["custom_components/desky_desk"]
+check_untyped_defs = true
+show_error_codes = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+no_implicit_optional = true
