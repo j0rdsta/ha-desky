@@ -53,6 +53,7 @@ def _assert_nothing_sent(desk: MagicMock) -> None:
         getattr(desk, method).assert_not_awaited()
 
 
+@pytest.mark.usefixtures("mock_bluetooth")
 async def test_actions_registered_without_a_loaded_desk(
     hass: HomeAssistant, mock_config_entry: MockConfigEntry
 ) -> None:
