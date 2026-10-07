@@ -33,7 +33,7 @@ up under **Settings → Devices & services** as a new device to set up.
 However you add the desk, setup connects to it once before it finishes, then disconnects. If
 Home Assistant cannot see the desk, or the desk does not accept the connection, the form shows
 **Could not connect to the desk. Make sure it is powered on, in range and not connected to the
-Desky app.** Fix the cause and submit again.
+Desky app.** See [Troubleshooting](troubleshooting.md#adding-the-desk-fails), then submit again.
 
 Each desk can only be added once. Adding the same desk again stops with **Device is already
 configured**.

@@ -53,7 +53,8 @@ The main control. The cover takes the device's name, so it is called after the d
 - **Position** maps the fixed range of 60-130 cm to 0-100 %: 0 % is 60 cm and 100 % is 130 cm,
   whatever the desk's own range or height limits. Setting a position moves the desk to the
   matching height.
-- The cover is **closed** at 0 %, that is at 60 cm or below.
+- The cover is **closed** when its position is 0 %, that is below about 60.7 cm, since the
+  position is rounded down to a whole percent.
 - It shows **opening** or **closing** while a movement commanded from Home Assistant is under
   way, in the direction of that movement, so Home Assistant keeps the other direction's button
   available. Movements made with the hand controller update the position but not the opening or
@@ -77,12 +78,11 @@ cover's stop. The buttons stay available whatever the cover's state.
 
 ### Collision detected
 
-On when a movement commanded from Home Assistant stops early or bounces back, which the
-integration reads as a collision. It turns off on its own after 10 seconds, sooner if a later
-commanded movement runs normally more than 2 seconds after the collision, and when the desk
-disconnects. Movements made
-with the hand controller are never reported as collisions. The desk does not report collisions
-over Bluetooth; this sensor is inferred, and is information rather than a safety device (see
+On when a movement commanded from Home Assistant stops early or bounces back, which the integration
+reads as a collision. It turns off on its own after 10 seconds, sooner if a later commanded movement
+runs normally more than 2 seconds after the collision, and when the desk disconnects. Movements made
+with the hand controller are never reported as collisions. The desk does not report collisions over
+Bluetooth; this sensor is inferred, and is information rather than a safety device (see
 [Safety](safety.md)).
 
 Device class: problem.
@@ -158,8 +158,8 @@ How sensitive the desk's own anti-collision system is: **High**, **Medium** or *
 
 ### Touch mode
 
-The hand controller's touch mode: **One press** or **Press and hold**. The desk
-does not confirm the change, so the integration asks for its settings again after changing it.
+The hand controller's touch mode: **One press** or **Press and hold**. The desk does not confirm
+the change, so the integration asks for its settings again after changing it.
 
 ### Display unit
 
@@ -175,8 +175,9 @@ hand controller.
 Turns the desk's LED strip on or off and sets its brightness. The colours are effects: **White**,
 **Red**, **Green**, **Blue**, **Yellow** and **Party mode**.
 
-Turning the light on without an effect restores the last colour you chose other than party mode,
-which is kept across restarts. Attribute `color_name`: the current colour.
+Turning the light on without an effect, while the desk reports its colour as off, restores the last
+colour you chose other than party mode, which is kept across restarts. Attribute `color_name`: the
+current colour.
 
 ### LED color
 

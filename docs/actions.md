@@ -93,5 +93,6 @@ the run unless the step uses `continue_on_error`.
 | *The desk is not connected* | The desk is set up but not connected |
 | *Could not send the command to the desk: …* | The Bluetooth write failed. The rest of the message is the error from the Bluetooth stack |
 
-All but the last two are validation errors, raised before anything is sent to any desk. **The desk is not connected** and **Could not send the command to the desk** mean the
-command could not reach the desk.
+All but the last two are validation errors, raised before anything is sent to any desk. **The
+desk is not connected** and **Could not send the command to the desk** mean the command could not
+reach the desk.

@@ -9,9 +9,9 @@ For a sit/stand reminder, a scheduled stand or a collision alert, import one of 
 
 ## Sit and stand from a dashboard
 
-The cover entity gives you raise, lower, stop and a position slider, where 0 % is 60 cm and
-100 % is 130 cm. The preset buttons recall the heights saved on the hand controller, and the
-posture sensor shows whether you are sitting or standing.
+The cover entity gives you raise, lower, stop and a [position slider](entities.md#desk-cover). The
+preset buttons recall the heights saved on the hand controller, and the posture sensor shows whether
+you are sitting or standing.
 
 ```yaml
 type: entities
@@ -124,8 +124,8 @@ stat_types:
 days_to_show: 14
 ```
 
-The posture follows the [standing threshold](configuration.md#options), 95 cm unless you change
-it. See [Entities](entities.md#height-and-posture) for how posture and time are counted.
+The posture follows the [standing threshold](configuration.md#options). See
+[Entities](entities.md#height-and-posture) for how posture and time are counted.
 
 ## Get told about collisions
 

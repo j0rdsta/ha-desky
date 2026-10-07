@@ -13,10 +13,10 @@
 
 ## Adding the desk fails
 
-If the setup form shows *Could not connect to the desk. Make sure it is powered on, in range and
-not connected to the Desky app.*, Home Assistant either cannot see the desk right now or the desk
-refused the connection. Wake the desk, close the Desky app, check the points above and submit the
-form again.
+If the setup form shows *Could not connect to the desk* (see
+[Connection check](configuration.md#connection-check)), Home Assistant either cannot see the desk
+right now or the desk refused the connection. Wake the desk, close the Desky app, check the points above and
+submit the form again.
 
 ## Setup keeps retrying
 
@@ -131,8 +131,8 @@ Consecutive frames with the same header are counted as one run:
 This reads as one display unit reply (`f2 f2 0e 01`), followed by 42 status frames with the
 height (`f2 f2 01 03`) in a row. Counting runs keeps a long stream of status frames from pushing
 out the rarer replies a bug report needs. The last 20 runs are kept, and the list starts empty
-whenever the desk is set up, for example after a restart or a reload. [Protocol notes](protocol.md) lists the headers the
-integration knows.
+whenever the desk is set up, for example after a restart or a reload.
+[Protocol notes](protocol.md) lists the headers the integration knows.
 
 ## Debug logging
 
