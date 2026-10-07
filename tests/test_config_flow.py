@@ -113,7 +113,7 @@ async def test_user_flow_manual_entry_no_devices(hass: HomeAssistant):
 
         # Test invalid address
         with patch(
-            "custom_components.desky_desk.config_flow.ConfigFlow._async_get_device",
+            "custom_components.desky_desk.config_flow.DeskyConfigFlow._async_get_device",
             return_value=None,
         ):
             result = await hass.config_entries.flow.async_configure(
@@ -127,7 +127,7 @@ async def test_user_flow_manual_entry_no_devices(hass: HomeAssistant):
         mock_discovery = make_service_info(address="FF:EE:DD:CC:BB:AA")
 
         with patch(
-            "custom_components.desky_desk.config_flow.ConfigFlow._async_get_device",
+            "custom_components.desky_desk.config_flow.DeskyConfigFlow._async_get_device",
             return_value=mock_discovery,
         ):
             result = await hass.config_entries.flow.async_configure(

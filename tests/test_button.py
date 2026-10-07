@@ -2,341 +2,140 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock
+from collections.abc import Callable
+from unittest.mock import MagicMock
 
-from homeassistant.components.button import DOMAIN as BUTTON_DOMAIN, SERVICE_PRESS
+from homeassistant.components.button import (
+    DOMAIN as BUTTON_DOMAIN,
+    SERVICE_PRESS,
+    ButtonEntity,
+)
 from homeassistant.const import ATTR_ENTITY_ID, STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import HomeAssistant
 import pytest
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.desky_desk.const import DOMAIN
+from custom_components.desky_desk.button import (
+    DeskyMoveDownButton,
+    DeskyMoveUpButton,
+    DeskyPresetButton,
+)
+from custom_components.desky_desk.coordinator import DeskUpdateCoordinator
+
+from . import disconnect_desk, notify_desk
+
+BUTTONS = [
+    "button.desky_desk_preset_1",
+    "button.desky_desk_preset_2",
+    "button.desky_desk_preset_3",
+    "button.desky_desk_preset_4",
+    "button.desky_desk_move_up",
+    "button.desky_desk_move_down",
+]
 
 
-async def test_button_setup(hass: HomeAssistant, init_integration):
-    """Test button entities setup."""
-    # First, trigger an update to set entities as available
-    coordinator = hass.data[DOMAIN][init_integration.entry_id]
-    coordinator.async_set_updated_data(
-        {
-            "height_cm": 80.0,
-            "collision_detected": False,
-            "is_moving": False,
-            "is_connected": True,
-        }
+async def _press(hass: HomeAssistant, entity_id: str) -> None:
+    """Press a button through the button service."""
+    await hass.services.async_call(
+        BUTTON_DOMAIN, SERVICE_PRESS, {ATTR_ENTITY_ID: entity_id}, blocking=True
     )
-    await hass.async_block_till_done()
 
-    # Check all preset buttons are created
-    for i in range(1, 5):
-        state = hass.states.get(f"button.desky_desk_preset_{i}")
-        assert state is not None
-        assert state.state != STATE_UNAVAILABLE
 
-    # Check movement buttons are created
-    state = hass.states.get("button.desky_desk_move_up")
+@pytest.mark.parametrize("preset", [1, 2, 3, 4])
+async def test_preset_button(
+    hass: HomeAssistant,
+    init_integration: MockConfigEntry,
+    mock_desk: MagicMock,
+    preset: int,
+) -> None:
+    """Test each preset button is named from its number and moves to that preset."""
+    entity_id = f"button.desky_desk_preset_{preset}"
+    state = hass.states.get(entity_id)
     assert state is not None
-    assert state.state != STATE_UNAVAILABLE
+    assert state.state == STATE_UNKNOWN
+    assert state.attributes["friendly_name"] == f"Desky Desk Preset {preset}"
 
-    state = hass.states.get("button.desky_desk_move_down")
-    assert state is not None
-    assert state.state != STATE_UNAVAILABLE
+    await _press(hass, entity_id)
 
-
-async def test_button_availability(hass: HomeAssistant, init_integration):
-    """Test button availability based on connection."""
-    coordinator = hass.data[DOMAIN][init_integration.entry_id]
-
-    # Test connected
-    coordinator.async_set_updated_data(
-        {
-            "height_cm": 80.0,
-            "collision_detected": False,
-            "is_moving": False,
-            "is_connected": True,
-        }
-    )
-    await hass.async_block_till_done()
-
-    state = hass.states.get("button.desky_desk_preset_1")
-    assert state.state != STATE_UNAVAILABLE
-
-    # Test disconnected
-    coordinator.async_set_updated_data(
-        {
-            "height_cm": 80.0,
-            "collision_detected": False,
-            "is_moving": False,
-            "is_connected": False,
-        }
-    )
-    await hass.async_block_till_done()
-
-    state = hass.states.get("button.desky_desk_preset_1")
-    assert state.state == STATE_UNAVAILABLE
-
-
-async def test_button_press_preset_1(hass: HomeAssistant, init_integration):
-    """Test pressing preset 1 button."""
-    coordinator = hass.data[DOMAIN][init_integration.entry_id]
-
-    # First make sure the entity is available
-    coordinator.async_set_updated_data(
-        {
-            "height_cm": 80.0,
-            "collision_detected": False,
-            "is_moving": False,
-            "is_connected": True,
-        }
-    )
-    await hass.async_block_till_done()
-
-    # Now replace the device with a fresh mock for testing
-    mock_device = MagicMock()
-    mock_device.move_to_preset = AsyncMock()
-    coordinator._device = mock_device
-
-    await hass.services.async_call(
-        BUTTON_DOMAIN,
-        SERVICE_PRESS,
-        {ATTR_ENTITY_ID: "button.desky_desk_preset_1"},
-        blocking=True,
-    )
-
-    mock_device.move_to_preset.assert_called_once_with(1)
-
-
-async def test_button_press_preset_2(hass: HomeAssistant, init_integration):
-    """Test pressing preset 2 button."""
-    coordinator = hass.data[DOMAIN][init_integration.entry_id]
-
-    # First make sure the entity is available
-    coordinator.async_set_updated_data(
-        {
-            "height_cm": 80.0,
-            "collision_detected": False,
-            "is_moving": False,
-            "is_connected": True,
-        }
-    )
-    await hass.async_block_till_done()
-
-    # Now replace the device with a fresh mock for testing
-    mock_device = MagicMock()
-    mock_device.move_to_preset = AsyncMock()
-    coordinator._device = mock_device
-
-    await hass.services.async_call(
-        BUTTON_DOMAIN,
-        SERVICE_PRESS,
-        {ATTR_ENTITY_ID: "button.desky_desk_preset_2"},
-        blocking=True,
-    )
-
-    mock_device.move_to_preset.assert_called_once_with(2)
-
-
-async def test_button_press_preset_3(hass: HomeAssistant, init_integration):
-    """Test pressing preset 3 button."""
-    coordinator = hass.data[DOMAIN][init_integration.entry_id]
-
-    # First make sure the entity is available
-    coordinator.async_set_updated_data(
-        {
-            "height_cm": 80.0,
-            "collision_detected": False,
-            "is_moving": False,
-            "is_connected": True,
-        }
-    )
-    await hass.async_block_till_done()
-
-    # Now replace the device with a fresh mock for testing
-    mock_device = MagicMock()
-    mock_device.move_to_preset = AsyncMock()
-    coordinator._device = mock_device
-
-    await hass.services.async_call(
-        BUTTON_DOMAIN,
-        SERVICE_PRESS,
-        {ATTR_ENTITY_ID: "button.desky_desk_preset_3"},
-        blocking=True,
-    )
-
-    mock_device.move_to_preset.assert_called_once_with(3)
-
-
-async def test_button_press_preset_4(hass: HomeAssistant, init_integration):
-    """Test pressing preset 4 button."""
-    coordinator = hass.data[DOMAIN][init_integration.entry_id]
-
-    # First make sure the entity is available
-    coordinator.async_set_updated_data(
-        {
-            "height_cm": 80.0,
-            "collision_detected": False,
-            "is_moving": False,
-            "is_connected": True,
-        }
-    )
-    await hass.async_block_till_done()
-
-    # Now replace the device with a fresh mock for testing
-    mock_device = MagicMock()
-    mock_device.move_to_preset = AsyncMock()
-    coordinator._device = mock_device
-
-    await hass.services.async_call(
-        BUTTON_DOMAIN,
-        SERVICE_PRESS,
-        {ATTR_ENTITY_ID: "button.desky_desk_preset_4"},
-        blocking=True,
-    )
-
-    mock_device.move_to_preset.assert_called_once_with(4)
-
-
-async def test_button_press_move_up(hass: HomeAssistant, init_integration):
-    """Test pressing move up button."""
-    coordinator = hass.data[DOMAIN][init_integration.entry_id]
-
-    # First make sure the entity is available
-    coordinator.async_set_updated_data(
-        {
-            "height_cm": 80.0,
-            "collision_detected": False,
-            "is_moving": False,
-            "is_connected": True,
-        }
-    )
-    await hass.async_block_till_done()
-
-    # Now replace the device with a fresh mock for testing
-    mock_device = MagicMock()
-    mock_device.move_up = AsyncMock()
-    coordinator._device = mock_device
-
-    await hass.services.async_call(
-        BUTTON_DOMAIN,
-        SERVICE_PRESS,
-        {ATTR_ENTITY_ID: "button.desky_desk_move_up"},
-        blocking=True,
-    )
-
-    mock_device.move_up.assert_called_once()
-
-
-async def test_button_press_move_down(hass: HomeAssistant, init_integration):
-    """Test pressing move down button."""
-    coordinator = hass.data[DOMAIN][init_integration.entry_id]
-
-    # First make sure the entity is available
-    coordinator.async_set_updated_data(
-        {
-            "height_cm": 80.0,
-            "collision_detected": False,
-            "is_moving": False,
-            "is_connected": True,
-        }
-    )
-    await hass.async_block_till_done()
-
-    # Now replace the device with a fresh mock for testing
-    mock_device = MagicMock()
-    mock_device.move_down = AsyncMock()
-    coordinator._device = mock_device
-
-    await hass.services.async_call(
-        BUTTON_DOMAIN,
-        SERVICE_PRESS,
-        {ATTR_ENTITY_ID: "button.desky_desk_move_down"},
-        blocking=True,
-    )
-
-    mock_device.move_down.assert_called_once()
-
-
-async def test_button_press_no_device(hass: HomeAssistant, init_integration):
-    """Test pressing button when device is None."""
-    coordinator = hass.data[DOMAIN][init_integration.entry_id]
-    coordinator._device = None
-
-    # Should not raise exception
-    await hass.services.async_call(
-        BUTTON_DOMAIN,
-        SERVICE_PRESS,
-        {ATTR_ENTITY_ID: "button.desky_desk_preset_1"},
-        blocking=True,
-    )
-
-
-async def test_button_device_info_integration(hass: HomeAssistant, init_integration):
-    """Test button entities use dynamic device information from coordinator."""
-    coordinator = hass.data[DOMAIN][init_integration.entry_id]
-
-    # Update coordinator with device info
-    coordinator.async_set_updated_data(
-        {
-            "height_cm": 80.0,
-            "collision_detected": False,
-            "is_moving": False,
-            "is_connected": True,
-            "manufacturer_name": "Uplift Desk",
-            "model_number": "V2 Commercial",
-            "serial_number": "UPL987654321",
-            "hardware_revision": "2.5",
-            "firmware_revision": "3.0.2",
-            "software_revision": "2.1.5",
-        }
-    )
-    await hass.async_block_till_done()
-
-    # Get button entity
-    button_state = hass.states.get("button.desky_desk_preset_1")
-    assert button_state is not None
-
-    # Verify the coordinator's get_device_info method returns the updated info
-    device_info = coordinator.get_device_info()
-    assert device_info["manufacturer"] == "Uplift Desk"
-    assert device_info["model"] == "V2 Commercial"
-    assert device_info["serial_number"] == "UPL987654321"
-    assert device_info["hw_version"] == "2.5"
-    assert device_info["sw_version"] == "3.0.2"
+    mock_desk.move_to_preset.assert_awaited_once_with(preset)
+    mock_desk.move_up.assert_not_called()
+    mock_desk.move_down.assert_not_called()
+    # A pressed button records when it was last pressed
+    assert hass.states.get(entity_id).state != STATE_UNKNOWN
 
 
 @pytest.mark.parametrize(
-    ("entity_id", "method"),
+    ("entity_id", "friendly_name", "command"),
     [
-        ("button.desky_desk_preset_1", "move_to_preset"),
-        ("button.desky_desk_move_up", "move_up"),
-        ("button.desky_desk_move_down", "move_down"),
+        ("button.desky_desk_move_up", "Desky Desk Move up", "move_up"),
+        ("button.desky_desk_move_down", "Desky Desk Move down", "move_down"),
     ],
 )
-async def test_button_press_available_without_device(
-    hass: HomeAssistant, init_integration, entity_id: str, method: str
-):
-    """Test pressing an available button does nothing when the BLE device is gone."""
-    coordinator = hass.data[DOMAIN][init_integration.entry_id]
-    coordinator.async_set_updated_data(
-        {
-            "height_cm": 80.0,
-            "collision_detected": False,
-            "is_moving": False,
-            "is_connected": True,
-        }
+async def test_move_button(
+    hass: HomeAssistant,
+    init_integration: MockConfigEntry,
+    mock_desk: MagicMock,
+    entity_id: str,
+    friendly_name: str,
+    command: str,
+) -> None:
+    """Test the move buttons send their movement command."""
+    state = hass.states.get(entity_id)
+    assert state is not None
+    assert state.attributes["friendly_name"] == friendly_name
+
+    await _press(hass, entity_id)
+
+    getattr(mock_desk, command).assert_awaited_once_with()
+    mock_desk.move_to_preset.assert_not_called()
+
+
+async def test_buttons_follow_connection(
+    hass: HomeAssistant, init_integration: MockConfigEntry, mock_desk: MagicMock
+) -> None:
+    """Test the buttons go unavailable on disconnect and come back on reconnect."""
+    assert all(
+        hass.states.get(entity_id).state == STATE_UNKNOWN for entity_id in BUTTONS
     )
+
+    disconnect_desk(mock_desk)
     await hass.async_block_till_done()
-    assert hass.states.get(entity_id).state == STATE_UNKNOWN
-
-    previous_device = coordinator._device
-    coordinator._device = None
-
-    await hass.services.async_call(
-        BUTTON_DOMAIN,
-        SERVICE_PRESS,
-        {ATTR_ENTITY_ID: entity_id},
-        blocking=True,
+    assert all(
+        hass.states.get(entity_id).state == STATE_UNAVAILABLE for entity_id in BUTTONS
     )
 
-    # The press is recorded, but no command reaches the old device
-    assert hass.states.get(entity_id).state not in (STATE_UNKNOWN, STATE_UNAVAILABLE)
-    getattr(previous_device, method).assert_not_called()
+    # Pressing an unavailable button sends nothing to the desk
+    await _press(hass, "button.desky_desk_preset_1")
+    mock_desk.move_to_preset.assert_not_called()
+
+    notify_desk(mock_desk, is_connected=True)
+    await hass.async_block_till_done()
+    assert all(
+        hass.states.get(entity_id).state == STATE_UNKNOWN for entity_id in BUTTONS
+    )
+
+
+@pytest.mark.parametrize(
+    "button_factory",
+    [
+        lambda coordinator: DeskyPresetButton(coordinator, 1),
+        DeskyMoveUpButton,
+        DeskyMoveDownButton,
+    ],
+)
+async def test_press_without_device(
+    hass: HomeAssistant,
+    init_integration: MockConfigEntry,
+    mock_desk: MagicMock,
+    button_factory: Callable[[DeskUpdateCoordinator], ButtonEntity],
+) -> None:
+    """Test a press is ignored when the coordinator has no BLE device yet."""
+    # A coordinator that never connected has no device
+    coordinator = DeskUpdateCoordinator(hass, init_integration)
+    assert coordinator.device is None
+
+    await button_factory(coordinator).async_press()
+
+    mock_desk.move_to_preset.assert_not_called()
+    mock_desk.move_up.assert_not_called()
+    mock_desk.move_down.assert_not_called()

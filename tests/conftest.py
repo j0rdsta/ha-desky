@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Generator
+from collections.abc import AsyncGenerator, Generator
+from dataclasses import asdict
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from bleak import BleakClient
@@ -15,8 +16,9 @@ from pytest_homeassistant_custom_component.syrupy import HomeAssistantSnapshotEx
 from syrupy.assertion import SnapshotAssertion
 
 from custom_components.desky_desk.const import DOMAIN
+from custom_components.desky_desk.coordinator import DeskData
 
-from . import make_service_info
+from . import desk_data, make_service_info
 
 
 @pytest.fixture
@@ -160,116 +162,62 @@ def mock_discovered_service_info(mock_service_info):
 
 
 @pytest.fixture
-def mock_coordinator_data():
-    """Return mock coordinator data."""
-    return {
-        "height_cm": 80.0,
-        "collision_detected": False,
-        "is_moving": False,
-        "is_connected": True,
-        "movement_direction": None,
-        # New device features
-        "light_color": 1,  # White
-        "brightness": 50,
-        "lighting_enabled": True,
-        "vibration_enabled": True,
-        "vibration_intensity": 75,
-        "lock_status": False,
-        "sensitivity_level": 2,  # Medium
-        "height_limit_upper": 120.0,
-        "height_limit_lower": 65.0,
-        "limits_enabled": True,
-        "touch_mode": 0,  # One press
-        "unit_preference": "cm",
-        # Device information from Device Information Service (0x180A)
-        "manufacturer_name": "Test Manufacturer",
-        "model_number": "Test Model",
-        "serial_number": "TEST123456",
-        "hardware_revision": "1.0",
-        "firmware_revision": "2.1.0",
-        "software_revision": "1.5.2",
-    }
+def mock_bluetooth() -> Generator[None]:
+    """Skip setting up Home Assistant's Bluetooth stack.
+
+    On Linux the real setup connects to BlueZ over D-Bus, and Home Assistant
+    2025.10 leaves that socket open, which fails the test with a ResourceWarning.
+    """
+    with (
+        patch("homeassistant.components.bluetooth.async_setup", return_value=True),
+        patch(
+            "homeassistant.components.bluetooth_adapters.async_setup",
+            return_value=True,
+        ),
+    ):
+        yield
+
+
+@pytest.fixture
+def mock_desk(mock_bluetooth: None) -> Generator[MagicMock]:
+    """Patch the desk's BLE device with a connected desk and return it.
+
+    The values match `mock_coordinator_data`. Use `notify_desk()` or
+    `disconnect_desk()` to push a change to the coordinator.
+    """
+    with patch(
+        "custom_components.desky_desk.coordinator.DeskBLEDevice", autospec=True
+    ) as desk_class:
+        desk = desk_class.return_value
+        desk.name = "Desky Desk"
+        desk.address = "AA:BB:CC:DD:EE:FF"
+        desk.connect.return_value = True
+        for key, value in asdict(desk_data()).items():
+            setattr(desk, key, value)
+        yield desk
+
+
+@pytest.fixture
+def mock_coordinator_data() -> DeskData:
+    """Return coordinator data for a connected desk."""
+    return desk_data()
 
 
 @pytest.fixture
 async def init_integration(
     hass: HomeAssistant,
     mock_config_entry: MockConfigEntry,
-) -> MockConfigEntry:
-    """Set up the Desky Desk integration in Home Assistant."""
-    # First, mock the bluetooth and bluetooth_adapters components to avoid setup failures
-    with (
-        patch("homeassistant.components.bluetooth.async_setup", return_value=True),
-        patch(
-            "homeassistant.components.bluetooth_adapters.async_setup", return_value=True
-        ),
-        patch(
-            "homeassistant.components.bluetooth.async_ble_device_from_address"
-        ) as mock_ble_device_from_address,
+    mock_desk: MagicMock,
+) -> AsyncGenerator[MockConfigEntry]:
+    """Set up the Desky Desk integration with a connected desk."""
+    mock_config_entry.add_to_hass(hass)
+    with patch(
+        "homeassistant.components.bluetooth.async_ble_device_from_address",
+        return_value=MagicMock(address="AA:BB:CC:DD:EE:FF"),
     ):
-        # Mock the BLE device
-        mock_ble_device = MagicMock()
-        mock_ble_device.address = "AA:BB:CC:DD:EE:FF"
-        mock_ble_device.name = "Desky"
-        mock_ble_device_from_address.return_value = mock_ble_device
-
-        # Add the config entry
-        mock_config_entry.add_to_hass(hass)
-
-        # Mock the DeskBLEDevice; the integration runs a real coordinator
-        with (
-            patch(
-                "custom_components.desky_desk.bluetooth.establish_connection"
-            ) as mock_establish_connection,
-            patch(
-                "custom_components.desky_desk.coordinator.DeskBLEDevice"
-            ) as mock_desk_device,
-        ):
-            # Mock the BLE client
-            mock_client = MagicMock()
-            mock_client.is_connected = True
-            mock_establish_connection.return_value = mock_client
-
-            # Mock the device
-            mock_device_instance = mock_desk_device.return_value
-            mock_device_instance.name = "Desky Desk"
-            mock_device_instance.connect = AsyncMock(return_value=True)
-            mock_device_instance.disconnect = AsyncMock()
-            mock_device_instance.is_connected = True
-            mock_device_instance.height_cm = 80.0
-            mock_device_instance.collision_detected = False
-            mock_device_instance.is_moving = False
-            mock_device_instance.get_status = AsyncMock()
-            mock_device_instance.register_notification_callback = MagicMock()
-            mock_device_instance.register_disconnect_callback = MagicMock()
-
-            # Add all the new device methods
-            mock_device_instance.set_lighting = AsyncMock(return_value=True)
-            mock_device_instance.get_lighting_status = AsyncMock(return_value=True)
-            mock_device_instance.set_light_color = AsyncMock(return_value=True)
-            mock_device_instance.get_light_color = AsyncMock(return_value=True)
-            mock_device_instance.set_brightness = AsyncMock(return_value=True)
-            mock_device_instance.get_brightness = AsyncMock(return_value=True)
-            mock_device_instance.set_vibration = AsyncMock(return_value=True)
-            mock_device_instance.get_vibration_status = AsyncMock(return_value=True)
-            mock_device_instance.set_vibration_intensity = AsyncMock(return_value=True)
-            mock_device_instance.get_vibration_intensity = AsyncMock(return_value=True)
-            mock_device_instance.set_lock_status = AsyncMock(return_value=True)
-            mock_device_instance.get_lock_status = AsyncMock(return_value=True)
-            mock_device_instance.set_sensitivity = AsyncMock(return_value=True)
-            mock_device_instance.get_sensitivity = AsyncMock(return_value=True)
-            mock_device_instance.set_touch_mode = AsyncMock(return_value=True)
-            mock_device_instance.set_unit = AsyncMock(return_value=True)
-            mock_device_instance.set_height_limit_upper = AsyncMock(return_value=True)
-            mock_device_instance.set_height_limit_lower = AsyncMock(return_value=True)
-            mock_device_instance.get_limits = AsyncMock(return_value=True)
-            mock_device_instance.move_to_height = AsyncMock(return_value=True)
-
-            # Setup the integration using the proper setup flow
-            await hass.config_entries.async_setup(mock_config_entry.entry_id)
-            await hass.async_block_till_done()
-
-    return mock_config_entry
+        assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+        yield mock_config_entry
 
 
 @pytest.fixture(autouse=True)

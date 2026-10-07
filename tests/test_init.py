@@ -1,184 +1,241 @@
-"""Test Desky Desk integration setup and unloading."""
+"""Test Desky Desk config entry setup, retry, unload and the desk's device entry."""
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, call, patch
+from datetime import timedelta
+from unittest.mock import MagicMock, patch
 
+from freezegun.api import FrozenDateTimeFactory
 from homeassistant.config_entries import ConfigEntryState
+from homeassistant.const import STATE_UNAVAILABLE, Platform
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ConfigEntryNotReady
-import pytest
-
-from custom_components.desky_desk import (
-    async_reload_entry,
-    async_setup_entry,
-    async_unload_entry,
+from homeassistant.helpers import device_registry as dr, entity_registry as er
+from pytest_homeassistant_custom_component.common import (
+    MockConfigEntry,
+    async_fire_time_changed,
 )
-from custom_components.desky_desk.const import DOMAIN
+
+from custom_components.desky_desk import PLATFORMS
+from custom_components.desky_desk.const import DOMAIN, UPDATE_INTERVAL_SECONDS
+from custom_components.desky_desk.coordinator import DeskUpdateCoordinator
+
+from . import disconnect_desk
+
+ADDRESS = "AA:BB:CC:DD:EE:FF"
 
 
-async def test_setup_entry_success(
-    hass: HomeAssistant,
-    mock_config_entry,
-    mock_bluetooth_device_from_address,
-    mock_establish_connection,
-    mock_bleak_client,
-):
-    """Test successful setup of config entry."""
+def _desk_entity_states(hass: HomeAssistant, entry: MockConfigEntry) -> list[str]:
+    """Return the states of the entry's entities."""
+    entries = er.async_entries_for_config_entry(er.async_get(hass), entry.entry_id)
+    return [
+        state.state
+        for entity in entries
+        if (state := hass.states.get(entity.entity_id)) is not None
+    ]
+
+
+async def test_setup_entry(
+    hass: HomeAssistant, init_integration: MockConfigEntry, mock_desk: MagicMock
+) -> None:
+    """Test a reachable desk loads with all its entities available."""
+    assert init_integration.state is ConfigEntryState.LOADED
+    assert isinstance(init_integration.runtime_data, DeskUpdateCoordinator)
+    mock_desk.connect.assert_awaited_once()
+
+    states = _desk_entity_states(hass, init_integration)
+    assert len(states) == 21
+    assert STATE_UNAVAILABLE not in states
+
+
+async def test_setup_retry_when_desk_not_found(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry, mock_desk: MagicMock
+) -> None:
+    """Test setup retries with a reason when the desk is not advertising."""
     mock_config_entry.add_to_hass(hass)
-
-    with patch(
-        "custom_components.desky_desk.coordinator.DeskBLEDevice"
-    ) as mock_desk_device:
-        mock_device_instance = mock_desk_device.return_value
-        mock_device_instance.connect = AsyncMock(return_value=True)
-        mock_device_instance.is_connected = True
-        mock_device_instance.height_cm = 80.0
-        mock_device_instance.collision_detected = False
-        mock_device_instance.is_moving = False
-        mock_device_instance.get_status = AsyncMock()
-        mock_device_instance.register_notification_callback = MagicMock()
-        mock_device_instance.register_disconnect_callback = MagicMock()
-
-        with patch(
-            "homeassistant.config_entries.ConfigEntries.async_forward_entry_setups"
-        ) as mock_forward:
-            result = await async_setup_entry(hass, mock_config_entry)
-
-        assert result is True
-        await hass.async_block_till_done()
-
-        # Verify the coordinator was set up
-        assert DOMAIN in hass.data
-        assert mock_config_entry.entry_id in hass.data[DOMAIN]
-
-        # Verify platforms were forwarded
-        mock_forward.assert_called_once()
-        platforms = mock_forward.call_args[0][1]
-        assert len(platforms) == 8
-
-
-async def test_setup_entry_no_device(
-    hass: HomeAssistant,
-    mock_config_entry,
-):
-    """Test setup failure when device is not found."""
-    mock_config_entry.add_to_hass(hass)
-
     with patch(
         "homeassistant.components.bluetooth.async_ble_device_from_address",
         return_value=None,
     ):
-        with pytest.raises(ConfigEntryNotReady):
-            await async_setup_entry(hass, mock_config_entry)
+        await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert mock_config_entry.state is ConfigEntryState.SETUP_RETRY
+    assert mock_config_entry.reason == (
+        f"Could not find the desk at {ADDRESS}. "
+        "Make sure it is powered on and in Bluetooth range"
+    )
+    mock_desk.connect.assert_not_called()
+    assert _desk_entity_states(hass, mock_config_entry) == []
 
 
-async def test_unload_entry(
-    hass: HomeAssistant,
-    mock_config_entry,
-):
-    """Test unloading the config entry."""
-    # First setup the entry
+async def test_setup_retry_when_connection_refused(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry, mock_desk: MagicMock
+) -> None:
+    """Test setup retries and cleans up when the desk refuses the connection."""
+    mock_desk.connect.return_value = False
     mock_config_entry.add_to_hass(hass)
+    with patch(
+        "homeassistant.components.bluetooth.async_ble_device_from_address",
+        return_value=MagicMock(address=ADDRESS),
+    ):
+        await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
 
-    # Create a mock coordinator
-    mock_coordinator = MagicMock()
-    mock_coordinator.async_shutdown = AsyncMock()
-
-    # Add data to hass
-    hass.data.setdefault(DOMAIN, {})
-    hass.data[DOMAIN][mock_config_entry.entry_id] = mock_coordinator
-
-    # Set the entry state to loaded
-    mock_config_entry._state = ConfigEntryState.LOADED
-
-    # Now test unloading
-    assert await async_unload_entry(hass, mock_config_entry)
-    mock_coordinator.async_shutdown.assert_called_once()
-
-    assert mock_config_entry.entry_id not in hass.data[DOMAIN]
+    assert mock_config_entry.state is ConfigEntryState.SETUP_RETRY
+    assert mock_config_entry.reason == f"Could not connect to the desk at {ADDRESS}"
+    assert _desk_entity_states(hass, mock_config_entry) == []
+    # The failed attempt releases the desk before the next retry
+    mock_desk.disconnect.assert_awaited_once()
 
 
-async def test_setup_platforms(
+async def test_setup_retry_succeeds_when_desk_comes_into_range(
     hass: HomeAssistant,
-    mock_config_entry,
-    mock_bluetooth_device_from_address,
-    mock_establish_connection,
-):
-    """Test that all platforms are set up."""
+    mock_config_entry: MockConfigEntry,
+    mock_desk: MagicMock,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """Test a later retry loads the entry once the desk is connectable."""
+    mock_desk.connect.return_value = False
     mock_config_entry.add_to_hass(hass)
+    with patch(
+        "homeassistant.components.bluetooth.async_ble_device_from_address",
+        return_value=MagicMock(address=ADDRESS),
+    ):
+        await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+        assert mock_config_entry.state is ConfigEntryState.SETUP_RETRY
+
+        mock_desk.connect.return_value = True
+        freezer.tick(timedelta(minutes=1))
+        async_fire_time_changed(hass)
+        # Home Assistant runs the retry as a background task
+        await hass.async_block_till_done(wait_background_tasks=True)
+
+    assert mock_config_entry.state is ConfigEntryState.LOADED
+    states = _desk_entity_states(hass, mock_config_entry)
+    assert len(states) == 21
+    assert STATE_UNAVAILABLE not in states
+
+
+async def test_unload_while_connected(
+    hass: HomeAssistant, init_integration: MockConfigEntry, mock_desk: MagicMock
+) -> None:
+    """Test unloading closes the connection and leaves no background work."""
+    assert await hass.config_entries.async_unload(init_integration.entry_id)
+    await hass.async_block_till_done()
+
+    assert init_integration.state is ConfigEntryState.NOT_LOADED
+    mock_desk.disconnect.assert_awaited_once()
+    assert not init_integration._background_tasks
+
+
+async def test_unload_cancels_pending_reconnect(
+    hass: HomeAssistant,
+    init_integration: MockConfigEntry,
+    mock_desk: MagicMock,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """Test unloading while a reconnect is pending cancels it cleanly."""
+    mock_desk.connect.return_value = False
+    disconnect_desk(mock_desk)
+
+    # The next poll finds the desk disconnected and starts reconnecting
+    freezer.tick(timedelta(seconds=UPDATE_INTERVAL_SECONDS))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+    assert len(init_integration._background_tasks) == 1
+    assert all(
+        state == STATE_UNAVAILABLE
+        for state in _desk_entity_states(hass, init_integration)
+    )
+
+    assert await hass.config_entries.async_unload(init_integration.entry_id)
+    await hass.async_block_till_done()
+
+    assert init_integration.state is ConfigEntryState.NOT_LOADED
+    assert not init_integration._background_tasks
+    mock_desk.disconnect.assert_awaited_once()
+
+
+async def test_reload(
+    hass: HomeAssistant, init_integration: MockConfigEntry, mock_desk: MagicMock
+) -> None:
+    """Test reloading sets up again from a clean state."""
+    coordinator = init_integration.runtime_data
+    entity_count = len(hass.states.async_all())
+
+    assert await hass.config_entries.async_reload(init_integration.entry_id)
+    await hass.async_block_till_done()
+
+    assert init_integration.state is ConfigEntryState.LOADED
+    assert init_integration.runtime_data is not coordinator
+    assert len(hass.states.async_all()) == entity_count
+    assert mock_desk.connect.await_count == 2
+    mock_desk.disconnect.assert_awaited_once()
+
+
+async def test_platforms() -> None:
+    """Test every entity platform is forwarded."""
+    assert set(PLATFORMS) == {
+        Platform.BINARY_SENSOR,
+        Platform.BUTTON,
+        Platform.COVER,
+        Platform.LIGHT,
+        Platform.NUMBER,
+        Platform.SELECT,
+        Platform.SENSOR,
+        Platform.SWITCH,
+    }
+
+
+async def test_device_has_bluetooth_connection(
+    hass: HomeAssistant,
+    device_registry: dr.DeviceRegistry,
+    init_integration: MockConfigEntry,
+) -> None:
+    """Test the desk's device records its Bluetooth address as a connection."""
+    devices = dr.async_entries_for_config_entry(
+        device_registry, init_integration.entry_id
+    )
+    assert len(devices) == 1
+    device = devices[0]
+    assert device.identifiers == {(DOMAIN, ADDRESS)}
+    assert device.connections == {(dr.CONNECTION_BLUETOOTH, ADDRESS)}
+    assert device.name == "Desky Desk"
+    assert device.manufacturer == "Test Manufacturer"
+    assert device.model == "Test Model"
+    assert device.serial_number == "TEST123456"
+    assert device.hw_version == "1.0"
+    assert device.sw_version == "2.1.0"
+
+
+async def test_upgrade_keeps_one_device(
+    hass: HomeAssistant,
+    device_registry: dr.DeviceRegistry,
+    mock_config_entry: MockConfigEntry,
+    mock_desk: MagicMock,
+) -> None:
+    """Test an existing device without a connection gains it instead of being duplicated."""
+    mock_config_entry.add_to_hass(hass)
+    # Earlier releases created the device with only the identifier
+    existing = device_registry.async_get_or_create(
+        config_entry_id=mock_config_entry.entry_id,
+        identifiers={(DOMAIN, ADDRESS)},
+        name="Desky Desk",
+        manufacturer="Desky",
+        model="Standing Desk",
+    )
+    assert not existing.connections
 
     with patch(
-        "custom_components.desky_desk.coordinator.DeskBLEDevice"
-    ) as mock_desk_device:
-        mock_device_instance = mock_desk_device.return_value
-        mock_device_instance.connect = AsyncMock(return_value=True)
-        mock_device_instance.is_connected = True
-        mock_device_instance.height_cm = 80.0
-        mock_device_instance.collision_detected = False
-        mock_device_instance.is_moving = False
-        mock_device_instance.get_status = AsyncMock()
-        mock_device_instance.register_notification_callback = MagicMock()
-        mock_device_instance.register_disconnect_callback = MagicMock()
-
-        with patch(
-            "homeassistant.config_entries.ConfigEntries.async_forward_entry_setups"
-        ) as mock_forward:
-            await async_setup_entry(hass, mock_config_entry)
-            await hass.async_block_till_done()
-
-            mock_forward.assert_called_once()
-            platforms = mock_forward.call_args[0][1]
-            assert len(platforms) == 8
-            assert "cover" in [p.value for p in platforms]
-            assert "number" in [p.value for p in platforms]
-            assert "button" in [p.value for p in platforms]
-            assert "binary_sensor" in [p.value for p in platforms]
-            assert "light" in [p.value for p in platforms]
-            assert "switch" in [p.value for p in platforms]
-            assert "select" in [p.value for p in platforms]
-            assert "sensor" in [p.value for p in platforms]
-
-
-async def test_unload_entry_platforms_fail(
-    hass: HomeAssistant,
-    mock_config_entry,
-):
-    """Test the coordinator is kept when the platforms fail to unload."""
-    mock_config_entry.add_to_hass(hass)
-
-    mock_coordinator = MagicMock()
-    mock_coordinator.async_shutdown = AsyncMock()
-    hass.data.setdefault(DOMAIN, {})
-    hass.data[DOMAIN][mock_config_entry.entry_id] = mock_coordinator
-
-    with patch(
-        "homeassistant.config_entries.ConfigEntries.async_unload_platforms",
-        return_value=False,
+        "homeassistant.components.bluetooth.async_ble_device_from_address",
+        return_value=MagicMock(address=ADDRESS),
     ):
-        assert await async_unload_entry(hass, mock_config_entry) is False
+        assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
 
-    mock_coordinator.async_shutdown.assert_not_called()
-    assert hass.data[DOMAIN][mock_config_entry.entry_id] is mock_coordinator
-
-
-async def test_reload_entry(
-    hass: HomeAssistant,
-    mock_config_entry,
-):
-    """Test reloading unloads the entry and then sets it up again."""
-    mock_config_entry.add_to_hass(hass)
-    calls = MagicMock()
-    calls.unload = AsyncMock(return_value=True)
-    calls.setup = AsyncMock(return_value=True)
-
-    with (
-        patch("custom_components.desky_desk.async_unload_entry", calls.unload),
-        patch("custom_components.desky_desk.async_setup_entry", calls.setup),
-    ):
-        assert await async_reload_entry(hass, mock_config_entry) is None
-
-    assert calls.mock_calls == [
-        call.unload(hass, mock_config_entry),
-        call.setup(hass, mock_config_entry),
-    ]
+    devices = dr.async_entries_for_config_entry(
+        device_registry, mock_config_entry.entry_id
+    )
+    assert [device.id for device in devices] == [existing.id]
+    assert devices[0].connections == {(dr.CONNECTION_BLUETOOTH, ADDRESS)}

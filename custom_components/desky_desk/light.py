@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 import logging
-from typing import Any
+from typing import Any, Self
 
 from homeassistant.components.light import (
     ATTR_BRIGHTNESS,
@@ -12,14 +13,23 @@ from homeassistant.components.light import (
     LightEntity,
     LightEntityFeature,
 )
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.restore_state import ExtraStoredData, RestoreEntity
 
-from .const import DOMAIN, LIGHT_COLORS
+from .bluetooth import DeskBLEDevice
+from .const import LIGHT_COLORS
+from .coordinator import DeskUpdateCoordinator, DeskyConfigEntry
 from .entity import DeskEntity
 
 _LOGGER = logging.getLogger(__name__)
+
+# Commands go to one BLE connection, so send them one at a time
+PARALLEL_UPDATES = 1
+
+COLOR_WHITE = 1
+COLOR_PARTY = 6
+COLOR_OFF = 7
 
 # Map color names to simple colors for Home Assistant
 COLOR_MAP = {
@@ -53,59 +63,84 @@ EFFECT_TO_COLOR = {
 # Map color codes to effect names
 COLOR_TO_EFFECT = {v: k for k, v in EFFECT_TO_COLOR.items()}
 
+# Colours that can be restored when the light turns on; party mode is an effect
+STATIC_COLORS = frozenset(EFFECT_TO_COLOR.values()) - {COLOR_PARTY}
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    config_entry: ConfigEntry,
+    entry: DeskyConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up Desky light platform."""
-    coordinator = hass.data[DOMAIN][config_entry.entry_id]
-
-    async_add_entities([DeskLight(coordinator, config_entry)])
+    async_add_entities([DeskLight(entry.runtime_data)])
 
 
-class DeskLight(DeskEntity, LightEntity):
+@dataclass
+class DeskLightExtraStoredData(ExtraStoredData):
+    """Light state kept across restarts that the desk does not report."""
+
+    last_static_color: int
+
+    def as_dict(self) -> dict[str, Any]:
+        """Return a dict representation of the stored data."""
+        return {"last_static_color": self.last_static_color}
+
+    @classmethod
+    def from_dict(cls, restored: dict[str, Any]) -> Self | None:
+        """Initialize the stored data from a dict, or None if it is invalid."""
+        color = restored.get("last_static_color")
+        if type(color) is not int or color not in STATIC_COLORS:
+            return None
+        return cls(last_static_color=color)
+
+
+class DeskLight(DeskEntity, LightEntity, RestoreEntity):
     """Representation of a Desky desk LED strip."""
 
     _attr_translation_key = "desk_light"
     _attr_color_mode = ColorMode.BRIGHTNESS
     _attr_supported_color_modes = {ColorMode.BRIGHTNESS}
     _attr_supported_features = LightEntityFeature.EFFECT
+    _attr_effect_list = [
+        EFFECT_WHITE,
+        EFFECT_RED,
+        EFFECT_GREEN,
+        EFFECT_BLUE,
+        EFFECT_YELLOW,
+        EFFECT_PARTY,
+    ]
 
-    def __init__(self, coordinator, config_entry):
+    def __init__(self, coordinator: DeskUpdateCoordinator) -> None:
         """Initialize the light."""
-        super().__init__(coordinator, config_entry)
-        self._attr_unique_id = f"{config_entry.unique_id}_led_strip"
-        self._attr_name = "LED Strip"
-        self._attr_effect_list = [
-            EFFECT_WHITE,
-            EFFECT_RED,
-            EFFECT_GREEN,
-            EFFECT_BLUE,
-            EFFECT_YELLOW,
-            EFFECT_PARTY,
-        ]
+        super().__init__(coordinator, "led_strip")
+        # Static colour to restore when turning on from off; party mode is not static
+        self._last_static_color = COLOR_WHITE
+
+    async def async_added_to_hass(self) -> None:
+        """Restore the last static colour when the entity is added."""
+        await super().async_added_to_hass()
+        if (last_extra_data := await self.async_get_last_extra_data()) and (
+            stored := DeskLightExtraStoredData.from_dict(last_extra_data.as_dict())
+        ):
+            self._last_static_color = stored.last_static_color
+
+    @property
+    def extra_restore_state_data(self) -> DeskLightExtraStoredData:
+        """Return the light state to keep across restarts."""
+        return DeskLightExtraStoredData(self._last_static_color)
 
     @property
     def is_on(self) -> bool:
         """Return true if light is on."""
-        if not self.available:
-            return False
-
-        # Light is on if lighting is enabled and color is not "Off" (7)
-        lighting_enabled = self.coordinator.data.get("lighting_enabled", False)
-        light_color = self.coordinator.data.get("light_color")
-
-        return lighting_enabled and light_color != 7
+        # Light is on if lighting is enabled and color is not "Off"
+        data = self.coordinator.data
+        return bool(data.lighting_enabled) and data.light_color != COLOR_OFF
 
     @property
     def brightness(self) -> int | None:
         """Return the brightness of the light."""
-        if not self.available:
-            return None
-
-        brightness_percent = self.coordinator.data.get("brightness")
+        brightness_percent = self.coordinator.data.brightness
         if brightness_percent is None:
             return None
 
@@ -115,14 +150,14 @@ class DeskLight(DeskEntity, LightEntity):
     @property
     def effect(self) -> str | None:
         """Return the current effect."""
-        if not self.available:
-            return None
+        light_color = self.coordinator.data.light_color
+        return None if light_color is None else COLOR_TO_EFFECT.get(light_color)
 
-        light_color = self.coordinator.data.get("light_color")
-        if light_color in COLOR_TO_EFFECT:
-            return COLOR_TO_EFFECT[light_color]
-
-        return None
+    async def _async_set_color(self, device: DeskBLEDevice, color_code: int) -> None:
+        """Set the light colour and remember it if it is a static colour."""
+        await device.set_light_color(color_code)
+        if color_code != COLOR_PARTY:
+            self._last_static_color = color_code
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn on the light."""
@@ -139,24 +174,16 @@ class DeskLight(DeskEntity, LightEntity):
         if ATTR_EFFECT in kwargs:
             effect_name = kwargs[ATTR_EFFECT]
             if effect_name in EFFECT_TO_COLOR:
-                color_code = EFFECT_TO_COLOR[effect_name]
-                await self._device.set_light_color(color_code)
-
-                # Store last static color (non-party mode) for persistence
-                if color_code != 6:  # Not party mode
-                    self.coordinator.data["last_static_color"] = color_code
+                await self._async_set_color(self._device, EFFECT_TO_COLOR[effect_name])
         else:
-            # If no specific effect requested and light is off, turn on with previous color or white
-            current_color = self.coordinator.data.get("light_color")
-            if current_color is None or current_color == 7:  # Off or unknown
-                # Check if there's a stored last color from previous sessions
-                last_color = self.coordinator.data.get(
-                    "last_static_color", 1
-                )  # Default to White
-                await self._device.set_light_color(last_color)
+            # If no specific effect requested and light is off, turn on with the
+            # last static colour
+            current_color = self.coordinator.data.light_color
+            if current_color is None or current_color == COLOR_OFF:
+                await self._device.set_light_color(self._last_static_color)
 
         # Enable lighting if not already enabled
-        if not self.coordinator.data.get("lighting_enabled", False):
+        if not self.coordinator.data.lighting_enabled:
             await self._device.set_lighting(True)
 
         # Request status update to get the new state
@@ -181,23 +208,14 @@ class DeskLight(DeskEntity, LightEntity):
             return
 
         if effect in EFFECT_TO_COLOR:
-            color_code = EFFECT_TO_COLOR[effect]
-            await self._device.set_light_color(color_code)
-
-            # Store last static color (non-party mode) for persistence
-            if color_code != 6:  # Not party mode
-                self.coordinator.data["last_static_color"] = color_code
-
+            await self._async_set_color(self._device, EFFECT_TO_COLOR[effect])
             await self._device.get_light_color()
 
     @property
-    def extra_state_attributes(self) -> dict[str, Any]:
+    def extra_state_attributes(self) -> dict[str, Any] | None:
         """Return entity specific state attributes."""
-        attrs = super().extra_state_attributes
-
         # Add current color name if available
-        light_color = self.coordinator.data.get("light_color")
+        light_color = self.coordinator.data.light_color
         if light_color and light_color in LIGHT_COLORS:
-            attrs["color_name"] = LIGHT_COLORS[light_color]
-
-        return attrs
+            return {"color_name": LIGHT_COLORS[light_color]}
+        return None

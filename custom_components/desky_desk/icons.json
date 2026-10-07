@@ -1,0 +1,78 @@
+{
+  "entity": {
+    "button": {
+      "move_down": {
+        "default": "mdi:arrow-down-bold"
+      },
+      "move_up": {
+        "default": "mdi:arrow-up-bold"
+      },
+      "preset": {
+        "default": "mdi:bookmark-outline"
+      }
+    },
+    "cover": {
+      "desk": {
+        "default": "mdi:desk"
+      }
+    },
+    "light": {
+      "desk_light": {
+        "default": "mdi:led-strip-variant",
+        "state": {
+          "off": "mdi:led-strip-variant-off"
+        }
+      }
+    },
+    "number": {
+      "height": {
+        "default": "mdi:arrow-expand-vertical"
+      },
+      "height_limit_lower": {
+        "default": "mdi:arrow-collapse-down"
+      },
+      "height_limit_upper": {
+        "default": "mdi:arrow-collapse-up"
+      },
+      "vibration_intensity": {
+        "default": "mdi:vibrate"
+      }
+    },
+    "select": {
+      "sensitivity": {
+        "default": "mdi:car-brake-alert"
+      },
+      "touch_mode": {
+        "default": "mdi:gesture-tap"
+      },
+      "unit": {
+        "default": "mdi:ruler"
+      }
+    },
+    "sensor": {
+      "height_display": {
+        "default": "mdi:arrow-expand-vertical"
+      },
+      "led_color": {
+        "default": "mdi:palette"
+      },
+      "vibration_intensity_display": {
+        "default": "mdi:vibrate"
+      }
+    },
+    "switch": {
+      "lock": {
+        "default": "mdi:lock",
+        "state": {
+          "off": "mdi:lock-open-variant"
+        }
+      },
+      "vibration": {
+        "default": "mdi:vibrate",
+        "state": {
+          "off": "mdi:vibrate-off"
+        }
+      }
+    }
+  }
+}

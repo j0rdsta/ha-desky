@@ -3,32 +3,31 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from homeassistant.components.number import (
     NumberEntity,
     NumberEntityDescription,
     NumberMode,
 )
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import PERCENTAGE, EntityCategory, UnitOfLength
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DEFAULT_HEIGHT, DOMAIN, MAX_HEIGHT, MIN_HEIGHT
-from .coordinator import DeskUpdateCoordinator
+from .const import MAX_HEIGHT, MIN_HEIGHT
+from .coordinator import DeskUpdateCoordinator, DeskyConfigEntry
 from .entity import DeskEntity
 
 _LOGGER = logging.getLogger(__name__)
+
+# Commands go to one BLE connection, so send them one at a time
+PARALLEL_UPDATES = 1
 
 
 NUMBER_DESCRIPTIONS = [
     NumberEntityDescription(
         key="height_limit_upper",
         translation_key="height_limit_upper",
-        name="Upper Height Limit",
-        icon="mdi:arrow-up-bold",
         native_unit_of_measurement=UnitOfLength.CENTIMETERS,
         native_min_value=MIN_HEIGHT,
         native_max_value=MAX_HEIGHT,
@@ -39,8 +38,6 @@ NUMBER_DESCRIPTIONS = [
     NumberEntityDescription(
         key="height_limit_lower",
         translation_key="height_limit_lower",
-        name="Lower Height Limit",
-        icon="mdi:arrow-down-bold",
         native_unit_of_measurement=UnitOfLength.CENTIMETERS,
         native_min_value=MIN_HEIGHT,
         native_max_value=MAX_HEIGHT,
@@ -51,8 +48,6 @@ NUMBER_DESCRIPTIONS = [
     NumberEntityDescription(
         key="vibration_intensity",
         translation_key="vibration_intensity",
-        name="Vibration Intensity",
-        icon="mdi:vibrate",
         native_unit_of_measurement=PERCENTAGE,
         native_min_value=0,
         native_max_value=100,
@@ -65,22 +60,24 @@ NUMBER_DESCRIPTIONS = [
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    entry: ConfigEntry,
+    entry: DeskyConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up Desky Desk number entities based on a config entry."""
-    coordinator: DeskUpdateCoordinator = hass.data[DOMAIN][entry.entry_id]
+    coordinator = entry.runtime_data
 
-    entities: list[NumberEntity] = [DeskyHeightNumber(coordinator)]
+    async_add_entities(
+        [
+            DeskyHeightNumber(coordinator),
+            *(
+                DeskNumber(coordinator, description)
+                for description in NUMBER_DESCRIPTIONS
+            ),
+        ]
+    )
 
-    # Add additional number entities
-    for description in NUMBER_DESCRIPTIONS:
-        entities.append(DeskNumber(coordinator, entry, description))
 
-    async_add_entities(entities)
-
-
-class DeskyHeightNumber(CoordinatorEntity[DeskUpdateCoordinator], NumberEntity):
+class DeskyHeightNumber(DeskEntity, NumberEntity):
     """Representation of desk height as a number entity."""
 
     _attr_native_min_value = MIN_HEIGHT
@@ -88,42 +85,24 @@ class DeskyHeightNumber(CoordinatorEntity[DeskUpdateCoordinator], NumberEntity):
     _attr_native_step = 0.1
     _attr_native_unit_of_measurement = UnitOfLength.CENTIMETERS
     _attr_mode = NumberMode.BOX
-    _attr_has_entity_name = True
-    _attr_name = "Height"
+    _attr_translation_key = "height"
 
     def __init__(self, coordinator: DeskUpdateCoordinator) -> None:
         """Initialize the height number entity."""
-        super().__init__(coordinator)
-        self._attr_unique_id = f"{coordinator.entry.unique_id}_height"
+        super().__init__(coordinator, "height")
 
     @property
-    def device_info(self) -> DeviceInfo:
-        """Return device information."""
-        return self.coordinator.get_device_info()
-
-    @property
-    def native_value(self) -> float | None:
+    def native_value(self) -> float:
         """Return the current height in cm."""
-        if not self.coordinator.data:
-            return None
-        return self.coordinator.data.get("height_cm", DEFAULT_HEIGHT)
-
-    @property
-    def available(self) -> bool:
-        """Return True if entity is available."""
-        return (
-            self.coordinator.data.get("is_connected", False)
-            if self.coordinator.data
-            else False
-        )
+        return self.coordinator.data.height_cm
 
     async def async_set_native_value(self, value: float) -> None:
         """Set the desk height to a specific value in cm."""
-        if not self.coordinator.device:
+        if not self._device:
             return
 
         # Use the move_to_height method for precise positioning
-        await self.coordinator.device.move_to_height(value)
+        await self._device.move_to_height(value)
 
         # Request coordinator update to track movement
         await self.coordinator.async_request_refresh()
@@ -132,20 +111,25 @@ class DeskyHeightNumber(CoordinatorEntity[DeskUpdateCoordinator], NumberEntity):
 class DeskNumber(DeskEntity, NumberEntity):
     """Representation of additional Desky desk number entities."""
 
-    def __init__(self, coordinator, config_entry, description: NumberEntityDescription):
+    def __init__(
+        self, coordinator: DeskUpdateCoordinator, description: NumberEntityDescription
+    ) -> None:
         """Initialize the number entity."""
-        super().__init__(coordinator, config_entry)
+        super().__init__(coordinator, description.key)
         self.entity_description = description
-        self._attr_unique_id = f"{config_entry.unique_id}_{description.key}"
 
     @property
     def native_value(self) -> float | None:
         """Return the current value."""
-        if not self.available:
-            return None
-
+        data = self.coordinator.data
         key = self.entity_description.key
-        return self.coordinator.data.get(key)
+        if key == "height_limit_upper":
+            return data.height_limit_upper
+        if key == "height_limit_lower":
+            return data.height_limit_lower
+        if key == "vibration_intensity":
+            return data.vibration_intensity
+        return None
 
     async def async_set_native_value(self, value: float) -> None:
         """Set the value."""
@@ -163,12 +147,9 @@ class DeskNumber(DeskEntity, NumberEntity):
             await self._device.get_vibration_intensity()
 
     @property
-    def extra_state_attributes(self) -> dict:
+    def extra_state_attributes(self) -> dict[str, Any] | None:
         """Return entity specific state attributes."""
-        attrs = super().extra_state_attributes
-
-        # Add limits enabled status for height limit entities
-        if self.entity_description.key in ["height_limit_upper", "height_limit_lower"]:
-            attrs["limits_enabled"] = self.coordinator.data.get("limits_enabled", False)
-
-        return attrs
+        # Height limit entities report whether the limits are enabled
+        if self.entity_description.key in ("height_limit_upper", "height_limit_lower"):
+            return {"limits_enabled": self.coordinator.data.limits_enabled}
+        return None

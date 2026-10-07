@@ -31,34 +31,78 @@
     }
   },
   "entity": {
-    "cover": {
-      "desky_desk": {
-        "name": "Desk"
+    "binary_sensor": {
+      "collision": {
+        "name": "Collision detected"
+      }
+    },
+    "button": {
+      "move_down": {
+        "name": "Move down"
+      },
+      "move_up": {
+        "name": "Move up"
+      },
+      "preset": {
+        "name": "Preset {number}"
+      }
+    },
+    "light": {
+      "desk_light": {
+        "name": "LED strip"
       }
     },
     "number": {
       "height": {
         "name": "Height"
+      },
+      "height_limit_lower": {
+        "name": "Lower height limit"
+      },
+      "height_limit_upper": {
+        "name": "Upper height limit"
+      },
+      "vibration_intensity": {
+        "name": "Vibration intensity"
       }
     },
-    "button": {
-      "preset_1": {
-        "name": "Preset 1"
+    "select": {
+      "sensitivity": {
+        "name": "Collision sensitivity"
       },
-      "preset_2": {
-        "name": "Preset 2"
+      "touch_mode": {
+        "name": "Touch mode"
       },
-      "preset_3": {
-        "name": "Preset 3"
-      },
-      "preset_4": {
-        "name": "Preset 4"
+      "unit": {
+        "name": "Display unit"
       }
     },
-    "binary_sensor": {
-      "collision": {
-        "name": "Collision Detected"
+    "sensor": {
+      "height_display": {
+        "name": "Height display"
+      },
+      "led_color": {
+        "name": "LED color"
+      },
+      "vibration_intensity_display": {
+        "name": "Vibration intensity display"
       }
+    },
+    "switch": {
+      "lock": {
+        "name": "Lock"
+      },
+      "vibration": {
+        "name": "Vibration"
+      }
+    }
+  },
+  "exceptions": {
+    "cannot_connect": {
+      "message": "Could not connect to the desk at {address}"
+    },
+    "device_not_found": {
+      "message": "Could not find the desk at {address}. Make sure it is powered on and in Bluetooth range"
     }
   }
 }
