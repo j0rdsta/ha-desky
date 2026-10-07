@@ -104,11 +104,67 @@
     "command_failed": {
       "message": "Could not send the command to the desk: {error}"
     },
+    "desk_not_loaded": {
+      "message": "The desk {desk} is not loaded"
+    },
     "device_not_found": {
       "message": "Could not find the desk at {address}. Make sure it is powered on and in Bluetooth range"
     },
+    "height_out_of_range": {
+      "message": "{height} cm is outside the desk's allowed range of {min}-{max} cm"
+    },
+    "limit_inverted_lower": {
+      "message": "The lower limit of {height} cm must be below the upper limit of {other} cm"
+    },
+    "limit_inverted_upper": {
+      "message": "The upper limit of {height} cm must be above the lower limit of {other} cm"
+    },
+    "limit_out_of_range": {
+      "message": "{height} cm is outside the range a limit can be set to, {min}-{max} cm"
+    },
+    "no_desk_targeted": {
+      "message": "The action does not target a Desky desk"
+    },
     "not_connected": {
       "message": "The desk is not connected"
+    }
+  },
+  "selector": {
+    "limit": {
+      "options": {
+        "lower": "Lower",
+        "upper": "Upper"
+      }
+    }
+  },
+  "services": {
+    "clear_height_limits": {
+      "name": "Clear height limits",
+      "description": "Removes both height limits from the desk."
+    },
+    "move_to_height": {
+      "name": "Move to height",
+      "description": "Moves the desk to a height, within its height limits if they are set.",
+      "fields": {
+        "height": {
+          "name": "Height",
+          "description": "The height to move to."
+        }
+      }
+    },
+    "set_height_limit": {
+      "name": "Set height limit",
+      "description": "Sets the desk's upper or lower height limit.",
+      "fields": {
+        "height": {
+          "name": "Height",
+          "description": "The height of the limit."
+        },
+        "limit": {
+          "name": "Limit",
+          "description": "Which limit to set."
+        }
+      }
     }
   }
 }
