@@ -33,6 +33,8 @@ to it as they happen. See [How data updates](data-updates.md).
   connections enabled, within range of the desk.
 - A Desky desk with a Bluetooth controller. It advertises a Bluetooth name that starts with
   `Desky`. See [Supported devices](supported-devices.md).
+- The desk not connected to the Desky phone app. The desk takes one Bluetooth connection at a
+  time.
 
 ## Get started
 
