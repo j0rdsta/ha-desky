@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Coroutine
+from collections.abc import Callable, Coroutine, Iterator
+from contextlib import contextmanager
 from functools import wraps
 from typing import Any, Concatenate
 
@@ -39,6 +40,23 @@ class DeskEntity(CoordinatorEntity[DeskUpdateCoordinator]):
         return self.coordinator.device
 
 
+@contextmanager
+def translate_desk_errors() -> Iterator[None]:
+    """Turn a command that does not reach the desk into a translated error."""
+    try:
+        yield
+    except DeskNotConnectedError as err:
+        raise HomeAssistantError(
+            translation_domain=DOMAIN, translation_key="not_connected"
+        ) from err
+    except DeskCommandError as err:
+        raise HomeAssistantError(
+            translation_domain=DOMAIN,
+            translation_key="command_failed",
+            translation_placeholders={"error": str(err)},
+        ) from err
+
+
 def desk_command[EntityT: DeskEntity, **P](
     func: Callable[Concatenate[EntityT, P], Coroutine[Any, Any, None]],
 ) -> Callable[Concatenate[EntityT, P], Coroutine[Any, Any, None]]:
@@ -50,17 +68,7 @@ def desk_command[EntityT: DeskEntity, **P](
 
     @wraps(func)
     async def wrapper(self: EntityT, *args: P.args, **kwargs: P.kwargs) -> None:
-        try:
+        with translate_desk_errors():
             await func(self, *args, **kwargs)
-        except DeskNotConnectedError as err:
-            raise HomeAssistantError(
-                translation_domain=DOMAIN, translation_key="not_connected"
-            ) from err
-        except DeskCommandError as err:
-            raise HomeAssistantError(
-                translation_domain=DOMAIN,
-                translation_key="command_failed",
-                translation_placeholders={"error": str(err)},
-            ) from err
 
     return wrapper

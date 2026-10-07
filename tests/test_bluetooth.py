@@ -1576,17 +1576,43 @@ def test_parse_height_limit_responses(mock_ble_device):
 
 
 @pytest.mark.parametrize(
-    ("status", "expected"),
-    [(0x00, False), (0x01, True), (0x10, True), (0x11, True)],
+    ("status", "upper", "lower"),
+    [(0x00, None, None), (0x01, 120.0, None), (0x10, None, 65.0), (0x11, 120.0, 65.0)],
 )
-def test_parse_limit_status_response(mock_ble_device, status, expected):
-    """Test parsing of the limit status response (none, upper, lower, both)."""
+def test_parse_limit_status_response(mock_ble_device, status, upper, lower):
+    """Test a limit that the limit status reports as not set reads as None."""
     device = DeskBLEDevice(mock_ble_device)
-    device._limits_enabled = not expected
+    callback = MagicMock()
+    device.register_notification_callback(callback)
+    device._handle_notification(
+        None, _response(LIMIT_UPPER_RESPONSE_HEADER, 0x04, 0xB0)
+    )
+    device._handle_notification(
+        None, _response(LIMIT_LOWER_RESPONSE_HEADER, 0x02, 0x8A)
+    )
 
     device._handle_notification(None, _response(LIMIT_STATUS_RESPONSE_HEADER, status))
 
-    assert device.limits_enabled is expected
+    assert device.height_limit_upper == upper
+    assert device.height_limit_lower == lower
+    assert device.limits_enabled is (status != 0x00)
+    # Each limit frame updates the entities at once
+    assert callback.call_count == 3
+
+
+def test_limits_before_limit_status(mock_ble_device):
+    """Test limits read as reported until the desk says whether they are set."""
+    device = DeskBLEDevice(mock_ble_device)
+    assert device.limits_enabled is False
+
+    device._handle_notification(None, _response(LIMIT_STATUS_RESPONSE_HEADER, 0x00))
+    device._handle_notification(
+        None, _response(LIMIT_UPPER_RESPONSE_HEADER, 0x04, 0xB0)
+    )
+    assert device.height_limit_upper is None
+
+    device._handle_notification(None, _response(LIMIT_STATUS_RESPONSE_HEADER, 0x01))
+    assert device.height_limit_upper == 120.0
 
 
 async def test_device_capability_detection(mock_ble_device, mock_bleak_client):

@@ -1,16 +1,12 @@
 move_to_height:
-  name: Move to Height
-  description: Move the desk to a specific height in centimeters
   target:
     entity:
       integration: desky_desk
       domain: cover
   fields:
     height:
-      name: Height
-      description: Target height in centimeters
       required: true
-      example: 75.5
+      example: 110
       selector:
         number:
           min: 60
@@ -19,49 +15,24 @@ move_to_height:
           unit_of_measurement: cm
           mode: box
 
-move_to_preset:
-  name: Move to Preset
-  description: Move the desk to a saved preset position
+set_height_limit:
   target:
     entity:
       integration: desky_desk
       domain: cover
   fields:
-    preset:
-      name: Preset
-      description: Preset number (1-4)
+    limit:
       required: true
-      example: 1
-      selector:
-        number:
-          min: 1
-          max: 4
-          step: 1
-          mode: box
-
-set_position_limit:
-  name: Set Position Limit
-  description: Set the minimum or maximum height limit for the desk
-  target:
-    entity:
-      integration: desky_desk
-      domain: cover
-  fields:
-    limit_type:
-      name: Limit Type
-      description: Whether to set the minimum or maximum limit
-      required: true
-      example: min
+      example: upper
       selector:
         select:
+          translation_key: limit
           options:
-            - "min"
-            - "max"
+            - upper
+            - lower
     height:
-      name: Height
-      description: Limit height in centimeters
       required: true
-      example: 65
+      example: 120
       selector:
         number:
           min: 60
@@ -71,53 +42,7 @@ set_position_limit:
           mode: box
 
 clear_height_limits:
-  name: Clear Height Limits
-  description: Clear all height limits for the desk
   target:
     entity:
       integration: desky_desk
       domain: cover
-
-set_light_color:
-  name: Set Light Color
-  description: Set the LED strip color
-  target:
-    entity:
-      integration: desky_desk
-      domain: light
-  fields:
-    color:
-      name: Color
-      description: Color to set
-      required: true
-      example: White
-      selector:
-        select:
-          options:
-            - "White"
-            - "Red"
-            - "Green"
-            - "Blue"
-            - "Yellow"
-            - "Party mode"
-            - "Off"
-
-set_sensitivity:
-  name: Set Collision Sensitivity
-  description: Set the collision detection sensitivity level
-  target:
-    entity:
-      integration: desky_desk
-      domain: cover
-  fields:
-    level:
-      name: Sensitivity Level
-      description: Sensitivity level
-      required: true
-      example: Medium
-      selector:
-        select:
-          options:
-            - "High"
-            - "Medium"
-            - "Low"

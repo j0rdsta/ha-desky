@@ -43,6 +43,7 @@ from .const import (
     LIGHT_COLOR_RESPONSE_HEADER,
     LIGHTING_RESPONSE_HEADER,
     LIMIT_LOWER_RESPONSE_HEADER,
+    LIMIT_STATUS_RESPONSE_HEADER,
     LIMIT_UPPER_RESPONSE_HEADER,
     LOCK_STATUS_RESPONSE_HEADER,
     MANUFACTURER_NAME_CHAR_UUID,
@@ -171,7 +172,9 @@ class DeskBLEDevice:
         self._sensitivity_level: int | None = None
         self._height_limit_upper: float | None = None
         self._height_limit_lower: float | None = None
-        self._limits_enabled: bool = False
+        # Whether each limit is set, as the limit status reports; None until reported
+        self._height_limit_upper_set: bool | None = None
+        self._height_limit_lower_set: bool | None = None
         self._touch_mode: int | None = None
         self._unit_preference: str | None = None  # "cm" or "in", as the desk reports
         # The unit the last height was actually in, for heights sent to the desk
@@ -257,18 +260,22 @@ class DeskBLEDevice:
 
     @property
     def height_limit_upper(self) -> float | None:
-        """Return upper height limit in cm."""
+        """Return upper height limit in cm, or None when it is not set."""
+        if self._height_limit_upper_set is False:
+            return None
         return self._height_limit_upper
 
     @property
     def height_limit_lower(self) -> float | None:
-        """Return lower height limit in cm."""
+        """Return lower height limit in cm, or None when it is not set."""
+        if self._height_limit_lower_set is False:
+            return None
         return self._height_limit_lower
 
     @property
     def limits_enabled(self) -> bool:
-        """Return if height limits are enabled."""
-        return self._limits_enabled
+        """Return if any height limit is set."""
+        return bool(self._height_limit_upper_set or self._height_limit_lower_set)
 
     @property
     def touch_mode(self) -> int | None:
@@ -947,6 +954,7 @@ class DeskBLEDevice:
                 (data[4] << 8) | data[5], data
             )
             _LOGGER.debug("Upper limit response: %.1f cm", self._height_limit_upper)
+            self._notify_callbacks()
 
         # Check for lower limit response (in display units, like heights)
         elif len(data) >= 7 and bytes(data[:4]) == LIMIT_LOWER_RESPONSE_HEADER:
@@ -954,32 +962,23 @@ class DeskBLEDevice:
                 (data[4] << 8) | data[5], data
             )
             _LOGGER.debug("Lower limit response: %.1f cm", self._height_limit_lower)
+            self._notify_callbacks()
 
-        # Check for limit status response (0xF2 0xF2 0x20 0x01)
-        elif len(data) >= 6 and bytes(data[:5]) == bytes(
-            [0xF2, 0xF2, 0x20, 0x01, 0x00]
+        # Check for limit status response (0xF2 0xF2 0x20 0x01):
+        # 0x00 no limits, 0x01 upper only, 0x10 lower only, 0x11 both
+        elif (
+            len(data) >= 6
+            and bytes(data[:4]) == LIMIT_STATUS_RESPONSE_HEADER
+            and data[4] in (0x00, 0x01, 0x10, 0x11)
         ):
-            # No limits
-            self._limits_enabled = False
-            _LOGGER.debug("No limits set")
-        elif len(data) >= 6 and bytes(data[:5]) == bytes(
-            [0xF2, 0xF2, 0x20, 0x01, 0x01]
-        ):
-            # Upper limit only
-            self._limits_enabled = True
-            _LOGGER.debug("Upper limit only set")
-        elif len(data) >= 6 and bytes(data[:5]) == bytes(
-            [0xF2, 0xF2, 0x20, 0x01, 0x10]
-        ):
-            # Lower limit only
-            self._limits_enabled = True
-            _LOGGER.debug("Lower limit only set")
-        elif len(data) >= 6 and bytes(data[:5]) == bytes(
-            [0xF2, 0xF2, 0x20, 0x01, 0x11]
-        ):
-            # Both limits set
-            self._limits_enabled = True
-            _LOGGER.debug("Both limits set")
+            self._height_limit_upper_set = bool(data[4] & 0x01)
+            self._height_limit_lower_set = bool(data[4] & 0x10)
+            _LOGGER.debug(
+                "Limit status response: upper %s, lower %s",
+                "set" if self._height_limit_upper_set else "not set",
+                "set" if self._height_limit_lower_set else "not set",
+            )
+            self._notify_callbacks()
 
         else:
             _LOGGER.debug("Unknown notification format: %s", data.hex())

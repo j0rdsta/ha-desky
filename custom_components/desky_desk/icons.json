@@ -74,5 +74,16 @@
         }
       }
     }
+  },
+  "services": {
+    "clear_height_limits": {
+      "service": "mdi:arrow-expand-vertical"
+    },
+    "move_to_height": {
+      "service": "mdi:human-male-height-variant"
+    },
+    "set_height_limit": {
+      "service": "mdi:arrow-collapse-vertical"
+    }
   }
 }

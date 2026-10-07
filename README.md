@@ -46,10 +46,37 @@ versions keep their existing entity IDs.
 Not every desk supports every feature. All entities are unavailable while the desk is not
 connected.
 
-### Services
-- `desky_desk.move_to_height`: Move to specific height in cm
-- `desky_desk.move_to_preset`: Move to preset position (1-4)
-- `desky_desk.set_position_limit`: Set min/max height limits
+### Actions
+
+Target the desk's cover entity, its device, or an area. An action fails with an error if the desk is
+not connected, or if a height is out of range; it never does nothing silently.
+
+| Action | Fields | What it does |
+| --- | --- | --- |
+| `desky_desk.move_to_height` | `height` (cm) | Moves the desk to a height. The height must be within the desk's height limits, or 60–130 cm if none are set |
+| `desky_desk.set_height_limit` | `limit` (`upper` or `lower`), `height` (cm, 60–130) | Sets a height limit. The upper limit must be above the lower one |
+| `desky_desk.clear_height_limits` | | Removes both height limits |
+
+```yaml
+- action: desky_desk.move_to_height
+  target:
+    entity_id: cover.desky_desk
+  data:
+    height: 100
+
+- action: desky_desk.set_height_limit
+  target:
+    entity_id: cover.desky_desk
+  data:
+    limit: upper
+    height: 120
+
+- action: desky_desk.clear_height_limits
+  target:
+    entity_id: cover.desky_desk
+```
+
+To move to a saved preset, press its button entity (`button.desky_desk_preset_1` … `_4`).
 
 ## ⚠️ IMPORTANT SAFETY WARNING
 
@@ -137,11 +164,9 @@ automation:
       - platform: time
         at: "09:00:00"
     action:
-      - service: desky_desk.move_to_preset
+      - service: button.press
         target:
-          entity_id: cover.desky_desk
-        data:
-          preset: 2  # Standing position
+          entity_id: button.desky_desk_preset_2  # Standing position
 ```
 
 #### ✅ Safer Automation Example (Recommended)
@@ -183,11 +208,9 @@ automation:
         entity_id: binary_sensor.office_presence
         state: "on"
       # Move desk
-      - service: desky_desk.move_to_preset
+      - service: button.press
         target:
-          entity_id: cover.desky_desk
-        data:
-          preset: 2  # Standing position
+          entity_id: button.desky_desk_preset_2  # Standing position
 
   - alias: "Safe Sitting Reminder"
     trigger:

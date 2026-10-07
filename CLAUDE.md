@@ -210,15 +210,16 @@ If height updates aren't working:
 5. Verify which format your desk uses
 6. Report the notification format in issues for debugging
 
-### Service Implementations
+### Actions (`services.py`)
 
-The integration provides these custom services:
-- `move_to_height`: Sends direct height command to desk using the 0x1B command
-- `move_to_preset`: Sends preset command via Bluetooth
-- `set_position_limit`: Sets minimum or maximum height limit
-- `clear_height_limits`: Clears all height limits using 0x23 command
-- `set_light_color`: Sets LED strip color (1-7)
-- `set_sensitivity`: Sets collision detection sensitivity (1-3)
+Three actions, registered in `async_setup` so they exist whether or not a desk is loaded:
+- `move_to_height`: moves to a height in cm (`0x1B`). The height must be within the desk's limits when set, otherwise 60-130 cm
+- `set_height_limit`: sets the `upper` or `lower` limit (`0x21`/`0x22`), then re-reads the limits (`0x0C`). The upper limit must be above the lower one
+- `clear_height_limits`: clears both limits (`0x23`), then re-reads them
+
+They are plain actions with a `target:` limited to the desk cover, not entity actions: Home Assistant skips unavailable entities in entity actions, so a disconnected desk would do nothing silently. The handler resolves the target to config entries and raises a translated `ServiceValidationError` (no desk targeted, entry not loaded, bad height) or `HomeAssistantError` (not connected, write failed). Validation runs for every targeted desk before any command is sent.
+
+The limit status (`0x20`: `0x00` none, `0x01` upper, `0x10` lower, `0x11` both) is tracked per limit; a limit that is not set reads as `None`, so its number entity shows unknown.
 
 ### Connection Management
 
