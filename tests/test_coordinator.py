@@ -434,6 +434,77 @@ async def test_stack_loses_sight_of_a_desk_that_still_answers(
     assert STATE_UNAVAILABLE not in _entity_states(hass, init_integration)
 
 
+async def test_settings_missed_at_power_on_are_asked_for_again(
+    hass: HomeAssistant,
+    init_integration: MockConfigEntry,
+    mock_desk: MagicMock,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """Test a desk reached while booting is asked for its settings at the next poll.
+
+    Measured on hardware: a desk connected within a second of powering up
+    ignores the settings request sent while connecting.
+    """
+    await _lose_desk(hass, mock_desk)
+    _reconnect_succeeds(mock_desk)
+    # The disconnect forgot the settings, and the booting desk does not resend them
+    notify_desk(mock_desk, unit_preference=None, touch_mode=None)
+    await _advance(hass, freezer, RECONNECT_BACKOFF_MIN_SECONDS)
+    assert init_integration.runtime_data.data.is_connected
+    status_requests = mock_desk.get_status.await_count
+
+    await _poll(hass, freezer)
+    mock_desk.get_settings.assert_awaited_once_with()
+    assert mock_desk.get_status.await_count == status_requests
+
+    # Asked once per connection, so a desk that never reports them is left alone
+    await _poll(hass, freezer)
+    await _poll(hass, freezer)
+    mock_desk.get_settings.assert_awaited_once_with()
+    assert mock_desk.get_status.await_count == status_requests + 2
+
+
+async def test_settings_reported_while_connecting_are_not_asked_for_again(
+    hass: HomeAssistant,
+    init_integration: MockConfigEntry,
+    mock_desk: MagicMock,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """Test a reconnect that read the settings polls the status as usual."""
+    await _lose_desk(hass, mock_desk)
+    _reconnect_succeeds(mock_desk)
+    await _advance(hass, freezer, RECONNECT_BACKOFF_MIN_SECONDS)
+    assert init_integration.runtime_data.data.is_connected
+    status_requests = mock_desk.get_status.await_count
+
+    await _poll(hass, freezer)
+
+    mock_desk.get_settings.assert_not_called()
+    assert mock_desk.get_status.await_count == status_requests + 1
+
+
+async def test_settings_missing_after_setup_are_asked_for_at_the_first_poll(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_desk: MagicMock,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """Test the refresh right after setup does not ask, but the first poll does."""
+    mock_desk.unit_preference = None
+    mock_config_entry.add_to_hass(hass)
+    with patch(
+        "homeassistant.components.bluetooth.async_ble_device_from_address",
+        return_value=MagicMock(address=ADDRESS),
+    ):
+        assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+    mock_desk.get_settings.assert_not_called()
+
+    await _poll(hass, freezer)
+
+    mock_desk.get_settings.assert_awaited_once_with()
+
+
 async def test_poll_drops_a_connection_the_desk_no_longer_answers(
     hass: HomeAssistant,
     init_integration: MockConfigEntry,

@@ -103,6 +103,9 @@ class DeskUpdateCoordinator(DataUpdateCoordinator[DeskData]):
         self._failed_attempts = 0
         self._cancel_retry: CALLBACK_TYPE | None = None
         self._reconnect_task: asyncio.Task[None] | None = None
+        # True until the first poll after a connection, which asks again for
+        # settings the desk did not report while connecting
+        self._recheck_settings = False
 
     @property
     def device(self) -> DeskBLEDevice:
@@ -140,6 +143,7 @@ class DeskUpdateCoordinator(DataUpdateCoordinator[DeskData]):
             )
 
         self._expected_connected = True
+        self._recheck_settings = True
         entry = self.config_entry
         # Every advertisement hands over the route the desk is heard on now, and
         # one from a desk that is not connected starts a reconnect
@@ -267,7 +271,7 @@ class DeskUpdateCoordinator(DataUpdateCoordinator[DeskData]):
         device = self.device
         if device.is_connected:
             try:
-                await device.get_status()
+                await self._async_request_status(device)
             except DeskError:
                 # A write that fails on an open connection means the desk is gone
                 await self._async_drop_connection()
@@ -285,6 +289,23 @@ class DeskUpdateCoordinator(DataUpdateCoordinator[DeskData]):
                 _LOGGER.debug("No device information available in coordinator")
 
         return self._build_data(device)
+
+    async def _async_request_status(self, device: DeskBLEDevice) -> None:
+        """Request the desk's status, and its settings if they are still unknown.
+
+        A desk reached just after it powers up ignores the settings request
+        sent while connecting. Asking once more at the first scheduled poll
+        catches that; asking at every poll would wake the display of a desk
+        that never reports its unit. The refresh straight after setup is not
+        a scheduled poll, so it is skipped.
+        """
+        if self._recheck_settings and self.data is not None:
+            self._recheck_settings = False
+            if device.unit_preference is None or device.touch_mode is None:
+                _LOGGER.debug("Asking the desk at %s for its settings", self._address)
+                await device.get_settings()
+                return
+        await device.get_status()
 
     @callback
     def _async_handle_advertisement(
@@ -362,6 +383,7 @@ class DeskUpdateCoordinator(DataUpdateCoordinator[DeskData]):
             return
 
         self._failed_attempts = 0
+        self._recheck_settings = True
         if self._unavailable_logged:
             _LOGGER.info("The desk at %s is available again", self._address)
             self._unavailable_logged = False

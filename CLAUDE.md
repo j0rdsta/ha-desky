@@ -229,6 +229,7 @@ The integration provides these custom services:
 - A disconnect logs one warning and the recovery one info line (`The desk at <address> is unavailable` / `is available again`); everything in between is debug
 - Commands raise `DeskNotConnectedError` or `DeskCommandError` (the bool returns are gone; bad arguments raise `ValueError`). Writes are serialised with an `asyncio.Lock`, and a woken command writes its handshake under the same lock. Entity command methods use `@desk_command` (`entity.py`), which turns those into translated `HomeAssistantError`s
 - A poll on a disconnected desk sends nothing and is not an update failure; a poll whose status write fails drops the connection
+- A desk connected within about a second of powering up ignores the settings request sent while connecting, and instead sends `f2 f2 10 02 02 51` and `f2 f2 0f 02 00 07` (meaning unknown). So the first scheduled poll after each connection asks for the settings again (`get_settings()`) if the unit or touch mode is still unknown. It asks only once per connection, because the handshake wakes the desk's display
 - Connection state tracked in coordinator data
 - All entities become unavailable when disconnected
 - BLE device discovery uses Home Assistant's bluetooth component
