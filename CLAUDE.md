@@ -54,6 +54,7 @@ This is a Home Assistant custom integration that follows the standard component 
 
 - **Entry Point** (`__init__.py`): Sets up the integration, defines platforms (cover, number, button, binary_sensor, light, switch, select, sensor), and manages config entry lifecycle
 - **Data Coordinator** (`coordinator.py`): Implements `DataUpdateCoordinator` pattern for centralized data updates and connection management
+- **Posture** (`posture.py`): `PostureTracker` follows sitting/standing from the height the desk settles at
 - **Bluetooth Layer** (`bluetooth.py`): Handles BLE communication using `bleak` library with retry logic via `bleak-retry-connector`
 - **Config Flow** (`config_flow.py`): Manages integration setup through UI, including Bluetooth device discovery
 - **Platform Entities**: Each platform file (cover.py, number.py, etc.) implements specific Home Assistant entities
@@ -237,7 +238,7 @@ The limit status (`0x20`: `0x00` none, `0x01` upper, `0x10` lower, `0x11` both) 
 
 ### Posture Tracking
 
-- The coordinator sets `DeskData.posture` (`sitting`/`standing`) once the height has been unchanged for `POSTURE_SETTLE_SECONDS` (2 s) and no commanded move is in flight, so passing the threshold mid-move changes nothing. A height at or above the standing threshold (option `standing_threshold`, default 95 cm, 60-130 cm) is standing
+- `PostureTracker` (`posture.py`), owned by the coordinator, sets `DeskData.posture` (a `Posture` enum: `sitting`/`standing`) once the height has been unchanged for `POSTURE_SETTLE_SECONDS` (2 s) and no commanded move is in flight, so passing the threshold mid-move changes nothing. A height at or above the standing threshold (option `standing_threshold`, default 95 cm, 60-130 cm) is standing
 - The posture is `None` while disconnected or before the first height. `posture_changed_at` is a `time.monotonic()` stamp: a change between postures dates from when the desk stopped, a posture that becomes known dates from that moment
 - A posture change is published without `async_set_updated_data()`, which would push back the 30-second poll
 - `PostureTimeSensor` (standing/sitting time today) counts minutes from those stamps on every coordinator update and a 1-minute tick. `state_class: total` with `last_reset` at local midnight; every update compares the local date too, so a day whose midnight a clock change skips still resets. It restores its value only if the restored `last_reset` is today

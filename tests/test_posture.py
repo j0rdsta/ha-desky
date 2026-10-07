@@ -16,8 +16,7 @@ from pytest_homeassistant_custom_component.common import (
 from custom_components.desky_desk.const import (
     CONF_STANDING_THRESHOLD,
     POSTURE_SETTLE_SECONDS,
-    POSTURE_SITTING,
-    POSTURE_STANDING,
+    Posture,
 )
 
 from . import disconnect_desk, notify_desk
@@ -63,7 +62,7 @@ async def test_posture_follows_the_settled_height(
 
     await _settle(hass, freezer)
 
-    assert coordinator.data.posture == POSTURE_SITTING
+    assert coordinator.data.posture == Posture.SITTING
     assert coordinator.data.posture_changed_at is not None
 
 
@@ -79,11 +78,11 @@ async def test_desk_raised_to_standing_height(
 
     await _move(hass, freezer, mock_desk, [85.0, 95.0, 105.0, 110.0])
     stopped_at = coordinator.data.posture_changed_at
-    assert coordinator.data.posture == POSTURE_SITTING
+    assert coordinator.data.posture == Posture.SITTING
 
     await _settle(hass, freezer)
 
-    assert coordinator.data.posture == POSTURE_STANDING
+    assert coordinator.data.posture == Posture.STANDING
     # The change is dated to when the desk stopped, not when it was confirmed
     assert coordinator.data.posture_changed_at is not None
     assert stopped_at is not None
@@ -103,7 +102,7 @@ async def test_threshold_is_inclusive(
     await _move(hass, freezer, mock_desk, [95.0])
     await _settle(hass, freezer)
 
-    assert init_integration.runtime_data.data.posture == POSTURE_STANDING
+    assert init_integration.runtime_data.data.posture == Posture.STANDING
 
 
 async def test_passing_through_the_threshold_mid_move(
@@ -122,7 +121,7 @@ async def test_passing_through_the_threshold_mid_move(
     await _move(hass, freezer, mock_desk, [*up, *reversed(up[:-1]), 75.0])
     await _settle(hass, freezer)
 
-    assert coordinator.data.posture == POSTURE_SITTING
+    assert coordinator.data.posture == Posture.SITTING
     assert coordinator.data.posture_changed_at == changed_at
 
 
@@ -139,11 +138,11 @@ async def test_posture_waits_for_a_commanded_move_to_end(
     notify_desk(mock_desk, height_cm=110.0, is_moving=True)
     await _settle(hass, freezer)
     await _settle(hass, freezer)
-    assert coordinator.data.posture == POSTURE_SITTING
+    assert coordinator.data.posture == Posture.SITTING
 
     notify_desk(mock_desk, is_moving=False)
     await _settle(hass, freezer)
-    assert coordinator.data.posture == POSTURE_STANDING
+    assert coordinator.data.posture == Posture.STANDING
 
 
 async def test_posture_unknown_while_disconnected(
@@ -166,7 +165,7 @@ async def test_posture_unknown_while_disconnected(
     await hass.async_block_till_done()
     assert coordinator.data.posture is None
     await _settle(hass, freezer)
-    assert coordinator.data.posture == POSTURE_STANDING
+    assert coordinator.data.posture == Posture.STANDING
 
 
 async def test_posture_unknown_before_the_first_height(
@@ -183,7 +182,7 @@ async def test_posture_unknown_before_the_first_height(
 
 
 @pytest.mark.parametrize(
-    ("threshold", "posture"), [(105, POSTURE_SITTING), (100, POSTURE_STANDING)]
+    ("threshold", "posture"), [(105, Posture.SITTING), (100, Posture.STANDING)]
 )
 async def test_posture_uses_the_configured_threshold(
     hass: HomeAssistant,
@@ -191,7 +190,7 @@ async def test_posture_uses_the_configured_threshold(
     mock_config_entry: MockConfigEntry,
     mock_desk: MagicMock,
     threshold: int,
-    posture: str,
+    posture: Posture,
 ) -> None:
     """Test the posture follows the threshold set in the options."""
     mock_desk.height_cm = 100.0

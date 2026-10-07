@@ -290,7 +290,7 @@ async def test_options_flow_sets_standing_threshold(
 ) -> None:
     """Test the options flow saves the threshold and reloads the desk with it."""
     coordinator = init_integration.runtime_data
-    assert coordinator.standing_threshold == DEFAULT_STANDING_THRESHOLD
+    assert coordinator.posture_tracker.standing_threshold == DEFAULT_STANDING_THRESHOLD
 
     result = await hass.config_entries.options.async_init(init_integration.entry_id)
     assert result["type"] == FlowResultType.FORM
@@ -304,7 +304,7 @@ async def test_options_flow_sets_standing_threshold(
     assert result["type"] == FlowResultType.CREATE_ENTRY
     assert init_integration.options == {CONF_STANDING_THRESHOLD: 105}
     assert init_integration.runtime_data is not coordinator
-    assert init_integration.runtime_data.standing_threshold == 105
+    assert init_integration.runtime_data.posture_tracker.standing_threshold == 105
 
 
 async def test_options_flow_suggests_current_threshold(

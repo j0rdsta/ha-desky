@@ -24,7 +24,7 @@ from homeassistant.helpers.event import (
 )
 from homeassistant.util import dt as dt_util
 
-from .const import CM_PER_INCH, LIGHT_COLORS, POSTURE_SITTING, POSTURE_STANDING
+from .const import CM_PER_INCH, LIGHT_COLORS, Posture
 from .coordinator import DeskUpdateCoordinator, DeskyConfigEntry
 from .entity import DeskEntity
 
@@ -53,7 +53,7 @@ SENSOR_DESCRIPTIONS = [
         key="posture",
         translation_key="posture",
         device_class=SensorDeviceClass.ENUM,
-        options=[POSTURE_SITTING, POSTURE_STANDING],
+        options=[posture.value for posture in Posture],
     ),
 ]
 
@@ -62,22 +62,15 @@ SENSOR_DESCRIPTIONS = [
 POSTURE_TIME_INTERVAL = timedelta(minutes=1)
 
 POSTURE_TIME_DESCRIPTIONS = {
-    POSTURE_STANDING: SensorEntityDescription(
-        key="standing_time_today",
-        translation_key="standing_time_today",
+    posture: SensorEntityDescription(
+        key=f"{posture}_time_today",
+        translation_key=f"{posture}_time_today",
         device_class=SensorDeviceClass.DURATION,
         native_unit_of_measurement=UnitOfTime.MINUTES,
         state_class=SensorStateClass.TOTAL,
         suggested_display_precision=0,
-    ),
-    POSTURE_SITTING: SensorEntityDescription(
-        key="sitting_time_today",
-        translation_key="sitting_time_today",
-        device_class=SensorDeviceClass.DURATION,
-        native_unit_of_measurement=UnitOfTime.MINUTES,
-        state_class=SensorStateClass.TOTAL,
-        suggested_display_precision=0,
-    ),
+    )
+    for posture in (Posture.STANDING, Posture.SITTING)
 }
 
 
@@ -178,7 +171,7 @@ class PostureTimeSensor(DeskEntity, RestoreSensor):
     def __init__(
         self,
         coordinator: DeskUpdateCoordinator,
-        posture: str,
+        posture: Posture,
         description: SensorEntityDescription,
     ) -> None:
         """Initialize the sensor."""
@@ -214,8 +207,8 @@ class PostureTimeSensor(DeskEntity, RestoreSensor):
         ):
             self._minutes = float(last_data.native_value)
 
-        self._not_before = time.monotonic()
-        self._count()
+        self._not_before = now = time.monotonic()
+        self._count(now)
         self.async_on_remove(
             async_track_time_change(
                 self.hass, self._async_on_time, hour=0, minute=0, second=0
@@ -258,10 +251,8 @@ class PostureTimeSensor(DeskEntity, RestoreSensor):
                 self._counting_since = now
 
     @callback
-    def _count(self, now: float | None = None) -> None:
-        """Add the time spent in the posture since the last count."""
-        if now is None:
-            now = time.monotonic()
+    def _count(self, now: float) -> None:
+        """Add the time spent in the posture up to now."""
         data = self.coordinator.data
         in_posture = data.is_connected and data.posture == self._posture
         changed_at = data.posture_changed_at
