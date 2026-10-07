@@ -18,7 +18,7 @@ from homeassistant.const import (
     STATE_ON,
     STATE_UNAVAILABLE,
 )
-from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.core import HomeAssistant
 from homeassistant.setup import async_setup_component
 import pytest
 from pytest_homeassistant_custom_component.common import (
@@ -101,25 +101,6 @@ async def _advance(
 async def _settle(hass: HomeAssistant, freezer: FrozenDateTimeFactory) -> None:
     """Let the desk stand still long enough for the posture to follow it."""
     await _advance(hass, freezer, timedelta(seconds=POSTURE_SETTLE_SECONDS))
-
-
-async def test_helper_loads_a_blueprint(hass: HomeAssistant, tmp_path: Path) -> None:
-    """Test the helper instantiates an automation from a blueprint in the dir."""
-    (tmp_path / "blueprints" / "automation" / "desky_desk" / "trivial.yaml").write_text(
-        "blueprint:\n"
-        "  name: Desky - Trivial\n"
-        "  domain: automation\n"
-        "  input:\n"
-        "    entity:\n"
-        "      selector:\n"
-        "        entity:\n"
-        "triggers:\n"
-        "  - trigger: state\n"
-        "    entity_id: !input entity\n"
-        "actions: []\n"
-    )
-
-    await _create_automation(hass, "trivial.yaml", {"entity": "light.kitchen"})
 
 
 @pytest.mark.parametrize("blueprint", BLUEPRINTS)
@@ -325,7 +306,7 @@ async def test_scheduled_stand_without_a_person(
 @pytest.mark.usefixtures("init_integration")
 async def test_collision_alert(hass: HomeAssistant, mock_desk: MagicMock) -> None:
     """Test one alert naming the desk when the collision sensor turns on."""
-    calls: list[ServiceCall] = async_mock_service(hass, "notify", "test")
+    calls = async_mock_service(hass, "notify", "test")
     await _create_automation(
         hass,
         "collision_alert.yaml",

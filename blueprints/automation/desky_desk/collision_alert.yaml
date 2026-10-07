@@ -37,9 +37,8 @@ triggers:
 
 variables:
   desk: >-
-    {{ device_attr(device_id(trigger.entity_id), 'name_by_user')
-       or device_attr(device_id(trigger.entity_id), 'name')
-       or 'The desk' }}
+    {% set device = device_id(trigger.entity_id) %}
+    {{ device_attr(device, 'name_by_user') or device_attr(device, 'name') or 'The desk' }}
 
 actions:
   - action: !input notify_action
