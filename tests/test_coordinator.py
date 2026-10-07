@@ -12,7 +12,7 @@ import logging
 from unittest.mock import ANY, MagicMock, patch
 
 from freezegun.api import FrozenDateTimeFactory
-from homeassistant.const import STATE_UNAVAILABLE
+from homeassistant.const import EVENT_HOMEASSISTANT_STOP, STATE_UNAVAILABLE
 from homeassistant.core import CoreState, HomeAssistant
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 import pytest
@@ -251,15 +251,61 @@ async def test_disconnect_reconnects_at_once(
     assert not init_integration._background_tasks
 
 
-async def test_no_reconnect_while_home_assistant_stops(
+async def _stop_home_assistant(hass: HomeAssistant) -> None:
+    """Run Home Assistant's shutdown up to where Bluetooth is torn down.
+
+    Home Assistant fires the stop event in the stopping stage, but the
+    Bluetooth stack goes down after the state has moved on to not_running.
+    """
+    hass.set_state(CoreState.stopping)
+    hass.bus.async_fire(EVENT_HOMEASSISTANT_STOP)
+    await hass.async_block_till_done()
+    hass.set_state(CoreState.final_write)
+    hass.set_state(CoreState.not_running)
+
+
+async def test_disconnect_while_running_warns_and_reconnects(
+    hass: HomeAssistant,
+    init_integration: MockConfigEntry,
+    mock_desk: MagicMock,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Test a dropped connection is logged and re-established."""
+    _reconnect_succeeds(mock_desk)
+
+    disconnect_desk(mock_desk)
+    await hass.async_block_till_done(wait_background_tasks=True)
+
+    assert "is unavailable" in caplog.text
+    assert mock_desk.connect.await_count == 2
+
+
+async def test_disconnect_during_startup_warns_and_reconnects(
+    hass: HomeAssistant,
+    init_integration: MockConfigEntry,
+    mock_desk: MagicMock,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Test not_running before the stop event is not taken for a shutdown."""
+    hass.set_state(CoreState.not_running)
+    _reconnect_succeeds(mock_desk)
+
+    disconnect_desk(mock_desk)
+    await hass.async_block_till_done(wait_background_tasks=True)
+
+    assert "is unavailable" in caplog.text
+    assert mock_desk.connect.await_count == 2
+
+
+async def test_no_reconnect_after_home_assistant_stops(
     hass: HomeAssistant,
     init_integration: MockConfigEntry,
     mock_desk: MagicMock,
     mock_bluetooth_callbacks: BluetoothCallbacks,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """Test a disconnect during shutdown neither reconnects nor warns."""
-    hass.set_state(CoreState.stopping)
+    """Test a disconnect late in shutdown neither reconnects nor warns."""
+    await _stop_home_assistant(hass)
     _reconnect_succeeds(mock_desk)
 
     disconnect_desk(mock_desk)
@@ -269,6 +315,47 @@ async def test_no_reconnect_while_home_assistant_stops(
     mock_desk.connect.assert_awaited_once()
     assert "is unavailable" not in caplog.text
     assert not init_integration.runtime_data.data.is_connected
+
+
+async def test_stop_cancels_pending_retry(
+    hass: HomeAssistant,
+    init_integration: MockConfigEntry,
+    mock_desk: MagicMock,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """Test Home Assistant stopping cancels a scheduled reconnect retry."""
+    await _lose_desk(hass, mock_desk)
+    assert mock_desk.connect.await_count == 2
+
+    await _stop_home_assistant(hass)
+    await _advance(hass, freezer, RECONNECT_BACKOFF_MAX_SECONDS)
+
+    assert mock_desk.connect.await_count == 2
+
+
+async def test_failed_reconnect_during_stop_schedules_no_retry(
+    hass: HomeAssistant,
+    init_integration: MockConfigEntry,
+    mock_desk: MagicMock,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """Test a reconnect that fails once Home Assistant stops is not retried."""
+    release = asyncio.Event()
+
+    async def _connect() -> bool:
+        await release.wait()
+        return False
+
+    mock_desk.connect.side_effect = _connect
+    disconnect_desk(mock_desk)
+    await hass.async_block_till_done()
+
+    await _stop_home_assistant(hass)
+    release.set()
+    await hass.async_block_till_done(wait_background_tasks=True)
+    await _advance(hass, freezer, RECONNECT_BACKOFF_MAX_SECONDS)
+
+    assert mock_desk.connect.await_count == 2
 
 
 async def test_desk_returns_to_range(
