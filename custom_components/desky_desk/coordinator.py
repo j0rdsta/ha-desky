@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from functools import partial
 import logging
+import time
 from typing import cast
 
 from homeassistant.components import bluetooth
@@ -31,6 +32,9 @@ from .const import (
     CONF_STANDING_THRESHOLD,
     DEFAULT_STANDING_THRESHOLD,
     DOMAIN,
+    POSTURE_SETTLE_SECONDS,
+    POSTURE_SITTING,
+    POSTURE_STANDING,
     RECONNECT_BACKOFF_MAX_SECONDS,
     RECONNECT_BACKOFF_MIN_SECONDS,
     UPDATE_INTERVAL_SECONDS,
@@ -80,6 +84,10 @@ class DeskData:
     hardware_revision: str | None
     firmware_revision: str | None
     software_revision: str | None
+    # Sitting or standing once the desk has stopped; None while unknown
+    posture: str | None = None
+    # time.monotonic() when the posture last changed, or None if it never has
+    posture_changed_at: float | None = None
 
 
 class DeskUpdateCoordinator(DataUpdateCoordinator[DeskData]):
@@ -111,6 +119,12 @@ class DeskUpdateCoordinator(DataUpdateCoordinator[DeskData]):
         # True until the first poll after a connection, which asks again for
         # settings the desk did not report while connecting
         self._recheck_settings = False
+        self._posture: str | None = None
+        self._posture_changed_at: float | None = None
+        # The last height seen, and time.monotonic() when it was first seen
+        self._last_height: float | None = None
+        self._height_changed_at = 0.0
+        self._cancel_settle: CALLBACK_TYPE | None = None
 
     @property
     def device(self) -> DeskBLEDevice:
@@ -169,9 +183,9 @@ class DeskUpdateCoordinator(DataUpdateCoordinator[DeskData]):
             )
         )
 
-    @staticmethod
-    def _build_data(device: DeskBLEDevice) -> DeskData:
+    def _build_data(self, device: DeskBLEDevice) -> DeskData:
         """Build the data snapshot from the device's current state."""
+        self._track_posture(device)
         connected = device.is_connected
         return DeskData(
             is_connected=connected,
@@ -198,7 +212,68 @@ class DeskUpdateCoordinator(DataUpdateCoordinator[DeskData]):
             hardware_revision=device.hardware_revision,
             firmware_revision=device.firmware_revision,
             software_revision=device.software_revision,
+            posture=self._posture,
+            posture_changed_at=self._posture_changed_at,
         )
+
+    @callback
+    def _track_posture(self, device: DeskBLEDevice) -> None:
+        """Wait for the desk to stand still before its posture follows its height.
+
+        The posture is unknown while the desk is disconnected, so neither
+        posture is counted for that time.
+        """
+        now = time.monotonic()
+        if not device.is_connected or device.height_cm <= 0:
+            self._cancel_posture_check()
+            self._last_height = None
+            if self._posture is not None:
+                self._posture = None
+                self._posture_changed_at = now
+            return
+        if device.height_cm != self._last_height:
+            self._last_height = device.height_cm
+            self._height_changed_at = now
+        elif not device.is_moving:
+            return
+        self._cancel_posture_check()
+        self._cancel_settle = async_call_later(
+            self.hass, POSTURE_SETTLE_SECONDS, self._async_settle
+        )
+
+    @callback
+    def _async_settle(self, _now: datetime) -> None:
+        """Set the posture from the height the desk has stopped at."""
+        self._cancel_settle = None
+        device = self.device
+        if device.is_moving:
+            self._cancel_settle = async_call_later(
+                self.hass, POSTURE_SETTLE_SECONDS, self._async_settle
+            )
+            return
+        posture = (
+            POSTURE_STANDING
+            if device.height_cm >= self.standing_threshold
+            else POSTURE_SITTING
+        )
+        if posture == self._posture:
+            return
+        # A change between postures dates from when the desk stopped; a posture
+        # that was unknown is known from now, so no unknown time is counted
+        self._posture_changed_at = (
+            time.monotonic() if self._posture is None else self._height_changed_at
+        )
+        self._posture = posture
+        # Publish without async_set_updated_data(), which would push back the poll
+        self.data = self._build_data(device)
+        self.async_update_listeners()
+
+    @callback
+    def _cancel_posture_check(self) -> None:
+        """Cancel a pending check of the posture."""
+        if self._cancel_settle is not None:
+            self._cancel_settle()
+            self._cancel_settle = None
 
     def _device_registry_fields(self) -> dict[str, str]:
         """Return the device registry fields the desk reported, without placeholders."""
@@ -445,6 +520,7 @@ class DeskUpdateCoordinator(DataUpdateCoordinator[DeskData]):
         """
         self._expected_connected = False
         self._async_cancel_retry()
+        self._cancel_posture_check()
         await super().async_shutdown()
 
         if self._reconnect_task and not self._reconnect_task.done():

@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 from datetime import timedelta
 import logging
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 from freezegun.api import FrozenDateTimeFactory
 from homeassistant.const import STATE_UNAVAILABLE
@@ -152,7 +152,10 @@ async def test_poll_reads_desk(
     await _poll(hass, freezer)
 
     assert mock_desk.get_status.await_count == 2
-    assert init_integration.runtime_data.data == desk_data(**changes)
+    # The posture settled before the poll; test_posture.py covers it
+    assert init_integration.runtime_data.data == desk_data(
+        **changes, posture="standing", posture_changed_at=ANY
+    )
 
 
 async def test_poll_without_device_information_service(
@@ -169,7 +172,9 @@ async def test_poll_without_device_information_service(
 
     await _poll(hass, freezer)
 
-    assert init_integration.runtime_data.data == desk_data(**NO_DEVICE_INFO)
+    assert init_integration.runtime_data.data == desk_data(
+        **NO_DEVICE_INFO, posture="sitting", posture_changed_at=ANY
+    )
     assert "No device information available in coordinator" in caplog.text
 
 
