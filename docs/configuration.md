@@ -24,8 +24,16 @@ up under **Settings → Devices & services** as a new device to set up.
 3. If Home Assistant can see one or more desks, select yours from the list. Each entry shows the
    desk's Bluetooth name and address.
 4. If it cannot see any desk, enter the desk's Bluetooth address, for example
-   `AA:BB:CC:DD:EE:FF`. Home Assistant must be able to see a device at that address right now,
-   otherwise setup fails with **Failed to connect to device**.
+   `AA:BB:CC:DD:EE:FF`. You can find it under **Settings → Devices & services → Bluetooth** in
+   the advertisement monitor, in an ESPHome Bluetooth proxy's log, or with a BLE scanner app such
+   as nRF Connect. Home Assistant must be able to see a device at that address right now.
+
+### Connection check
+
+However you add the desk, setup connects to it once before it finishes, then disconnects. If
+Home Assistant cannot see the desk, or the desk does not accept the connection, the form shows
+**Could not connect to the desk. Make sure it is powered on, in range and not connected to the
+Desky app.** Fix the cause and submit again.
 
 Each desk can only be added once. Adding the same desk again stops with **Device is already
 configured**.
@@ -45,6 +53,23 @@ messages, and Home Assistant retries it in the background:
 - *Could not connect to the desk at AA:BB:CC:DD:EE:FF*
 
 See [Troubleshooting](troubleshooting.md) if it does not recover.
+
+## Options
+
+To change a desk's options, go to **Settings → Devices & services → Desky Standing Desk** and
+select **Configure** on the desk's entry.
+
+| Option | Default | Range | Description |
+| --- | --- | --- | --- |
+| Standing threshold | 95 cm | 60-130 cm, in steps of 1 cm | The desk counts as standing when it stops at or above this height, and as sitting when it stops below it |
+
+The threshold sets the [Posture](entities.md#posture) sensor, and through it the
+[sitting and standing time](entities.md#standing-time-today-and-sitting-time-today) sensors and
+the sit/stand reminder [blueprint](blueprints.md).
+
+Saving the options reloads the desk: the integration disconnects, reconnects and applies the new
+threshold. The posture is unknown until the desk has reported its height again, and today's
+sitting and standing times are kept.
 
 ## More than one desk
 

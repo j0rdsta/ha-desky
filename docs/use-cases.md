@@ -10,7 +10,8 @@ For a sit/stand reminder, a scheduled stand or a collision alert, import one of 
 ## Sit and stand from a dashboard
 
 The cover entity gives you raise, lower, stop and a position slider, where 0 % is 60 cm and
-100 % is 130 cm. The preset buttons recall the heights saved on the hand controller.
+100 % is 130 cm. The preset buttons recall the heights saved on the hand controller, and the
+posture sensor shows whether you are sitting or standing.
 
 ```yaml
 type: entities
@@ -18,10 +19,20 @@ title: Standing desk
 entities:
   - entity: cover.desky_desk
   - entity: number.desky_desk_height
+  - entity: sensor.desky_desk_posture
+  - type: section
+    label: Presets
   - entity: button.desky_desk_preset_1
     name: Sitting
   - entity: button.desky_desk_preset_2
     name: Standing
+  - type: section
+    label: Manual controls
+  - entity: button.desky_desk_move_up
+  - entity: button.desky_desk_move_down
+  - type: section
+    label: Status
+  - entity: binary_sensor.desky_desk_collision_detected
 ```
 
 ## Voice control
@@ -32,8 +43,9 @@ Expose the cover to Assist, Google Assistant or Alexa, and say "open the desk" t
 
 ## Go to an exact height
 
-The `desky_desk.move_to_height` action moves the desk to a height in centimetres. It fails with
-an error if the desk is not connected or the height is outside its limits.
+The [`desky_desk.move_to_height`](actions.md#move-to-height) action moves the desk to a height in
+centimetres. It fails with an error if the desk is not connected or the height is outside its
+limits.
 
 ```yaml
 action: desky_desk.move_to_height
@@ -45,22 +57,27 @@ data:
 
 ## Standing reminders
 
-Remind yourself to stand, and let the notification ask before it moves the desk. This example
-assumes an occupancy sensor at the desk, `binary_sensor.office_occupied`, and the Home Assistant
-companion app.
+For a plain reminder, import the [sit/stand reminder blueprint](blueprints.md#sitstand-reminder).
+It uses the posture sensor, so it knows when you have been sitting, not just how long you have
+been at the desk.
+
+To have the reminder offer to raise the desk, write the automation yourself. This example waits
+until the posture sensor has said **Sitting** for 45 minutes, asks on your phone, and only moves
+the desk if you accept and you are still at it. It assumes an occupancy sensor at the desk,
+`binary_sensor.office_occupied`, and the Home Assistant companion app.
 
 ```yaml
 alias: Standing reminder
 triggers:
   - trigger: state
-    entity_id: binary_sensor.office_occupied
-    to: "on"
+    entity_id: sensor.desky_desk_posture
+    to: sitting
     for:
       minutes: 45
 conditions:
-  - condition: numeric_state
-    entity_id: number.desky_desk_height
-    below: 90
+  - condition: state
+    entity_id: binary_sensor.office_occupied
+    state: "on"
 actions:
   - action: notify.mobile_app_your_phone
     data:
@@ -88,28 +105,33 @@ mode: single
 
 ## Track sitting and standing time
 
-The height entity is recorded like any other sensor. A
-[history stats](https://www.home-assistant.io/integrations/history_stats/) sensor based on a
-template binary sensor that is on above your standing threshold counts the time you stand each
-day.
+The integration counts this for you. The **Standing time today** and **Sitting time today**
+sensors add up the minutes in each posture, reset at midnight, and are recorded in long-term
+statistics. A statistics graph shows each day's totals:
+
+```yaml
+type: statistics-graph
+title: Sitting and standing
+entities:
+  - entity: sensor.desky_desk_standing_time_today
+    name: Standing
+  - entity: sensor.desky_desk_sitting_time_today
+    name: Sitting
+chart_type: bar
+period: day
+stat_types:
+  - change
+days_to_show: 14
+```
+
+The posture follows the [standing threshold](configuration.md#options), 95 cm unless you change
+it. See [Entities](entities.md#height-and-posture) for how posture and time are counted.
 
 ## Get told about collisions
 
-The collision binary sensor turns on when a commanded movement stops early or bounces back, and
-clears itself after 10 seconds, or sooner once a later movement runs normally.
-
-```yaml
-alias: Desk collision
-triggers:
-  - trigger: state
-    entity_id: binary_sensor.desky_desk_collision_detected
-    to: "on"
-actions:
-  - action: notify.mobile_app_your_phone
-    data:
-      title: Desk collision
-      message: The desk stopped early. Check what is under or above it.
-```
+The collision binary sensor turns on when a commanded movement stops early or bounces back.
+Import the [collision alert blueprint](blueprints.md#collision-alert) to get a notification when
+it does.
 
 ## Lock the desk when nobody is home
 

@@ -11,6 +11,13 @@
   [Configuration](configuration.md#adding-the-desk-yourself)).
 - The desk accepts one Bluetooth connection at a time. Close the Desky app on any phone or tablet.
 
+## Adding the desk fails
+
+If the setup form shows *Could not connect to the desk. Make sure it is powered on, in range and
+not connected to the Desky app.*, Home Assistant either cannot see the desk right now or the desk
+refused the connection. Wake the desk, close the Desky app, check the points above and submit the
+form again.
+
 ## Setup keeps retrying
 
 If setup fails with *Could not find the desk* or *Could not connect to the desk*, Home Assistant
@@ -80,6 +87,53 @@ loaded. An ESP32 proxy has three slots by default. If every slot is taken by oth
 desk cannot connect and stays unavailable. Free a slot, or add
 another proxy near the desk.
 
+## Download diagnostics
+
+Diagnostics are a JSON snapshot of the desk's state, for attaching to an issue. Go to
+**Settings → Devices & services → Desky Standing Desk**, open the three dots menu on the desk's
+entry and select **Download diagnostics**. They are available while the desk is set up, whether
+or not it is connected.
+
+The file contains:
+
+| Key | Contents |
+| --- | --- |
+| `entry` | The entry's title, data, options (the standing threshold, if set) and unique ID |
+| `device` | The desk's Bluetooth name, and the manufacturer, model, serial number and hardware, firmware and software versions it reports |
+| `connected` | Whether the desk is connected |
+| `stale` | `true` while the desk is disconnected: `state` then holds the last values the desk reported |
+| `state` | Everything the integration knows about the desk: height, movement, collision, lighting, vibration, lock, collision sensitivity, height limits, touch mode, display unit and posture |
+| `recent_notification_headers` | The headers of the last frames the desk sent (see below) |
+
+`posture_changed_at` in `state` is a reading of a monotonic clock, not a date. It only means
+something compared with another reading from the same run of Home Assistant.
+
+### What is redacted
+
+The desk's Bluetooth address, the entry's unique ID (which is the address) and the serial number
+are replaced by `**REDACTED**`. The address is also removed from every other text in the file,
+written with colons, dashes or no separator, in upper or lower case, because some Bluetooth
+stacks name a device after its address.
+
+### Reading the notification headers
+
+`recent_notification_headers` lists the first four bytes of the frames the desk sent most
+recently, in hex, oldest first. The values the frames carry, such as the height, are left out.
+Consecutive frames with the same header are counted as one run:
+
+```json
+"recent_notification_headers": [
+  {"header": "f2 f2 0e 01", "count": 1},
+  {"header": "f2 f2 01 03", "count": 42}
+]
+```
+
+This reads as one display unit reply (`f2 f2 0e 01`), followed by 42 status frames with the
+height (`f2 f2 01 03`) in a row. Counting runs keeps a long stream of status frames from pushing
+out the rarer replies a bug report needs. The last 20 runs are kept, and the list starts empty
+whenever the desk is set up, for example after a restart or a reload. [Protocol notes](protocol.md) lists the headers the
+integration knows.
+
 ## Debug logging
 
 Debug logs show every frame the desk sends. Turn them on in `configuration.yaml`:
@@ -107,4 +161,5 @@ Useful lines:
 | `Could not reconnect to the desk at …, retrying in … seconds` | A failed reconnect attempt |
 
 When you [report an issue](https://github.com/j0rdsta/ha-desky/issues), include the relevant
-lines, your desk model if you know it, and whether you connect through a proxy.
+lines, the [diagnostics](#download-diagnostics), your desk model if you know it, and whether you
+connect through a proxy.
