@@ -56,9 +56,10 @@ close the Desky app on your phone.
    **Add**. If it is not discovered, select **Add integration**, search for **Desky Standing
    Desk** and pick the desk or enter its Bluetooth address.
 
-Manual installation, options and removal are covered in the
+Manual installation and options are covered in the
 [installation](https://j0rdsta.github.io/ha-desky/installation/) and
-[configuration](https://j0rdsta.github.io/ha-desky/configuration/) guides.
+[configuration](https://j0rdsta.github.io/ha-desky/configuration/) guides, and removal in
+the [removal](https://j0rdsta.github.io/ha-desky/removal/) guide.
 
 ## Documentation
 

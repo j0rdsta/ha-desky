@@ -50,8 +50,11 @@ body:
     attributes:
       label: Diagnostics
       description: |
-        If the device page offers "Download diagnostics", attach the file here.
-        Diagnostics are redacted, but please check them before posting.
+        Download diagnostics and attach the file here: go to Settings > Devices & services >
+        Desky Standing Desk, open the three dots menu on the desk's entry and select
+        "Download diagnostics". This works whether or not the desk is connected. The Bluetooth
+        address and serial number are redacted, but please check the file before posting. See
+        https://j0rdsta.github.io/ha-desky/troubleshooting/#download-diagnostics
   - type: textarea
     id: logs
     attributes:
