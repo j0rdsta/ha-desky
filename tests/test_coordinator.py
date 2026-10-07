@@ -13,7 +13,7 @@ from unittest.mock import ANY, MagicMock, patch
 
 from freezegun.api import FrozenDateTimeFactory
 from homeassistant.const import STATE_UNAVAILABLE
-from homeassistant.core import HomeAssistant
+from homeassistant.core import CoreState, HomeAssistant
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 import pytest
 from pytest_homeassistant_custom_component.common import (
@@ -249,6 +249,26 @@ async def test_disconnect_reconnects_at_once(
     assert STATE_UNAVAILABLE not in _entity_states(hass, init_integration)
     assert _desk_device(hass, init_integration).sw_version == "2.2.0"
     assert not init_integration._background_tasks
+
+
+async def test_no_reconnect_while_home_assistant_stops(
+    hass: HomeAssistant,
+    init_integration: MockConfigEntry,
+    mock_desk: MagicMock,
+    mock_bluetooth_callbacks: BluetoothCallbacks,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Test a disconnect during shutdown neither reconnects nor warns."""
+    hass.set_state(CoreState.stopping)
+    _reconnect_succeeds(mock_desk)
+
+    disconnect_desk(mock_desk)
+    mock_bluetooth_callbacks.advertise()
+    await hass.async_block_till_done(wait_background_tasks=True)
+
+    mock_desk.connect.assert_awaited_once()
+    assert "is unavailable" not in caplog.text
+    assert not init_integration.runtime_data.data.is_connected
 
 
 async def test_desk_returns_to_range(
