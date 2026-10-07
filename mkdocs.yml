@@ -1,0 +1,69 @@
+site_name: Desky Standing Desk for Home Assistant
+site_description: Control a Desky standing desk from Home Assistant over Bluetooth.
+site_url: https://j0rdsta.github.io/ha-desky/
+repo_url: https://github.com/j0rdsta/ha-desky
+repo_name: j0rdsta/ha-desky
+edit_uri: edit/main/docs/
+copyright: Not affiliated with or endorsed by Desky.
+
+strict: true
+
+validation:
+  omitted_files: warn
+  absolute_links: warn
+  unrecognized_links: warn
+  anchors: warn
+
+theme:
+  name: material
+  features:
+    - content.code.copy
+    - content.action.edit
+    - navigation.footer
+    - navigation.sections
+    - search.highlight
+    - search.suggest
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+
+plugins:
+  - search
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - pymdownx.details
+  - pymdownx.highlight
+  - pymdownx.superfences
+  - tables
+  - toc:
+      permalink: true
+
+nav:
+  - Overview: index.md
+  - Getting started:
+      - Installation: installation.md
+      - Configuration: configuration.md
+      - Removal: removal.md
+  - Using the desk:
+      - Use cases: use-cases.md
+      - How data updates: data-updates.md
+  - Devices and safety:
+      - Supported devices and limitations: supported-devices.md
+      - Safety: safety.md
+  - Help:
+      - Troubleshooting: troubleshooting.md
+  - Development:
+      - Contributing: contributing.md
+      - Protocol notes: protocol.md

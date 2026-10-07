@@ -65,3 +65,6 @@ deps/
 
 # Claude Code
 .claude/
+
+# Documentation site build output
+site/
