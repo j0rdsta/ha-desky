@@ -51,22 +51,21 @@ async def async_get_config_entry_diagnostics(
         "state": data,
         "recent_notification_headers": device.recent_notification_headers,
     }
-    return _scrub_address(
-        async_redact_data(diagnostics, TO_REDACT), entry.data[CONF_ADDRESS]
+    address = entry.data[CONF_ADDRESS]
+    # Some Bluetooth stacks name an unnamed device after its address, written
+    # with colons, dashes or no separator, in either case
+    address_pattern = re.compile(
+        "[:-]?".join(re.escape(part) for part in address.split(":")), re.IGNORECASE
     )
+    return _scrub(async_redact_data(diagnostics, TO_REDACT), address_pattern)
 
 
-def _scrub_address(value: Any, address: str) -> Any:
-    """Redact the address wherever it appears in a string, such as a name.
-
-    Some Bluetooth stacks name an unnamed device after its address, written
-    with colons, dashes or no separator, in either case.
-    """
+def _scrub(value: Any, pattern: re.Pattern[str]) -> Any:
+    """Redact every match of the pattern in the strings of a nested value."""
     if isinstance(value, dict):
-        return {key: _scrub_address(item, address) for key, item in value.items()}
+        return {key: _scrub(item, pattern) for key, item in value.items()}
     if isinstance(value, list):
-        return [_scrub_address(item, address) for item in value]
+        return [_scrub(item, pattern) for item in value]
     if isinstance(value, str):
-        pattern = "[:-]?".join(re.escape(part) for part in address.split(":"))
-        return re.sub(pattern, REDACTED, value, flags=re.IGNORECASE)
+        return pattern.sub(REDACTED, value)
     return value

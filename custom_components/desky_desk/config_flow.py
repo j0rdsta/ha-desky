@@ -73,12 +73,7 @@ class DeskyConfigFlow(ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
         if user_input is not None:
             if await _async_can_connect(self._discovery_info):
-                return self.async_create_entry(
-                    title=self._discovery_info.name or "Desky Desk",
-                    data={
-                        CONF_ADDRESS: self._discovery_info.address,
-                    },
-                )
+                return self._async_create_desk_entry(self._discovery_info)
             errors["base"] = "cannot_connect"
 
         self._set_confirm_only()
@@ -86,7 +81,7 @@ class DeskyConfigFlow(ConfigFlow, domain=DOMAIN):
             step_id="confirm",
             errors=errors,
             description_placeholders={
-                "name": self._discovery_info.name or "Desky Desk",
+                "name": _desk_name(self._discovery_info),
                 "address": self._discovery_info.address,
             },
         )
@@ -106,20 +101,9 @@ class DeskyConfigFlow(ConfigFlow, domain=DOMAIN):
             # Try to find the device
             discovery_info = await self._async_get_device(address)
             if discovery_info and await _async_can_connect(discovery_info):
-                return self.async_create_entry(
-                    title=discovery_info.name or "Desky Desk",
-                    data={CONF_ADDRESS: address},
-                )
+                return self._async_create_desk_entry(discovery_info)
 
-            return self.async_show_form(
-                step_id="user",
-                data_schema=vol.Schema(
-                    {
-                        vol.Required(CONF_ADDRESS): str,
-                    }
-                ),
-                errors={"base": "cannot_connect"},
-            )
+            return self._async_show_user_form({"base": "cannot_connect"})
 
         # Show list of discovered devices
         self._discovered_devices = {}
@@ -130,14 +114,7 @@ class DeskyConfigFlow(ConfigFlow, domain=DOMAIN):
         if self._discovered_devices:
             return await self.async_step_pick_device()
 
-        return self.async_show_form(
-            step_id="user",
-            data_schema=vol.Schema(
-                {
-                    vol.Required(CONF_ADDRESS): str,
-                }
-            ),
-        )
+        return self._async_show_user_form()
 
     async def async_step_pick_device(
         self, user_input: dict[str, Any] | None = None
@@ -152,10 +129,7 @@ class DeskyConfigFlow(ConfigFlow, domain=DOMAIN):
 
             discovery_info = self._discovered_devices[address]
             if await _async_can_connect(discovery_info):
-                return self.async_create_entry(
-                    title=discovery_info.name or "Desky Desk",
-                    data={CONF_ADDRESS: address},
-                )
+                return self._async_create_desk_entry(discovery_info)
             errors["base"] = "cannot_connect"
 
         devices = {
@@ -171,6 +145,25 @@ class DeskyConfigFlow(ConfigFlow, domain=DOMAIN):
                 }
             ),
             errors=errors,
+        )
+
+    def _async_show_user_form(
+        self, errors: dict[str, str] | None = None
+    ) -> ConfigFlowResult:
+        """Show the form for entering a desk's address."""
+        return self.async_show_form(
+            step_id="user",
+            data_schema=vol.Schema({vol.Required(CONF_ADDRESS): str}),
+            errors=errors,
+        )
+
+    def _async_create_desk_entry(
+        self, discovery_info: BluetoothServiceInfoBleak
+    ) -> ConfigFlowResult:
+        """Create the entry for a desk that accepted a connection."""
+        return self.async_create_entry(
+            title=_desk_name(discovery_info),
+            data={CONF_ADDRESS: discovery_info.address},
         )
 
     async def _async_get_device(self, address: str) -> BluetoothServiceInfoBleak | None:
@@ -221,3 +214,8 @@ async def _async_can_connect(discovery_info: BluetoothServiceInfoBleak) -> bool:
         return await device.connect()
     finally:
         await device.disconnect()
+
+
+def _desk_name(discovery_info: BluetoothServiceInfoBleak) -> str:
+    """Return the name the desk advertises, or a generic one."""
+    return discovery_info.name or "Desky Desk"
