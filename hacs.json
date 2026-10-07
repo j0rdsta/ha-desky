@@ -2,5 +2,5 @@
   "name": "Desky Standing Desk",
   "content_in_root": false,
   "render_readme": true,
-  "homeassistant": "2023.12.0"
+  "homeassistant": "2025.10.0"
 }

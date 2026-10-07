@@ -17,7 +17,7 @@ source = ["custom_components/desky_desk"]
 branch = true
 
 [tool.coverage.report]
-fail_under = 94
+fail_under = 95
 show_missing = true
 skip_covered = true
 exclude_also = [
