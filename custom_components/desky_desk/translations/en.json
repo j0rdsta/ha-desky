@@ -4,9 +4,12 @@
     "step": {
       "user": {
         "title": "Set up Desky Desk",
-        "description": "Enter the Bluetooth address of your Desky desk, or leave empty to scan for devices.",
+        "description": "No Desky desk was found nearby. Enter the Bluetooth address of your desk.",
         "data": {
           "address": "Bluetooth Address"
+        },
+        "data_description": {
+          "address": "The desk's Bluetooth address, for example AA:BB:CC:DD:EE:FF. The desk must be powered on and in range of a Bluetooth adapter or proxy."
         }
       },
       "confirm": {
@@ -18,16 +21,17 @@
         "description": "Select your Desky desk from the list of discovered devices.",
         "data": {
           "address": "Device"
+        },
+        "data_description": {
+          "address": "A Desky desk Home Assistant found nearby."
         }
       }
     },
     "error": {
-      "cannot_connect": "Failed to connect to device",
-      "unknown": "Unexpected error"
+      "cannot_connect": "Could not connect to the desk. Make sure it is powered on, in range and not connected to the Desky app."
     },
     "abort": {
-      "already_configured": "Device is already configured",
-      "no_devices_found": "No Desky desks found"
+      "already_configured": "Device is already configured"
     }
   },
   "options": {

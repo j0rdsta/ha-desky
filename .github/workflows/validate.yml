@@ -26,5 +26,3 @@ jobs:
       - uses: hacs/action@main
         with:
           category: integration
-          # Removed once the integration ships its own brand icon.
-          ignore: brands

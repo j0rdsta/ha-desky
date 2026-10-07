@@ -6,6 +6,8 @@ filterwarnings = [
     "error",
     # Home Assistant's http component stores plain string keys on the aiohttp app.
     "ignore:It is recommended to use web.AppKey instances for keys:aiohttp.web_exceptions.NotAppKeyWarning:homeassistant\\.components\\.http",
+    # ... and plain string keys on aiohttp requests, which the diagnostics download hits.
+    "ignore:It is recommended to use web.RequestKey instances for keys:aiohttp.web_exceptions.NotAppKeyWarning:homeassistant\\.components\\.http",
     # asyncinotify (pulled in by HA 2025.10) warns on import outside Linux; macOS only.
     "ignore:inotify is a Linux:UserWarning:asyncinotify",
 ]

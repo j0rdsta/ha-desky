@@ -10,6 +10,7 @@ import pytest
 
 from custom_components.desky_desk.bluetooth import (
     COMMAND_EXPIRY_SECONDS,
+    RECENT_NOTIFICATION_HEADERS,
     DeskBLEDevice,
     DeskCommandError,
     DeskNotConnectedError,
@@ -371,6 +372,57 @@ def test_handle_notification(mock_ble_device):
 
     assert device.height_cm == 85.0
     callback.assert_called_once_with(85.0, False, False)
+
+
+def test_recent_notification_headers(mock_ble_device):
+    """Test the device keeps the headers of recent frames, not their values."""
+    device = DeskBLEDevice(mock_ble_device)
+    assert device.recent_notification_headers == []
+
+    device._handle_notification(None, _status_frame(85.0))
+    device._handle_notification(None, bytearray([0xF2, 0xF2]))
+    device._handle_notification(None, bytearray([0xFF, 0xFF, 0x00, 0x00, 0x52, 0x03]))
+
+    # Unknown and truncated frames are kept too: they are what a bug report needs
+    assert device.recent_notification_headers == [
+        {"header": "f2 f2 01 03", "count": 1},
+        {"header": "f2 f2", "count": 1},
+        {"header": "ff ff 00 00", "count": 1},
+    ]
+
+
+def test_recent_notification_headers_collapse_repeats(mock_ble_device):
+    """Test a run of identical headers is kept once, with how often it came."""
+    device = DeskBLEDevice(mock_ble_device)
+
+    # An idle desk streams status frames; a settings reply interrupts the run
+    for _ in range(81):
+        device._handle_notification(None, _status_frame(85.0))
+    device._handle_notification(None, bytearray([0xF2, 0xF2, 0x0E, 0x01, 0x00]))
+    for _ in range(3):
+        device._handle_notification(None, _status_frame(85.0))
+
+    assert device.recent_notification_headers == [
+        {"header": "f2 f2 01 03", "count": 81},
+        {"header": "f2 f2 0e 01", "count": 1},
+        {"header": "f2 f2 01 03", "count": 3},
+    ]
+
+
+def test_recent_notification_headers_are_capped(mock_ble_device):
+    """Test only the most recent runs of notification headers are kept."""
+    device = DeskBLEDevice(mock_ble_device)
+
+    for value in range(RECENT_NOTIFICATION_HEADERS + 5):
+        for _ in range(2):
+            device._handle_notification(
+                None, bytearray([0xF2, 0xF2, value, 0x01, 0x00])
+            )
+
+    headers = device.recent_notification_headers
+    assert len(headers) == RECENT_NOTIFICATION_HEADERS == 20
+    assert headers[0] == {"header": "f2 f2 05 01", "count": 2}
+    assert headers[-1] == {"header": "f2 f2 18 01", "count": 2}
 
 
 def test_handle_notification_invalid_data(mock_ble_device):

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass, field
 import logging
@@ -67,6 +68,11 @@ _LOGGER = logging.getLogger(__name__)
 
 # Connection attempts bleak-retry-connector makes before giving up
 CONNECT_MAX_ATTEMPTS = 3
+
+# Headers of this many recent runs of notifications are kept for diagnostics. A
+# run is consecutive frames with the same header: an idle desk streams status
+# frames, which would otherwise push out the replies a bug report needs.
+RECENT_NOTIFICATION_HEADERS = 20
 
 # Auto-clear collision after this many seconds
 COLLISION_AUTO_CLEAR_SECONDS = 10.0
@@ -161,6 +167,11 @@ class DeskBLEDevice:
         self._last_notification_time: float = 0.0  # Time of last height notification
         self._notification_callbacks: list[Callable[[float, bool, bool], None]] = []
         self._disconnect_callbacks: list[Callable[[], None]] = []
+        # The first four bytes of recent frames, without the values they carry,
+        # as [header, count] runs
+        self._recent_headers: deque[list[Any]] = deque(
+            maxlen=RECENT_NOTIFICATION_HEADERS
+        )
 
         # New device features
         self._light_color: int | None = None
@@ -316,6 +327,13 @@ class DeskBLEDevice:
     def software_revision(self) -> str | None:
         """Return software revision from device information service."""
         return self._software_revision
+
+    @property
+    def recent_notification_headers(self) -> list[dict[str, Any]]:
+        """Return the most recent runs of notification headers, oldest first."""
+        return [
+            {"header": header, "count": count} for header, count in self._recent_headers
+        ]
 
     def register_notification_callback(
         self, callback: Callable[[float, bool, bool], None]
@@ -884,6 +902,11 @@ class DeskBLEDevice:
     ) -> None:
         """Handle notification from the desk."""
         _LOGGER.debug("Received notification: %s", data.hex())
+        header = data[:4].hex(" ")
+        if self._recent_headers and self._recent_headers[-1][0] == header:
+            self._recent_headers[-1][1] += 1
+        else:
+            self._recent_headers.append([header, 1])
 
         # Check for height notification (0x98 0x98 header)
         if len(data) >= 6 and bytes(data[:2]) == HEIGHT_NOTIFICATION_HEADER:
