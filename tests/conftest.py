@@ -162,7 +162,24 @@ def mock_discovered_service_info(mock_service_info):
 
 
 @pytest.fixture
-def mock_desk() -> Generator[MagicMock]:
+def mock_bluetooth() -> Generator[None]:
+    """Skip setting up Home Assistant's Bluetooth stack.
+
+    On Linux the real setup connects to BlueZ over D-Bus, and Home Assistant
+    2025.10 leaves that socket open, which fails the test with a ResourceWarning.
+    """
+    with (
+        patch("homeassistant.components.bluetooth.async_setup", return_value=True),
+        patch(
+            "homeassistant.components.bluetooth_adapters.async_setup",
+            return_value=True,
+        ),
+    ):
+        yield
+
+
+@pytest.fixture
+def mock_desk(mock_bluetooth: None) -> Generator[MagicMock]:
     """Patch the desk's BLE device with a connected desk and return it.
 
     The values match `mock_coordinator_data`. Use `notify_desk()` or
