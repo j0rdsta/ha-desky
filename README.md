@@ -9,6 +9,8 @@
 
 Control your Desky standing desk via Bluetooth Low Energy (BLE) in Home Assistant. This integration supports ESPHome Bluetooth proxies and works with all Home Assistant installation types.
 
+[Desky](https://www.desky.com.au) makes electric sit-stand desks. Desks with a Bluetooth control box are normally driven from the hand controller or the Desky app. This integration talks to the same control box directly, so Home Assistant can read the desk's height and settings, move it to a height or preset, and control its light, vibration and lock.
+
 ## Features
 
 ### Core Features
@@ -123,6 +125,12 @@ When creating automations for your standing desk, **ALWAYS** include safety meas
 
 **Upsy Desky Users:** If you have an Upsy Desky device installed between your desk's control box and handset, you must disconnect it before using this Bluetooth integration. The two systems cannot work simultaneously as Upsy Desky intercepts the RJ45 connection while this integration uses Bluetooth. See [Issue #4](https://github.com/j0rdsta/ha-desky/issues/4) for details.
 
+## Requirements
+
+- Home Assistant 2025.10 or newer
+- The Bluetooth integration set up, with a Bluetooth adapter or an ESPHome Bluetooth proxy in range of the desk
+- A Desky standing desk with Bluetooth support, powered on and not connected to the Desky app (the desk accepts one connection at a time)
+
 ## Installation
 
 ### HACS (Recommended)
@@ -131,7 +139,8 @@ When creating automations for your standing desk, **ALWAYS** include safety meas
 3. Add this repository URL: `https://github.com/j0rdsta/ha-desky`
 4. Select "Integration" as the category
 5. Click "Add"
-6. Search for "Desky Desk" and install
+6. Search for "Desky Standing Desk" and install
+7. Restart Home Assistant
 
 ### Manual Installation
 1. Copy the `custom_components/desky_desk` folder to your Home Assistant `custom_components` directory
@@ -139,16 +148,23 @@ When creating automations for your standing desk, **ALWAYS** include safety meas
 
 ## Configuration
 
+Home Assistant usually discovers a desk that is advertising and shows it under Settings → Devices & Services as a discovered device. Click "Add" and confirm. To add a desk yourself:
+
 1. Go to Settings → Devices & Services
 2. Click "Add Integration"
-3. Search for "Desky Desk"
-4. The integration will scan for nearby Desky desks
-5. Select your desk from the list or enter the Bluetooth address manually
-6. Follow the setup flow
+3. Search for "Desky Standing Desk"
+4. Choose your desk, or enter its Bluetooth address if none was found
+
+Setup connects to the desk once before it finishes, and shows an error if the desk does not answer.
+
+### Setup parameters
+
+- **Device**: shown when Home Assistant has found desks nearby. Pick your desk from the list of Bluetooth devices whose name contains "Desky".
+- **Bluetooth Address**: shown when no desk was found. The desk's Bluetooth address, for example `AA:BB:CC:DD:EE:FF`. You can find it under Settings → Devices & Services → Bluetooth → Advertisement monitor, in an ESPHome Bluetooth proxy's log, or with a BLE scanner app such as nRF Connect.
 
 ### Options
 
-Open the desk under Settings → Devices & Services → Desky Desk and select **Configure**.
+Open the desk under Settings → Devices & Services → Desky Standing Desk and select **Configure**.
 
 | Option | Default | Range | Description |
 | --- | --- | --- | --- |
@@ -156,11 +172,16 @@ Open the desk under Settings → Devices & Services → Desky Desk and select **
 
 Saving the options reloads the desk. Today's sitting and standing times are kept.
 
-## Requirements
+## Removing the integration
 
-- Home Assistant 2023.12.0 or newer
-- Bluetooth adapter or ESPHome Bluetooth proxy
-- Desky standing desk with Bluetooth support
+Removing the integration needs no steps on the desk.
+
+1. Go to Settings → Devices & Services and select **Desky Standing Desk**
+2. Open the three dots menu on the desk's entry and select **Delete**
+
+To remove the files as well, open HACS, select **Desky Standing Desk**, choose **Remove** from the three dots menu and restart Home Assistant. For a manual installation, delete `custom_components/desky_desk` and restart.
+
+Height limits and presets are stored on the desk's control box and stay there. Clear the limits with the `desky_desk.clear_height_limits` action before removing the integration, or from the hand controller.
 
 ## Usage Examples
 
