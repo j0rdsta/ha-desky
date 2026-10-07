@@ -1,0 +1,20 @@
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+    ignore:
+      # Each release pins a Home Assistant version (including betas); bumped by hand
+      # when a new stable Home Assistant ships.
+      - dependency-name: pytest-homeassistant-custom-component
+    groups:
+      python-minor-patch:
+        update-types: [minor, patch]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions-minor-patch:
+        update-types: [minor, patch]
