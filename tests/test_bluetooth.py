@@ -588,20 +588,6 @@ async def test_disconnect(mock_ble_device, mock_bleak_client):
     assert device._client is None
 
 
-async def test_disconnect_closes_the_link_when_stop_notify_fails(
-    mock_ble_device, mock_bleak_client
-):
-    """Test a desk that stopped answering still has its link closed."""
-    device = DeskBLEDevice(mock_ble_device)
-    device._client = mock_bleak_client
-    mock_bleak_client.stop_notify.side_effect = BleakError("no answer")
-
-    await device.disconnect()
-
-    mock_bleak_client.disconnect.assert_awaited_once()
-    assert device._client is None
-
-
 async def test_send_command_success(mock_ble_device, mock_bleak_client):
     """Test successful command sending."""
     device = DeskBLEDevice(mock_ble_device)

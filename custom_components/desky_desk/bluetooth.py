@@ -766,8 +766,9 @@ class DeskBLEDevice:
                 # Also log characteristics for debugging
                 for char in service.characteristics:
                     _LOGGER.debug(
-                        "  - Characteristic: %s (properties: %s)",
+                        "  - Characteristic: %s (handle %s), properties: %s",
                         char.uuid,
+                        char.handle,
                         char.properties,
                     )
 
