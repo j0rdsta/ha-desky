@@ -17,6 +17,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .const import MAX_HEIGHT, MIN_HEIGHT
 from .coordinator import DeskUpdateCoordinator, DeskyConfigEntry
 from .entity import DeskEntity, desk_command
+from .validation import LIMIT_LOWER, LIMIT_UPPER, validate_height_limit
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -133,9 +134,11 @@ class DeskNumber(DeskEntity, NumberEntity):
     async def async_set_native_value(self, value: float) -> None:
         """Set the value."""
         if self.entity_description.key == "height_limit_upper":
+            validate_height_limit(self.coordinator.data, LIMIT_UPPER, value)
             await self._device.set_height_limit_upper(value)
             await self._device.get_limits()
         elif self.entity_description.key == "height_limit_lower":
+            validate_height_limit(self.coordinator.data, LIMIT_LOWER, value)
             await self._device.set_height_limit_lower(value)
             await self._device.get_limits()
         elif self.entity_description.key == "vibration_intensity":

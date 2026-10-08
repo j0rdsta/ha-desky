@@ -23,10 +23,11 @@ from homeassistant.const import (
     UnitOfLength,
 )
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ServiceValidationError
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.desky_desk.const import MAX_HEIGHT, MIN_HEIGHT
+from custom_components.desky_desk.const import DOMAIN, MAX_HEIGHT, MIN_HEIGHT
 from custom_components.desky_desk.number import DeskNumber
 
 from . import disconnect_desk, notify_desk, set_desk_state
@@ -172,6 +173,95 @@ async def test_set_desk_number(
 
     getattr(mock_desk, setter).assert_awaited_once_with(sent)
     getattr(mock_desk, getter).assert_awaited_once_with()
+
+
+@pytest.mark.parametrize(
+    ("entity_id", "value", "key", "other", "message"),
+    [
+        (
+            UPPER_LIMIT,
+            70.0,
+            "limit_inverted_upper",
+            "70.0",
+            "The upper limit of 70.0 cm must be above the lower limit of 70.0 cm",
+        ),
+        (
+            UPPER_LIMIT,
+            65.0,
+            "limit_inverted_upper",
+            "70.0",
+            "The upper limit of 65.0 cm must be above the lower limit of 70.0 cm",
+        ),
+        (
+            LOWER_LIMIT,
+            110.0,
+            "limit_inverted_lower",
+            "110.0",
+            "The lower limit of 110.0 cm must be below the upper limit of 110.0 cm",
+        ),
+        (
+            LOWER_LIMIT,
+            120.0,
+            "limit_inverted_lower",
+            "110.0",
+            "The lower limit of 120.0 cm must be below the upper limit of 110.0 cm",
+        ),
+    ],
+)
+async def test_inverted_limit_rejected(
+    hass: HomeAssistant,
+    init_integration: MockConfigEntry,
+    mock_desk: MagicMock,
+    entity_id: str,
+    value: float,
+    key: str,
+    other: str,
+    message: str,
+) -> None:
+    """Test a limit number rejects an inverted limit, as the action does."""
+    await set_desk_state(
+        hass, init_integration, height_limit_upper=110.0, height_limit_lower=70.0
+    )
+    mock_desk.reset_mock()
+
+    with pytest.raises(ServiceValidationError) as err:
+        await _set_value(hass, entity_id, value)
+
+    assert err.value.translation_domain == DOMAIN
+    assert err.value.translation_key == key
+    assert err.value.translation_placeholders == {
+        "height": f"{value:.1f}",
+        "other": other,
+    }
+    assert str(err.value) == message
+    assert mock_desk.method_calls == []
+    assert hass.states.get(UPPER_LIMIT).state == "110.0"
+    assert hass.states.get(LOWER_LIMIT).state == "70.0"
+
+
+@pytest.mark.parametrize(
+    ("entity_id", "value", "setter"),
+    [
+        (UPPER_LIMIT, 61.0, "set_height_limit_upper"),
+        (LOWER_LIMIT, 129.0, "set_height_limit_lower"),
+    ],
+)
+async def test_limit_without_the_other_limit(
+    hass: HomeAssistant,
+    init_integration: MockConfigEntry,
+    mock_desk: MagicMock,
+    entity_id: str,
+    value: float,
+    setter: str,
+) -> None:
+    """Test a limit is only checked against the other limit when that one is set."""
+    await set_desk_state(
+        hass, init_integration, height_limit_upper=None, height_limit_lower=None
+    )
+
+    await _set_value(hass, entity_id, value)
+
+    getattr(mock_desk, setter).assert_awaited_once_with(value)
 
 
 async def test_vibration_intensity_sent_as_integer(

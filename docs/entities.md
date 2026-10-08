@@ -133,8 +133,9 @@ back. A limit that is not set shows as unknown.
 
 Attribute `limits_enabled`: true while at least one limit is set.
 
-To set or clear limits from an automation, use the [actions](actions.md), which also check that
-the upper limit stays above the lower one.
+If the other limit is set, the upper limit must be above it and the lower limit below it.
+Otherwise setting the value fails with an error, and nothing is sent to the desk. To set or clear
+limits from an automation, use the [actions](actions.md).
 
 ### Vibration intensity
 

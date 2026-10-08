@@ -51,9 +51,10 @@ the desk's control box.
 | `limit` | Yes | `upper` or `lower` |
 | `height` | Yes | The height of the limit, in cm, from 60 to 130 |
 
-If the other limit is set, the upper limit must be above the lower one. After setting the limit,
-the integration reads the limits back from the desk, so the
-[limit entities](entities.md#upper-height-limit-and-lower-height-limit) show what the desk reports.
+If the other limit is set, the upper limit must be above the lower one. The
+[limit entities](entities.md#upper-height-limit-and-lower-height-limit) run the same check, with
+the same errors. After setting the limit, the integration reads the limits back from the desk, so
+the limit entities show what the desk reports.
 
 ```yaml
 action: desky_desk.set_height_limit
@@ -86,8 +87,8 @@ the run unless the step uses `continue_on_error`.
 | *The desk … is not loaded* | The desk's entry is not set up, for example while setup is retrying |
 | *… cm is outside the desk's allowed range of …-… cm* | `move_to_height` with a height outside the desk's limits |
 | *… cm is outside the range a limit can be set to, 60.0-130.0 cm* | `set_height_limit` with a height outside 60-130 cm |
-| *The upper limit of … cm must be above the lower limit of … cm* | `set_height_limit` with an upper limit at or below the lower limit |
-| *The lower limit of … cm must be below the upper limit of … cm* | `set_height_limit` with a lower limit at or above the upper limit |
+| *The upper limit of … cm must be above the lower limit of … cm* | `set_height_limit` or the Upper height limit entity, with an upper limit at or below the lower limit |
+| *The lower limit of … cm must be below the upper limit of … cm* | `set_height_limit` or the Lower height limit entity, with a lower limit at or above the upper limit |
 | *The desk is not connected* | The desk is set up but not connected |
 | *Could not send the command to the desk: …* | The Bluetooth write failed. The rest of the message is the error from the Bluetooth stack |
 
