@@ -14,15 +14,10 @@ from homeassistant.const import PERCENTAGE, EntityCategory, UnitOfLength
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import MAX_HEIGHT, MIN_HEIGHT
+from .const import MAX_HEIGHT, MIN_HEIGHT, HeightLimit
 from .coordinator import DeskUpdateCoordinator, DeskyConfigEntry
 from .entity import DeskEntity, desk_command
-from .validation import (
-    LIMIT_LOWER,
-    LIMIT_UPPER,
-    validate_height_limit,
-    validate_move_to_height,
-)
+from .validation import validate_height_limit, validate_move_to_height
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -30,8 +25,8 @@ _LOGGER = logging.getLogger(__name__)
 PARALLEL_UPDATES = 1
 
 
-NUMBER_DESCRIPTIONS = [
-    NumberEntityDescription(
+HEIGHT_LIMIT_DESCRIPTIONS = {
+    HeightLimit.UPPER: NumberEntityDescription(
         key="height_limit_upper",
         translation_key="height_limit_upper",
         native_unit_of_measurement=UnitOfLength.CENTIMETERS,
@@ -41,7 +36,7 @@ NUMBER_DESCRIPTIONS = [
         mode=NumberMode.BOX,
         entity_category=EntityCategory.CONFIG,
     ),
-    NumberEntityDescription(
+    HeightLimit.LOWER: NumberEntityDescription(
         key="height_limit_lower",
         translation_key="height_limit_lower",
         native_unit_of_measurement=UnitOfLength.CENTIMETERS,
@@ -51,17 +46,18 @@ NUMBER_DESCRIPTIONS = [
         mode=NumberMode.BOX,
         entity_category=EntityCategory.CONFIG,
     ),
-    NumberEntityDescription(
-        key="vibration_intensity",
-        translation_key="vibration_intensity",
-        native_unit_of_measurement=PERCENTAGE,
-        native_min_value=0,
-        native_max_value=100,
-        native_step=1,
-        mode=NumberMode.SLIDER,
-        entity_category=EntityCategory.CONFIG,
-    ),
-]
+}
+
+VIBRATION_INTENSITY_DESCRIPTION = NumberEntityDescription(
+    key="vibration_intensity",
+    translation_key="vibration_intensity",
+    native_unit_of_measurement=PERCENTAGE,
+    native_min_value=0,
+    native_max_value=100,
+    native_step=1,
+    mode=NumberMode.SLIDER,
+    entity_category=EntityCategory.CONFIG,
+)
 
 
 async def async_setup_entry(
@@ -75,10 +71,8 @@ async def async_setup_entry(
     async_add_entities(
         [
             DeskyHeightNumber(coordinator),
-            *(
-                DeskNumber(coordinator, description)
-                for description in NUMBER_DESCRIPTIONS
-            ),
+            *(DeskHeightLimitNumber(coordinator, limit) for limit in HeightLimit),
+            DeskNumber(coordinator),
         ]
     )
 
@@ -112,48 +106,54 @@ class DeskyHeightNumber(DeskEntity, NumberEntity):
         await self.coordinator.async_request_refresh()
 
 
-class DeskNumber(DeskEntity, NumberEntity):
-    """Representation of additional Desky desk number entities."""
+class DeskHeightLimitNumber(DeskEntity, NumberEntity):
+    """The desk's upper or lower height limit."""
 
-    def __init__(
-        self, coordinator: DeskUpdateCoordinator, description: NumberEntityDescription
-    ) -> None:
-        """Initialize the number entity."""
+    def __init__(self, coordinator: DeskUpdateCoordinator, limit: HeightLimit) -> None:
+        """Initialize the height limit entity."""
+        description = HEIGHT_LIMIT_DESCRIPTIONS[limit]
         super().__init__(coordinator, description.key)
         self.entity_description = description
+        self._limit = limit
 
     @property
     def native_value(self) -> float | None:
-        """Return the current value."""
+        """Return the limit in cm, or None if it is not set."""
         data = self.coordinator.data
-        key = self.entity_description.key
-        if key == "height_limit_upper":
+        if self._limit is HeightLimit.UPPER:
             return data.height_limit_upper
-        if key == "height_limit_lower":
-            return data.height_limit_lower
-        if key == "vibration_intensity":
-            return data.vibration_intensity
-        return None
+        return data.height_limit_lower
 
     @desk_command
     async def async_set_native_value(self, value: float) -> None:
-        """Set the value."""
-        if self.entity_description.key == "height_limit_upper":
-            validate_height_limit(self.coordinator.data, LIMIT_UPPER, value)
-            await self._device.set_height_limit_upper(value)
-            await self._device.get_limits()
-        elif self.entity_description.key == "height_limit_lower":
-            validate_height_limit(self.coordinator.data, LIMIT_LOWER, value)
-            await self._device.set_height_limit_lower(value)
-            await self._device.get_limits()
-        elif self.entity_description.key == "vibration_intensity":
-            await self._device.set_vibration_intensity(int(value))
-            await self._device.get_vibration_intensity()
+        """Set the limit, then show the limits the desk reports."""
+        validate_height_limit(self.coordinator.data, self._limit, value)
+        await self._device.set_height_limit(self._limit, value)
+        await self._device.get_limits()
 
     @property
     def extra_state_attributes(self) -> dict[str, Any] | None:
         """Return entity specific state attributes."""
         # Height limit entities report whether the limits are enabled
-        if self.entity_description.key in ("height_limit_upper", "height_limit_lower"):
-            return {"limits_enabled": self.coordinator.data.limits_enabled}
-        return None
+        return {"limits_enabled": self.coordinator.data.limits_enabled}
+
+
+class DeskNumber(DeskEntity, NumberEntity):
+    """The desk's vibration intensity."""
+
+    entity_description = VIBRATION_INTENSITY_DESCRIPTION
+
+    def __init__(self, coordinator: DeskUpdateCoordinator) -> None:
+        """Initialize the number entity."""
+        super().__init__(coordinator, VIBRATION_INTENSITY_DESCRIPTION.key)
+
+    @property
+    def native_value(self) -> int | None:
+        """Return the vibration intensity in %."""
+        return self.coordinator.data.vibration_intensity
+
+    @desk_command
+    async def async_set_native_value(self, value: float) -> None:
+        """Set the vibration intensity."""
+        await self._device.set_vibration_intensity(int(value))
+        await self._device.get_vibration_intensity()

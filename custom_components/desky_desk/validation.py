@@ -1,14 +1,17 @@
-"""Checks a desk command must pass before anything is sent to the desk."""
+"""Height checks for desk commands."""
 
 from __future__ import annotations
 
 from homeassistant.exceptions import ServiceValidationError
 
-from .const import DOMAIN, MAX_HEIGHT, MIN_HEIGHT
+from .const import DOMAIN, MAX_HEIGHT, MIN_HEIGHT, HeightLimit
 from .coordinator import DeskData
 
-LIMIT_UPPER = "upper"
-LIMIT_LOWER = "lower"
+# The error for a limit on the wrong side of the other limit
+INVERTED_LIMIT_KEYS = {
+    HeightLimit.UPPER: "limit_inverted_upper",
+    HeightLimit.LOWER: "limit_inverted_lower",
+}
 
 
 def _check_height_in_range(height: float, low: float, high: float, key: str) -> None:
@@ -41,20 +44,21 @@ def validate_move_to_height(data: DeskData, height: float) -> None:
     _check_height_in_range(height, _clamp(low), _clamp(high), "height_out_of_range")
 
 
-def validate_height_limit(data: DeskData, limit: str, height: float) -> None:
+def validate_height_limit(data: DeskData, limit: HeightLimit, height: float) -> None:
     """Raise a translated validation error for a height limit the desk must not get.
 
     The limit must be within 60-130 cm. If the other limit is set, an upper
     limit must be above it and a lower limit below it.
     """
     _check_height_in_range(height, MIN_HEIGHT, MAX_HEIGHT, "limit_out_of_range")
-    other = data.height_limit_lower if limit == LIMIT_UPPER else data.height_limit_upper
+    upper = limit is HeightLimit.UPPER
+    other = data.height_limit_lower if upper else data.height_limit_upper
     if other is None:
         return
-    if height <= other if limit == LIMIT_UPPER else height >= other:
+    if height <= other if upper else height >= other:
         raise ServiceValidationError(
             translation_domain=DOMAIN,
-            translation_key=f"limit_inverted_{limit}",
+            translation_key=INVERTED_LIMIT_KEYS[limit],
             translation_placeholders={
                 "height": f"{height:.1f}",
                 "other": f"{other:.1f}",

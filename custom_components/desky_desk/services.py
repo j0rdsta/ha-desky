@@ -9,15 +9,10 @@ from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.service import async_extract_config_entry_ids
 import voluptuous as vol
 
-from .const import DOMAIN
+from .const import DOMAIN, HeightLimit
 from .coordinator import DeskUpdateCoordinator, DeskyConfigEntry
 from .entity import translate_desk_errors
-from .validation import (
-    LIMIT_LOWER,
-    LIMIT_UPPER,
-    validate_height_limit,
-    validate_move_to_height,
-)
+from .validation import validate_height_limit, validate_move_to_height
 
 SERVICE_MOVE_TO_HEIGHT = "move_to_height"
 SERVICE_SET_HEIGHT_LIMIT = "set_height_limit"
@@ -31,7 +26,7 @@ MOVE_TO_HEIGHT_SCHEMA = cv.make_entity_service_schema(
 )
 SET_HEIGHT_LIMIT_SCHEMA = cv.make_entity_service_schema(
     {
-        vol.Required(ATTR_LIMIT): vol.In([LIMIT_UPPER, LIMIT_LOWER]),
+        vol.Required(ATTR_LIMIT): vol.Coerce(HeightLimit),
         vol.Required(ATTR_HEIGHT): vol.Coerce(float),
     }
 )
@@ -91,7 +86,7 @@ async def _async_move_to_height(call: ServiceCall) -> None:
 
 async def _async_set_height_limit(call: ServiceCall) -> None:
     """Set the upper or lower height limit of the targeted desks."""
-    limit: str = call.data[ATTR_LIMIT]
+    limit: HeightLimit = call.data[ATTR_LIMIT]
     height: float = call.data[ATTR_HEIGHT]
     desks = await _async_get_desks(call)
     # Check every desk before sending to any
@@ -100,10 +95,7 @@ async def _async_set_height_limit(call: ServiceCall) -> None:
     for coordinator in desks:
         device = coordinator.device
         with translate_desk_errors():
-            if limit == LIMIT_UPPER:
-                await device.set_height_limit_upper(height)
-            else:
-                await device.set_height_limit_lower(height)
+            await device.set_height_limit(limit, height)
             # The desk may adjust the limit, so show what it reports
             await device.get_limits()
 

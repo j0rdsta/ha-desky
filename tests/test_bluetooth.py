@@ -40,6 +40,7 @@ from custom_components.desky_desk.const import (
     VIBRATION_INTENSITY_RESPONSE_HEADER,
     VIBRATION_RESPONSE_HEADER,
     WRITE_CHARACTERISTIC_UUID,
+    HeightLimit,
 )
 
 
@@ -1549,15 +1550,6 @@ async def test_new_device_commands(mock_ble_device, mock_bleak_client):
     await device.set_sensitivity(2)  # Medium
     expected_command = bytes([0xF1, 0xF1, 0x1D, 0x01, 0x02, 0x20, 0x7E])
 
-    # Test height limits
-    await device.set_height_limit_upper(120.0)
-    # 1200 = 0x04B0, so high=0x04, low=0xB0
-    expected_command = bytes([0xF1, 0xF1, 0x21, 0x02, 0x04, 0xB0, 0xD7, 0x7E])
-
-    await device.set_height_limit_lower(65.0)
-    # 650 = 0x028A, so high=0x02, low=0x8A
-    expected_command = bytes([0xF1, 0xF1, 0x22, 0x02, 0x02, 0x8A, 0xB0, 0x7E])
-
     # Test clear limits
     await device.clear_height_limits()
     expected_command = bytes([0xF1, 0xF1, 0x23, 0x00, 0x23, 0x7E])
@@ -1570,6 +1562,30 @@ async def test_new_device_commands(mock_ble_device, mock_bleak_client):
     # result = await device.set_unit("inch")
     # assert result is True
     # expected_command = bytes([0xF1, 0xF1, 0x00, 0x00, 0x00, 0x7E])  # Not implemented
+
+
+@pytest.mark.parametrize(
+    ("limit", "height", "frame"),
+    [
+        # 1200 = 0x04B0; checksum = (0x21 + 0x02 + 0x04 + 0xB0) & 0xFF = 0xD7
+        (HeightLimit.UPPER, 120.0, "f1f1210204b0d77e"),
+        # 650 = 0x028A; checksum = (0x22 + 0x02 + 0x02 + 0x8A) & 0xFF = 0xB0
+        (HeightLimit.LOWER, 65.0, "f1f12202028ab07e"),
+    ],
+)
+async def test_set_height_limit_frames(
+    mock_ble_device, mock_bleak_client, limit, height, frame
+):
+    """Test each limit is sent with its own command byte, after the handshake."""
+    device = DeskBLEDevice(mock_ble_device)
+    device._client = mock_bleak_client
+
+    await device.set_height_limit(limit, height)
+
+    assert mock_bleak_client.write_gatt_char.call_args_list == [
+        call(WRITE_CHARACTERISTIC_UUID, COMMAND_HANDSHAKE),
+        call(WRITE_CHARACTERISTIC_UUID, bytes.fromhex(frame)),
+    ]
 
 
 async def test_device_capability_queries(mock_ble_device, mock_bleak_client):
@@ -1734,10 +1750,6 @@ async def test_device_capability_detection(mock_ble_device, mock_bleak_client):
         ("set_vibration_intensity", 101),
         ("set_sensitivity", 0),
         ("set_sensitivity", 4),
-        ("set_height_limit_upper", 59.0),
-        ("set_height_limit_upper", 131.0),
-        ("set_height_limit_lower", 59.0),
-        ("set_height_limit_lower", 131.0),
         ("set_touch_mode", -1),
         ("set_touch_mode", 2),
         ("set_unit", "meters"),
@@ -1752,6 +1764,21 @@ async def test_command_parameter_validation(
 
     with pytest.raises(ValueError, match="Invalid"):
         await getattr(device, method)(value)
+
+    mock_bleak_client.write_gatt_char.assert_not_called()
+
+
+@pytest.mark.parametrize("limit", list(HeightLimit))
+@pytest.mark.parametrize("height", [59.0, 131.0])
+async def test_set_height_limit_out_of_range(
+    mock_ble_device, mock_bleak_client, limit, height
+):
+    """Test a limit outside 60-130 cm raises and sends nothing."""
+    device = DeskBLEDevice(mock_ble_device)
+    device._client = mock_bleak_client
+
+    with pytest.raises(ValueError, match=f"Invalid {limit} height limit"):
+        await device.set_height_limit(limit, height)
 
     mock_bleak_client.write_gatt_char.assert_not_called()
 
@@ -2528,8 +2555,8 @@ def test_disconnect_forgets_unit_and_touch_mode(mock_ble_device, mock_bleak_clie
         ("set_sensitivity", (2,)),
         ("set_touch_mode", (1,)),
         ("set_unit", ("in",)),
-        ("set_height_limit_upper", (110.0,)),
-        ("set_height_limit_lower", (70.0,)),
+        ("set_height_limit", (HeightLimit.UPPER, 110.0)),
+        ("set_height_limit", (HeightLimit.LOWER, 70.0)),
         ("clear_height_limits", ()),
     ],
 )
@@ -2837,8 +2864,8 @@ async def test_height_limits_round_trip_in_cm(
     device._handle_notification(None, unit_report)
     device._handle_notification(None, bytearray.fromhex(height_frame))
 
-    await device.set_height_limit_upper(110.0)
-    await device.set_height_limit_lower(70.0)
+    await device.set_height_limit(HeightLimit.UPPER, 110.0)
+    await device.set_height_limit(HeightLimit.LOWER, 70.0)
 
     writes = [c.args[1] for c in mock_bleak_client.write_gatt_char.call_args_list]
     assert writes[1] == device._create_command_with_word_param(0x21, sent)
