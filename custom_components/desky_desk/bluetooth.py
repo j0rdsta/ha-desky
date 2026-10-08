@@ -349,7 +349,8 @@ class DeskBLEDevice:
         """Connect to the desk.
 
         Returns False when the desk could not be reached; the caller decides how
-        loudly to report it.
+        loudly to report it. A link that comes up but cannot be set up is closed
+        again first, so it does not keep an adapter or proxy connection slot.
         """
         if self.is_connected:
             return True
@@ -359,7 +360,7 @@ class DeskBLEDevice:
         try:
             # bleak-retry-connector picks the adapter or proxy that currently
             # hears the desk and waits for a free connection slot
-            self._client = await establish_connection(
+            client = await establish_connection(
                 BleakClientWithServiceCache,
                 self._ble_device,
                 self.name,
@@ -367,47 +368,62 @@ class DeskBLEDevice:
                 max_attempts=CONNECT_MAX_ATTEMPTS,
                 ble_device_callback=self._get_ble_device,
             )
-
-            # Discover services to verify characteristics
-            _LOGGER.debug("Connected, discovering services...")
-            services = self._client.services
-            for service in services:
-                _LOGGER.debug("Service: %s", service.uuid)
-                for char in service.characteristics:
-                    _LOGGER.debug(
-                        "  Characteristic: %s, properties: %s",
-                        char.uuid,
-                        char.properties,
-                    )
-
-            # Start notifications
-            await self._client.start_notify(
-                NOTIFY_CHARACTERISTIC_UUID, self._handle_notification
-            )
-
-            # Send handshake command to enable movement controls
-            _LOGGER.debug("Sending handshake command...")
-            await self._send_command(COMMAND_HANDSHAKE)
-
-            # Get initial status
-            await self.get_status()
-
-            # Query device capabilities (ignore failures - not all desks support all features)
-            await self._query_device_capabilities()
-
-            # Small delay to ensure all services are properly discovered
-            await asyncio.sleep(0.5)
-
-            # Read device information from Device Information Service (0x180A)
-            await self._read_device_information()
-
-            _LOGGER.debug("Connected to Desky desk at %s", self.address)
-            return True
-
         except Exception as err:
             _LOGGER.debug("Failed to connect to desk at %s: %s", self.address, err)
-            self._client = None
             return False
+
+        # Commands write through self._client, so setting up needs it set
+        self._client = client
+        try:
+            await self._set_up_connection(client)
+        except Exception as err:
+            _LOGGER.debug("Failed to connect to desk at %s: %s", self.address, err)
+            await self._release_client(client)
+            return False
+
+        _LOGGER.debug("Connected to Desky desk at %s", self.address)
+        return True
+
+    async def _set_up_connection(self, client: BleakClient) -> None:
+        """Subscribe to the desk's notifications and ask for its state."""
+        _LOGGER.debug("Connected, discovering services...")
+        for service in client.services:
+            _LOGGER.debug("Service: %s", service.uuid)
+            for char in service.characteristics:
+                _LOGGER.debug(
+                    "  Characteristic: %s, properties: %s",
+                    char.uuid,
+                    char.properties,
+                )
+
+        await client.start_notify(NOTIFY_CHARACTERISTIC_UUID, self._handle_notification)
+
+        # The handshake enables movement controls
+        _LOGGER.debug("Sending handshake command...")
+        await self._send_command(COMMAND_HANDSHAKE)
+        await self.get_status()
+        await self._query_device_capabilities()
+
+        # Small delay to ensure all services are properly discovered
+        await asyncio.sleep(0.5)
+
+        # Device Information Service (0x180A)
+        await self._read_device_information()
+
+    async def _release_client(self, client: BleakClient) -> None:
+        """Close a link that could not be set up.
+
+        The desk is reported disconnected here, once. The link's own disconnect
+        callback then finds it is no longer current and is ignored.
+        """
+        if client is self._client:
+            self._handle_disconnect(client)
+        try:
+            await client.disconnect()
+        except Exception as err:
+            _LOGGER.debug(
+                "Error closing the connection to desk at %s: %s", self.address, err
+            )
 
     def _get_ble_device(self) -> BLEDevice:
         """Return the latest BLE device, for retries during a connection attempt."""
@@ -429,7 +445,7 @@ class DeskBLEDevice:
             except Exception as err:
                 _LOGGER.debug("Error during disconnect: %s", err)
             finally:
-                self._client = None
+                self._reset_link_state()
 
     async def _write(self, *commands: bytes) -> None:
         """Write commands to the desk in order, with no other write in between.
@@ -1365,10 +1381,8 @@ class DeskBLEDevice:
             self._auto_clear_task.cancel()
         self._auto_clear_task = None
 
-    def _handle_disconnect(self, client: BleakClient) -> None:
-        """Handle disconnection from the desk."""
-        # The coordinator logs the outage once; this repeats on every drop
-        _LOGGER.debug("Disconnected from Desky desk")
+    def _reset_link_state(self) -> None:
+        """Forget everything that belongs to the current connection."""
         self._client = None
 
         # The movement ends with the connection, and a collision from before the
@@ -1382,6 +1396,17 @@ class DeskBLEDevice:
         self._effective_unit = None
         self._touch_mode = None
 
-        # Notify callbacks
+    def _handle_disconnect(self, client: BleakClient) -> None:
+        """Handle disconnection from the desk."""
+        if client is not self._client:
+            # A link that is no longer current, such as one closed after a failed
+            # attempt; it says nothing about the current connection
+            _LOGGER.debug("Ignoring a disconnect from an earlier connection")
+            return
+
+        # The coordinator logs the outage once; this repeats on every drop
+        _LOGGER.debug("Disconnected from Desky desk")
+        self._reset_link_state()
+
         for callback in self._disconnect_callbacks:
             callback()

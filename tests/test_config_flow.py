@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Generator
 from unittest.mock import MagicMock, patch
 
+from bleak.exc import BleakError
 from homeassistant import config_entries
 from homeassistant.components.bluetooth import async_get_advertisement_callback
 from homeassistant.config_entries import ConfigEntryState
@@ -14,6 +15,7 @@ from homeassistant.data_entry_flow import FlowResultType, InvalidData
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
+from custom_components.desky_desk.bluetooth import DeskBLEDevice
 from custom_components.desky_desk.const import (
     CONF_STANDING_THRESHOLD,
     DEFAULT_STANDING_THRESHOLD,
@@ -130,6 +132,30 @@ async def test_discovery_card_cannot_connect_then_recovers(
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["result"].unique_id == DESK_ADDRESS
     assert result["result"].state is ConfigEntryState.LOADED
+
+
+@pytest.mark.usefixtures("enable_bluetooth")
+async def test_probe_releases_the_link_when_the_handshake_fails(
+    hass: HomeAssistant,
+    mock_establish_connection: MagicMock,
+    mock_bleak_client: MagicMock,
+) -> None:
+    """Test the connection probe leaves no link open when the handshake fails."""
+    await advertise(hass)
+    (flow,) = discovery_flows(hass)
+
+    # The handshake is the first write, so it fails
+    mock_bleak_client.write_gatt_char.side_effect = BleakError("write failed")
+    # The real desk class, so the probe runs the real connect()
+    with patch("custom_components.desky_desk.config_flow.DeskBLEDevice", DeskBLEDevice):
+        result = await hass.config_entries.flow.async_configure(
+            flow["flow_id"], user_input={}
+        )
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {"base": "cannot_connect"}
+    mock_establish_connection.assert_awaited_once()
+    mock_bleak_client.disconnect.assert_awaited_once()
 
 
 @pytest.mark.usefixtures("enable_bluetooth")

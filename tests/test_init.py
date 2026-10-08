@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import timedelta
 from unittest.mock import MagicMock, patch
 
+from bleak.exc import BleakError
 from freezegun.api import FrozenDateTimeFactory
 from homeassistant.components.bluetooth import BluetoothScanningMode
 from homeassistant.config_entries import ConfigEntryState
@@ -87,6 +88,34 @@ async def test_setup_retry_when_connection_refused(
     assert _desk_entity_states(hass, mock_config_entry) == []
     # The failed attempt releases the desk before the next retry
     mock_desk.disconnect.assert_awaited_once()
+
+
+async def test_setup_retry_closes_a_half_set_up_connection(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_bluetooth: None,
+    mock_establish_connection: MagicMock,
+    mock_bleak_client: MagicMock,
+) -> None:
+    """Test a setup whose handshake fails leaves no link open, then or on unload."""
+    mock_bleak_client.write_gatt_char.side_effect = BleakError("write failed")
+    mock_config_entry.add_to_hass(hass)
+    with patch(
+        "homeassistant.components.bluetooth.async_ble_device_from_address",
+        return_value=MagicMock(address=ADDRESS),
+    ):
+        await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert mock_config_entry.state is ConfigEntryState.SETUP_RETRY
+    assert mock_config_entry.reason == f"Could not connect to the desk at {ADDRESS}"
+    mock_bleak_client.disconnect.assert_awaited_once()
+
+    assert await hass.config_entries.async_unload(mock_config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert mock_config_entry.state is ConfigEntryState.NOT_LOADED
+    mock_bleak_client.disconnect.assert_awaited_once()
 
 
 async def test_setup_retry_succeeds_when_desk_comes_into_range(
