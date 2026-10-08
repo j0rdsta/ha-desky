@@ -4,7 +4,11 @@ from dataclasses import dataclass, replace
 from typing import Any
 from unittest.mock import MagicMock
 
+from bleak.backends.device import BLEDevice
+from bleak.backends.scanner import AdvertisementData
 from homeassistant.components.bluetooth import (
+    MONOTONIC_TIME,
+    SOURCE_LOCAL,
     BluetoothChange,
     BluetoothServiceInfoBleak,
 )
@@ -71,7 +75,7 @@ def disconnect_desk(desk: MagicMock) -> None:
 def make_service_info(
     address: str = "AA:BB:CC:DD:EE:FF", name: str = "Desky", device: Any = None
 ) -> BluetoothServiceInfoBleak:
-    """Build Bluetooth service info for a discovered desk."""
+    """Build what Home Assistant's Bluetooth stack reports for a desk, seen now."""
     return BluetoothServiceInfoBleak(
         name=name,
         address=address,
@@ -79,11 +83,19 @@ def make_service_info(
         manufacturer_data={},
         service_data={},
         service_uuids=[],
-        source="local",
-        device=device if device is not None else MagicMock(),
-        advertisement=MagicMock(),
+        source=SOURCE_LOCAL,
+        device=device if device is not None else BLEDevice(address, name, {}),
+        advertisement=AdvertisementData(
+            local_name=name,
+            manufacturer_data={},
+            service_data={},
+            service_uuids=[],
+            tx_power=None,
+            rssi=-50,
+            platform_data=(),
+        ),
         connectable=True,
-        time=0,
+        time=MONOTONIC_TIME(),
         tx_power=None,
         raw=None,
     )

@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from homeassistant.components.bluetooth import (
     BluetoothServiceInfoBleak,
     async_discovered_service_info,
+    async_last_service_info,
 )
 from homeassistant.config_entries import (
     ConfigEntry,
@@ -17,6 +19,7 @@ from homeassistant.config_entries import (
 )
 from homeassistant.const import CONF_ADDRESS, UnitOfLength
 from homeassistant.core import callback
+from homeassistant.helpers.device_registry import format_mac
 from homeassistant.helpers.selector import (
     NumberSelector,
     NumberSelectorConfig,
@@ -35,6 +38,8 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
+_ADDRESS = re.compile(r"(?:[0-9A-F]{2}:){5}[0-9A-F]{2}")
+
 
 class DeskyConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Desky Desk."""
@@ -50,7 +55,8 @@ class DeskyConfigFlow(ConfigFlow, domain=DOMAIN):
     def __init__(self) -> None:
         """Initialize the config flow."""
         self._discovery_info: BluetoothServiceInfoBleak | None = None
-        self._discovered_devices: dict[str, BluetoothServiceInfoBleak] = {}
+        # Picker labels by address
+        self._discovered_devices: dict[str, str] = {}
 
     async def async_step_bluetooth(
         self, discovery_info: BluetoothServiceInfoBleak
@@ -62,6 +68,7 @@ class DeskyConfigFlow(ConfigFlow, domain=DOMAIN):
         self._abort_if_unique_id_configured()
 
         self._discovery_info = discovery_info
+        self.context["title_placeholders"] = {"name": _desk_name(discovery_info)}
 
         return await self.async_step_confirm()
 
@@ -91,25 +98,20 @@ class DeskyConfigFlow(ConfigFlow, domain=DOMAIN):
     ) -> ConfigFlowResult:
         """Handle the initial step."""
         if user_input is not None:
-            # Discovery reports addresses in upper case
-            address = user_input[CONF_ADDRESS].strip().upper()
-
-            # Check if already configured
-            await self.async_set_unique_id(address)
-            self._abort_if_unique_id_configured()
-
-            # Try to find the device
-            discovery_info = await self._async_get_device(address)
-            if discovery_info and await _async_can_connect(discovery_info):
-                return self._async_create_desk_entry(discovery_info)
-
+            address = _parse_address(user_input[CONF_ADDRESS])
+            if address is None:
+                return self._async_show_user_form({CONF_ADDRESS: "invalid_address"})
+            if result := await self._async_add_desk(address):
+                return result
             return self._async_show_user_form({"base": "cannot_connect"})
 
-        # Show list of discovered devices
-        self._discovered_devices = {}
-        for discovery_info in async_discovered_service_info(self.hass):
-            if discovery_info.name and "Desky" in discovery_info.name:
-                self._discovered_devices[discovery_info.address] = discovery_info
+        # Offer the desks in range that are not set up yet
+        configured = self._async_current_ids(include_ignore=False)
+        self._discovered_devices = {
+            info.address: f"{info.name} ({info.address})"
+            for info in async_discovered_service_info(self.hass)
+            if info.name.startswith("Desky") and info.address not in configured
+        }
 
         if self._discovered_devices:
             return await self.async_step_pick_device()
@@ -122,30 +124,32 @@ class DeskyConfigFlow(ConfigFlow, domain=DOMAIN):
         """Handle picking a device from a list."""
         errors: dict[str, str] = {}
         if user_input is not None:
-            address = user_input[CONF_ADDRESS]
-
-            await self.async_set_unique_id(address)
-            self._abort_if_unique_id_configured()
-
-            discovery_info = self._discovered_devices[address]
-            if await _async_can_connect(discovery_info):
-                return self._async_create_desk_entry(discovery_info)
+            if result := await self._async_add_desk(user_input[CONF_ADDRESS]):
+                return result
             errors["base"] = "cannot_connect"
-
-        devices = {
-            address: f"{info.name} ({address})"
-            for address, info in self._discovered_devices.items()
-        }
 
         return self.async_show_form(
             step_id="pick_device",
             data_schema=vol.Schema(
                 {
-                    vol.Required(CONF_ADDRESS): vol.In(devices),
+                    vol.Required(CONF_ADDRESS): vol.In(self._discovered_devices),
                 }
             ),
             errors=errors,
         )
+
+    async def _async_add_desk(self, address: str) -> ConfigFlowResult | None:
+        """Create the entry for a desk the user chose, or None if it does not answer.
+
+        Its discovery card may be open; adding the desk here closes the card.
+        """
+        await self.async_set_unique_id(address, raise_on_progress=False)
+        self._abort_if_unique_id_configured()
+
+        discovery_info = async_last_service_info(self.hass, address)
+        if discovery_info and await _async_can_connect(discovery_info):
+            return self._async_create_desk_entry(discovery_info)
+        return None
 
     def _async_show_user_form(
         self, errors: dict[str, str] | None = None
@@ -165,13 +169,6 @@ class DeskyConfigFlow(ConfigFlow, domain=DOMAIN):
             title=_desk_name(discovery_info),
             data={CONF_ADDRESS: discovery_info.address},
         )
-
-    async def _async_get_device(self, address: str) -> BluetoothServiceInfoBleak | None:
-        """Get device by address."""
-        for discovery_info in async_discovered_service_info(self.hass):
-            if discovery_info.address == address:
-                return discovery_info
-        return None
 
 
 class DeskyOptionsFlow(OptionsFlowWithReload):
@@ -219,3 +216,13 @@ async def _async_can_connect(discovery_info: BluetoothServiceInfoBleak) -> bool:
 def _desk_name(discovery_info: BluetoothServiceInfoBleak) -> str:
     """Return the name the desk advertises, or a generic one."""
     return discovery_info.name or "Desky Desk"
+
+
+def _parse_address(text: str) -> str | None:
+    """Return an entered address in the upper-case form discovery reports.
+
+    Lower case, dashes and no separators are accepted. Returns None if the text
+    is not a Bluetooth address.
+    """
+    address = format_mac(text.strip()).upper()
+    return address if _ADDRESS.fullmatch(address) else None
