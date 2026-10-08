@@ -170,7 +170,8 @@ change made on the hand controller.
 ### LED strip (light)
 
 Turns the desk's LED strip on or off and sets its brightness. The colours are effects: **White**,
-**Red**, **Green**, **Blue**, **Yellow** and **Party mode**.
+**Red**, **Green**, **Blue**, **Yellow** and **Party mode**. Any other effect fails with an error,
+and nothing is sent to the desk.
 
 If the desk reports its colour as off and you turn the light on without an effect, it goes back to
 the last colour you chose other than party mode. That colour is kept across restarts. Attribute

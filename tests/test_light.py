@@ -14,7 +14,7 @@ from homeassistant.components.light import (
 )
 from homeassistant.const import ATTR_ENTITY_ID, STATE_OFF, STATE_ON, STATE_UNAVAILABLE
 from homeassistant.core import HomeAssistant, State
-from homeassistant.exceptions import HomeAssistantError
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers.entity_platform import async_get_platforms
 import pytest
 from pytest_homeassistant_custom_component.common import (
@@ -222,14 +222,26 @@ async def test_light_turn_on_effect(
     mock_desk.get_light_color.assert_awaited_once()
 
 
-async def test_light_turn_on_unknown_effect_ignored(
+async def test_light_turn_on_unknown_effect_rejected(
     hass: HomeAssistant, init_integration: MockConfigEntry, mock_desk: MagicMock
 ) -> None:
-    """Test an effect the desk does not support sends no colour command."""
-    await _turn_on(hass, **{ATTR_EFFECT: "Rainbow"})
+    """Test an effect the desk does not have fails and sends nothing."""
+    mock_desk.reset_mock()
 
-    mock_desk.set_light_color.assert_not_called()
-    mock_desk.get_lighting_status.assert_awaited_once()
+    with pytest.raises(ServiceValidationError) as err:
+        await _turn_on(hass, **{ATTR_EFFECT: "Purple", ATTR_BRIGHTNESS: 200})
+
+    assert err.value.translation_domain == DOMAIN
+    assert err.value.translation_key == "unknown_effect"
+    assert err.value.translation_placeholders == {
+        "effect": "Purple",
+        "effects": "White, Red, Green, Blue, Yellow, Party mode",
+    }
+    assert str(err.value) == (
+        "The LED strip has no effect called Purple. Use one of: "
+        "White, Red, Green, Blue, Yellow, Party mode"
+    )
+    assert mock_desk.method_calls == []
     assert _light(hass).extra_restore_state_data.as_dict() == {"last_static_color": 1}
 
 
@@ -274,28 +286,6 @@ async def test_light_remembers_static_color(
     mock_desk.set_light_color.assert_awaited_once_with(3)
 
 
-async def test_light_set_effect(
-    hass: HomeAssistant, init_integration: MockConfigEntry, mock_desk: MagicMock
-) -> None:
-    """Test setting an effect directly sends the colour and remembers static ones."""
-    light = _light(hass)
-
-    await light.async_set_effect("Blue")
-    mock_desk.set_light_color.assert_awaited_once_with(4)
-    mock_desk.get_light_color.assert_awaited_once()
-    assert light.extra_restore_state_data.as_dict() == {"last_static_color": 4}
-
-    mock_desk.reset_mock()
-    await light.async_set_effect("Party mode")
-    mock_desk.set_light_color.assert_awaited_once_with(6)
-    assert light.extra_restore_state_data.as_dict() == {"last_static_color": 4}
-
-    mock_desk.reset_mock()
-    await light.async_set_effect("Rainbow")
-    mock_desk.set_light_color.assert_not_called()
-    mock_desk.get_light_color.assert_not_called()
-
-
 async def test_light_commands_skipped_when_unavailable(
     hass: HomeAssistant, init_integration: MockConfigEntry, mock_desk: MagicMock
 ) -> None:
@@ -320,7 +310,7 @@ async def test_failed_color_change_is_not_remembered(
     mock_desk.set_light_color.side_effect = DeskCommandError("write failed")
 
     with pytest.raises(HomeAssistantError):
-        await _light(hass).async_set_effect("Red")
+        await _turn_on(hass, **{ATTR_EFFECT: "Red"})
 
     assert _light(hass).extra_restore_state_data.as_dict() == {"last_static_color": 1}
 
