@@ -469,6 +469,69 @@ async def test_disconnect_from_an_earlier_link_is_ignored(
     callback.assert_not_called()
 
 
+@pytest.mark.parametrize(
+    "callback_on_close", [True, False], ids=["callback on close", "no callback"]
+)
+async def test_release_closes_then_reports_the_drop_once(
+    mock_ble_device, mock_establish_connection, mock_bleak_client, callback_on_close
+):
+    """Test a failed setup closes the link before reporting it, and reports once.
+
+    BlueZ fires the link's own disconnect callback while closing it; a proxy
+    may not fire it until later, or at all.
+    """
+    device = DeskBLEDevice(mock_ble_device)
+    callback = MagicMock()
+    device.register_disconnect_callback(callback)
+    mock_bleak_client.start_notify.side_effect = BleakError("notify failed")
+    reports_before_close: list[int] = []
+
+    async def _disconnect() -> None:
+        reports_before_close.append(callback.call_count)
+        if callback_on_close:
+            mock_establish_connection.call_args.kwargs["disconnected_callback"](
+                mock_bleak_client
+            )
+
+    mock_bleak_client.disconnect.side_effect = _disconnect
+
+    assert await device.connect() is False
+
+    assert reports_before_close == [0]
+    callback.assert_called_once_with()
+    mock_bleak_client.disconnect.assert_awaited_once()
+    assert device._client is None
+
+
+async def test_cancelled_release_is_closed_on_disconnect(
+    mock_ble_device, mock_establish_connection, mock_bleak_client
+):
+    """Test a connect cancelled while closing its failed link, as on unload.
+
+    The link stays referenced, so the disconnect() that unload runs closes it.
+    """
+    device = DeskBLEDevice(mock_ble_device)
+    mock_bleak_client.start_notify.side_effect = BleakError("notify failed")
+    closing = asyncio.Event()
+
+    async def _disconnect() -> None:
+        if mock_bleak_client.disconnect.await_count == 1:
+            closing.set()
+            await asyncio.Event().wait()  # the proxy never answers
+
+    mock_bleak_client.disconnect.side_effect = _disconnect
+
+    task = asyncio.create_task(device.connect())
+    await closing.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    await device.disconnect()
+
+    assert mock_bleak_client.disconnect.await_count == 2
+    assert device._client is None
+
+
 async def test_cancelled_connect_is_released_on_disconnect(
     mock_ble_device, mock_establish_connection, mock_bleak_client
 ):
@@ -519,8 +582,23 @@ async def test_disconnect(mock_ble_device, mock_bleak_client):
 
     await device.disconnect()
 
-    mock_bleak_client.stop_notify.assert_called_once_with(NOTIFY_CHARACTERISTIC_UUID)
-    mock_bleak_client.disconnect.assert_called_once()
+    # Closing the link ends the subscription; no extra write to a quiet desk
+    mock_bleak_client.stop_notify.assert_not_called()
+    mock_bleak_client.disconnect.assert_awaited_once()
+    assert device._client is None
+
+
+async def test_disconnect_closes_the_link_when_stop_notify_fails(
+    mock_ble_device, mock_bleak_client
+):
+    """Test a desk that stopped answering still has its link closed."""
+    device = DeskBLEDevice(mock_ble_device)
+    device._client = mock_bleak_client
+    mock_bleak_client.stop_notify.side_effect = BleakError("no answer")
+
+    await device.disconnect()
+
+    mock_bleak_client.disconnect.assert_awaited_once()
     assert device._client is None
 
 

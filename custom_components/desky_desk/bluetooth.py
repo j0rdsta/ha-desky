@@ -386,16 +386,6 @@ class DeskBLEDevice:
 
     async def _set_up_connection(self, client: BleakClient) -> None:
         """Subscribe to the desk's notifications and ask for its state."""
-        _LOGGER.debug("Connected, discovering services...")
-        for service in client.services:
-            _LOGGER.debug("Service: %s", service.uuid)
-            for char in service.characteristics:
-                _LOGGER.debug(
-                    "  Characteristic: %s, properties: %s",
-                    char.uuid,
-                    char.properties,
-                )
-
         await client.start_notify(NOTIFY_CHARACTERISTIC_UUID, self._handle_notification)
 
         # The handshake enables movement controls
@@ -412,13 +402,19 @@ class DeskBLEDevice:
             raise DeskNotConnectedError("The desk disconnected while connecting")
 
     async def _release_client(self, client: BleakClient) -> None:
-        """Close a link that could not be set up.
+        """Close a link that could not be set up, then report the desk disconnected.
 
-        The desk is reported disconnected here, once. The link's own disconnect
-        callback then finds it is no longer current and is ignored.
+        The link stays in self._client while it closes, so a cancel during the
+        close (unload) leaves it for disconnect() to close. The drop is reported
+        once: by the link's own disconnect callback if it fires while closing,
+        otherwise here.
         """
+        await self._close(client)
         if client is self._client:
             self._handle_disconnect(client)
+
+    async def _close(self, client: BleakClient) -> None:
+        """Close a link, ignoring errors from one that is already gone."""
         try:
             await client.disconnect()
         except Exception as err:
@@ -439,14 +435,10 @@ class DeskBLEDevice:
         # Cancel any pending auto-clear task
         self._cancel_collision_auto_clear()
 
-        if self._client:
-            try:
-                await self._client.stop_notify(NOTIFY_CHARACTERISTIC_UUID)
-                await self._client.disconnect()
-            except Exception as err:
-                _LOGGER.debug("Error during disconnect: %s", err)
-            finally:
-                self._reset_link_state()
+        # Closing the link ends the notification subscription too
+        if client := self._client:
+            await self._close(client)
+        self._reset_link_state()
 
     async def _write(self, *commands: bytes) -> None:
         """Write commands to the desk in order, with no other write in between.
