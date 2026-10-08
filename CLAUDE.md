@@ -214,7 +214,7 @@ If height updates aren't working:
 ### Actions (`services.py`)
 
 Three actions, registered in `async_setup` so they exist whether or not a desk is loaded:
-- `move_to_height`: moves to a height in cm (`0x1B`). The height must be within the desk's limits when set, otherwise 60-130 cm
+- `move_to_height`: moves to a height in cm (`0x1B`). The height must be within the desk's limits when set, clamped to 60-130 cm, otherwise 60-130 cm (`validate_move_to_height` in `validation.py`)
 - `set_height_limit`: sets the `upper` or `lower` limit (`0x21`/`0x22`), then re-reads the limits (`0x0C`). The upper limit must be above the lower one
 - `clear_height_limits`: clears both limits (`0x23`), then re-reads them
 

@@ -31,7 +31,7 @@ for one desk sends nothing to any of them.
 | `height` | Yes | The height to move to, in cm, to 0.1 cm |
 
 The height must be within the desk's height limits, using 60 or 130 cm for a limit that is not
-set.
+set. A limit the desk reports below 60 cm or above 130 cm counts as 60 or 130 cm.
 
 ```yaml
 action: desky_desk.move_to_height

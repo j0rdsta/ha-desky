@@ -85,12 +85,37 @@ async def test_move_to_height(
 
 
 @pytest.mark.parametrize(
+    ("height", "upper", "lower"), [(130.0, 133.0, None), (60.0, 120.0, 57.0)]
+)
+async def test_move_to_height_with_limit_beyond_range(
+    hass: HomeAssistant,
+    init_integration: MockConfigEntry,
+    mock_desk: MagicMock,
+    height: float,
+    upper: float | None,
+    lower: float | None,
+) -> None:
+    """Test a reported limit beyond 60-130 cm still allows the end of that range."""
+    await set_desk_state(
+        hass, init_integration, height_limit_upper=upper, height_limit_lower=lower
+    )
+
+    await _call(hass, "move_to_height", {"height": height})
+
+    mock_desk.move_to_height.assert_awaited_once_with(height)
+
+
+@pytest.mark.parametrize(
     ("height", "upper", "lower", "low", "high"),
     [
         (130.5, None, None, "60.0", "130.0"),
         (59.0, None, None, "60.0", "130.0"),
         (125.0, 120.0, 65.0, "65.0", "120.0"),
         (62.0, 120.0, 65.0, "65.0", "120.0"),
+        # Reported limits outside 60-130 cm are clamped to it
+        (132.0, 133.0, None, "60.0", "130.0"),
+        (59.0, 120.0, 57.0, "60.0", "120.0"),
+        (129.0, None, 132.0, "130.0", "130.0"),
     ],
 )
 async def test_move_to_height_out_of_range(
@@ -117,6 +142,9 @@ async def test_move_to_height_out_of_range(
         "min": low,
         "max": high,
     }
+    assert str(err.value) == (
+        f"{height:.1f} cm is outside the desk's allowed range of {low}-{high} cm"
+    )
     _assert_nothing_sent(mock_desk)
 
 
