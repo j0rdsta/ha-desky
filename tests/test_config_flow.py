@@ -460,6 +460,18 @@ async def test_address_formats_accepted(hass: HomeAssistant, typed: str) -> None
     assert result["result"].state is ConfigEntryState.LOADED
 
 
+@pytest.mark.usefixtures("enable_bluetooth")
+async def test_two_desks_discovered(hass: HomeAssistant) -> None:
+    """Test each discovery card names the desk it is for."""
+    await advertise(hass, DESK_ADDRESS, "Desky A")
+    await advertise(hass, OTHER_DESK_ADDRESS, "Desky B")
+
+    names = {
+        flow["context"]["title_placeholders"]["name"] for flow in discovery_flows(hass)
+    }
+    assert names == {"Desky A", "Desky B"}
+
+
 async def test_options_flow_sets_standing_threshold(
     hass: HomeAssistant, init_integration: MockConfigEntry
 ) -> None:

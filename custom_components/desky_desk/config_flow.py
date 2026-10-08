@@ -68,6 +68,7 @@ class DeskyConfigFlow(ConfigFlow, domain=DOMAIN):
         self._abort_if_unique_id_configured()
 
         self._discovery_info = discovery_info
+        self.context["title_placeholders"] = {"name": _desk_name(discovery_info)}
 
         return await self.async_step_confirm()
 

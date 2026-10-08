@@ -12,7 +12,8 @@ your phone.
 ### When Home Assistant discovers the desk
 
 Home Assistant discovers desks whose Bluetooth name starts with `Desky`. A discovered desk shows
-up under **Settings → Devices & services** as a new device to set up.
+up under **Settings → Devices & services** as a new device to set up, under its Bluetooth name.
+With more than one desk, each shows up separately.
 
 1. Select **Add** on the discovered desk.
 2. Confirm that you want to set up the desk shown, with its name and Bluetooth address.

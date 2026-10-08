@@ -1,6 +1,6 @@
 {
   "config": {
-    "flow_title": "Desky Desk",
+    "flow_title": "{name}",
     "step": {
       "user": {
         "title": "Set up Desky Desk",
