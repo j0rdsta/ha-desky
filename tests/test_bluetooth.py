@@ -402,6 +402,31 @@ async def test_drop_during_setup_is_reported_once(
     assert device._client is None
 
 
+async def test_drop_after_the_last_query_fails_the_connect(
+    mock_ble_device, mock_establish_connection, mock_bleak_client
+):
+    """Test a desk that drops after the last write, during the reads, fails the connect."""
+    device = DeskBLEDevice(mock_ble_device)
+    callback = MagicMock()
+    device.register_disconnect_callback(callback)
+
+    async def _write(_uuid: str, command: bytes) -> None:
+        if command == COMMAND_GET_LIMITS:
+            # The write goes out, then the link drops
+            mock_bleak_client.is_connected = False
+            mock_establish_connection.call_args.kwargs["disconnected_callback"](
+                mock_bleak_client
+            )
+
+    mock_bleak_client.write_gatt_char.side_effect = _write
+
+    assert await device.connect() is False
+
+    callback.assert_called_once_with()
+    mock_bleak_client.disconnect.assert_awaited_once()
+    assert device._client is None
+
+
 async def test_release_survives_a_failing_disconnect(
     mock_ble_device, mock_establish_connection, mock_bleak_client, caplog
 ):

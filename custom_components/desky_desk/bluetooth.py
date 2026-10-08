@@ -407,6 +407,10 @@ class DeskBLEDevice:
         # Device Information Service (0x180A)
         await self._read_device_information()
 
+        # The reads above swallow their errors, so a drop during them shows here
+        if not self.is_connected:
+            raise DeskNotConnectedError("The desk disconnected while connecting")
+
     async def _release_client(self, client: BleakClient) -> None:
         """Close a link that could not be set up.
 
