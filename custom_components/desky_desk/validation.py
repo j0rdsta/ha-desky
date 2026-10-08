@@ -33,15 +33,21 @@ def _clamp(height: float) -> float:
     return min(max(height, MIN_HEIGHT), MAX_HEIGHT)
 
 
-def validate_move_to_height(data: DeskData, height: float) -> None:
-    """Raise a translated validation error for a height the desk cannot move to.
+def allowed_move_range(data: DeskData) -> tuple[float, float]:
+    """Return the lowest and highest height the desk may be moved to.
 
     The range is the desk's limits, or 60-130 cm for a limit that is not set.
     The desk reports limits a few cm outside 60-130 cm, so they are clamped.
     """
     low = MIN_HEIGHT if data.height_limit_lower is None else data.height_limit_lower
     high = MAX_HEIGHT if data.height_limit_upper is None else data.height_limit_upper
-    _check_height_in_range(height, _clamp(low), _clamp(high), "height_out_of_range")
+    return _clamp(low), _clamp(high)
+
+
+def validate_move_to_height(data: DeskData, height: float) -> None:
+    """Raise a translated validation error for a height the desk cannot move to."""
+    low, high = allowed_move_range(data)
+    _check_height_in_range(height, low, high, "height_out_of_range")
 
 
 def validate_height_limit(data: DeskData, limit: HeightLimit, height: float) -> None:

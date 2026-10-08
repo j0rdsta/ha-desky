@@ -5,7 +5,10 @@ from __future__ import annotations
 from homeassistant.exceptions import ServiceValidationError
 import pytest
 
-from custom_components.desky_desk.validation import validate_height_limit
+from custom_components.desky_desk.validation import (
+    allowed_move_range,
+    validate_height_limit,
+)
 
 from . import desk_data
 
@@ -19,3 +22,22 @@ def test_height_limit_accepts_a_plain_string() -> None:
 
     assert err.value.translation_key == "limit_inverted_upper"
     assert err.value.translation_placeholders == {"height": "65.0", "other": "70.0"}
+
+
+@pytest.mark.parametrize(
+    ("upper", "lower", "allowed"),
+    [
+        (None, None, (60.0, 130.0)),
+        (110.0, 70.0, (70.0, 110.0)),
+        (133.0, 57.0, (60.0, 130.0)),
+        (None, 132.0, (130.0, 130.0)),
+        (57.0, None, (60.0, 60.0)),
+    ],
+)
+def test_allowed_move_range(
+    upper: float | None, lower: float | None, allowed: tuple[float, float]
+) -> None:
+    """Test the range is the desk's limits clamped to 60-130 cm, or 60-130 cm."""
+    data = desk_data(height_limit_upper=upper, height_limit_lower=lower)
+
+    assert allowed_move_range(data) == allowed

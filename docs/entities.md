@@ -51,8 +51,8 @@ The main control, named after the desk.
 
 - **Open** raises the desk, **close** lowers it and **stop** stops it.
 - **Position** maps 60-130 cm to 0-100 %, whatever the desk's own range or height limits.
-  Setting a position moves the desk to the matching height. A height outside the desk's limits
-  fails with an error, and the desk does not move.
+  Setting a position moves the desk to the matching height. Positions outside the desk's limits
+  move the desk to the nearest allowed height.
 - The cover is **closed** when its position is 0 %, that is below about 60.7 cm, since the
   position is rounded down to a whole percent.
 - While a movement commanded from Home Assistant is under way, it shows **opening** or
