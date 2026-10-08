@@ -76,6 +76,10 @@ async def test_set_height(
     height: float,
 ) -> None:
     """Test setting the height moves the desk there and polls it for progress."""
+    # Without limits the whole 60-130 cm range is allowed
+    await set_desk_state(
+        hass, init_integration, height_limit_upper=None, height_limit_lower=None
+    )
     mock_desk.get_status.reset_mock()
 
     await _set_value(hass, HEIGHT, height)
@@ -262,6 +266,41 @@ async def test_limit_without_the_other_limit(
     await _set_value(hass, entity_id, value)
 
     getattr(mock_desk, setter).assert_awaited_once_with(value)
+
+
+async def test_height_outside_limits_rejected(
+    hass: HomeAssistant, init_integration: MockConfigEntry, mock_desk: MagicMock
+) -> None:
+    """Test the Height number refuses a height outside the desk's limits, as the action does."""
+    await set_desk_state(
+        hass, init_integration, height_limit_upper=110.0, height_limit_lower=70.0
+    )
+    mock_desk.reset_mock()
+
+    with pytest.raises(ServiceValidationError) as err:
+        await _set_value(hass, HEIGHT, 120.0)
+
+    assert err.value.translation_domain == DOMAIN
+    assert err.value.translation_key == "height_out_of_range"
+    assert err.value.translation_placeholders == {
+        "height": "120.0",
+        "min": "70.0",
+        "max": "110.0",
+    }
+    mock_desk.move_to_height.assert_not_awaited()
+
+
+async def test_height_inside_limits_moves(
+    hass: HomeAssistant, init_integration: MockConfigEntry, mock_desk: MagicMock
+) -> None:
+    """Test a height inside the limits still moves the desk."""
+    await set_desk_state(
+        hass, init_integration, height_limit_upper=110.0, height_limit_lower=70.0
+    )
+
+    await _set_value(hass, HEIGHT, 100.0)
+
+    mock_desk.move_to_height.assert_awaited_once_with(100.0)
 
 
 async def test_vibration_intensity_sent_as_integer(

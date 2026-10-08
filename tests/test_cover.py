@@ -25,13 +25,14 @@ from homeassistant.const import (
     STATE_UNAVAILABLE,
 )
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import entity_registry as er
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.desky_desk.const import MAX_HEIGHT, MIN_HEIGHT
+from custom_components.desky_desk.const import DOMAIN, MAX_HEIGHT, MIN_HEIGHT
 
-from . import disconnect_desk, notify_desk
+from . import disconnect_desk, notify_desk, set_desk_state
 
 ENTITY_ID = "cover.desky_desk"
 
@@ -166,6 +167,10 @@ async def test_cover_set_position(
     height: float,
 ) -> None:
     """Test setting a position moves the desk to the matching height."""
+    # Without limits every position is allowed
+    await set_desk_state(
+        hass, init_integration, height_limit_upper=None, height_limit_lower=None
+    )
     mock_desk.get_status.reset_mock()
 
     await _call(hass, SERVICE_SET_COVER_POSITION, **{ATTR_POSITION: position})
@@ -192,3 +197,21 @@ async def test_cover_availability(
     state = hass.states.get(ENTITY_ID)
     assert state.state == STATE_OPEN
     assert state.attributes[ATTR_CURRENT_POSITION] == 100
+
+
+async def test_set_position_outside_limits_rejected(
+    hass: HomeAssistant, init_integration: MockConfigEntry, mock_desk: MagicMock
+) -> None:
+    """Test a position whose height is outside the desk's limits is refused."""
+    await set_desk_state(
+        hass, init_integration, height_limit_upper=110.0, height_limit_lower=70.0
+    )
+    mock_desk.reset_mock()
+
+    # Position 10 is 67 cm, below the 70 cm lower limit
+    with pytest.raises(ServiceValidationError) as err:
+        await _call(hass, SERVICE_SET_COVER_POSITION, **{ATTR_POSITION: 10})
+
+    assert err.value.translation_domain == DOMAIN
+    assert err.value.translation_key == "height_out_of_range"
+    mock_desk.move_to_height.assert_not_awaited()

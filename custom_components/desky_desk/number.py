@@ -17,7 +17,12 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .const import MAX_HEIGHT, MIN_HEIGHT
 from .coordinator import DeskUpdateCoordinator, DeskyConfigEntry
 from .entity import DeskEntity, desk_command
-from .validation import LIMIT_LOWER, LIMIT_UPPER, validate_height_limit
+from .validation import (
+    LIMIT_LOWER,
+    LIMIT_UPPER,
+    validate_height_limit,
+    validate_move_to_height,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -100,7 +105,7 @@ class DeskyHeightNumber(DeskEntity, NumberEntity):
     @desk_command
     async def async_set_native_value(self, value: float) -> None:
         """Set the desk height to a specific value in cm."""
-        # Use the move_to_height method for precise positioning
+        validate_move_to_height(self.coordinator.data, value)
         await self._device.move_to_height(value)
 
         # Request coordinator update to track movement
