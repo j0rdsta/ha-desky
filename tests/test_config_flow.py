@@ -321,6 +321,96 @@ async def test_address_of_desk_that_has_discovery_card(hass: HomeAssistant) -> N
     assert discovery_flows(hass) == []
 
 
+@pytest.mark.usefixtures("enable_bluetooth", "mock_setup_entry")
+async def test_picker_lists_only_desks_not_set_up(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Test the picker leaves out configured desks and devices that are not desks."""
+    mock_config_entry.add_to_hass(hass)
+    await advertise(hass, DESK_ADDRESS, "Desky")
+    await advertise(hass, OTHER_DESK_ADDRESS, "Desky B")
+    await advertise(hass, "22:33:44:55:66:77", "Kettle")
+
+    result = await start_user_flow(hass)
+    assert result["step_id"] == "pick_device"
+
+    for address in (DESK_ADDRESS, "22:33:44:55:66:77"):
+        with pytest.raises(InvalidData):
+            await hass.config_entries.flow.async_configure(
+                result["flow_id"], user_input={CONF_ADDRESS: address}
+            )
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], user_input={CONF_ADDRESS: OTHER_DESK_ADDRESS}
+    )
+    await hass.async_block_till_done()
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["title"] == "Desky B"
+    assert result["result"].unique_id == OTHER_DESK_ADDRESS
+    assert result["result"].state is ConfigEntryState.LOADED
+
+
+@pytest.mark.usefixtures("enable_bluetooth")
+async def test_only_configured_desks_in_range(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Test the address form replaces the picker when every desk is set up."""
+    mock_config_entry.add_to_hass(hass)
+    await advertise(hass)
+
+    result = await start_user_flow(hass)
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "user"
+    assert result["errors"] is None
+
+
+@pytest.mark.usefixtures("enable_bluetooth", "mock_setup_entry")
+async def test_desk_set_up_from_card_while_picker_open(hass: HomeAssistant) -> None:
+    """Test submitting the picker after the desk was added from its card."""
+    await advertise(hass)
+    result = await start_user_flow(hass)
+    assert result["step_id"] == "pick_device"
+
+    (flow,) = discovery_flows(hass)
+    await hass.config_entries.flow.async_configure(flow["flow_id"], user_input={})
+    await hass.async_block_till_done()
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], user_input={CONF_ADDRESS: DESK_ADDRESS}
+    )
+
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "already_configured"
+    assert len(hass.config_entries.async_entries(DOMAIN)) == 1
+
+
+@pytest.mark.usefixtures("enable_bluetooth", "mock_setup_entry")
+async def test_ignored_desk_can_be_picked(hass: HomeAssistant) -> None:
+    """Test a desk the user ignored is still offered, and adding it replaces the ignore."""
+    MockConfigEntry(
+        domain=DOMAIN,
+        unique_id=DESK_ADDRESS,
+        source=config_entries.SOURCE_IGNORE,
+        data={},
+    ).add_to_hass(hass)
+    await advertise(hass)
+
+    result = await start_user_flow(hass)
+    assert result["step_id"] == "pick_device"
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], user_input={CONF_ADDRESS: DESK_ADDRESS}
+    )
+    await hass.async_block_till_done()
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["result"].unique_id == DESK_ADDRESS
+    assert result["result"].state is ConfigEntryState.LOADED
+    (entry,) = hass.config_entries.async_entries(DOMAIN)
+    assert entry.source == config_entries.SOURCE_USER
+
+
 async def test_options_flow_sets_standing_threshold(
     hass: HomeAssistant, init_integration: MockConfigEntry
 ) -> None:

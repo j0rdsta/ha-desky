@@ -4,7 +4,7 @@
     "step": {
       "user": {
         "title": "Set up Desky Desk",
-        "description": "No Desky desk was found nearby. Enter the Bluetooth address of your desk.",
+        "description": "Home Assistant found no new Desky desk nearby. Enter the Bluetooth address of your desk.",
         "data": {
           "address": "Bluetooth address"
         },

@@ -105,11 +105,13 @@ class DeskyConfigFlow(ConfigFlow, domain=DOMAIN):
 
             return self._async_show_user_form({"base": "cannot_connect"})
 
-        # Show list of discovered devices
-        self._discovered_devices = {}
-        for discovery_info in async_discovered_service_info(self.hass):
-            if discovery_info.name and "Desky" in discovery_info.name:
-                self._discovered_devices[discovery_info.address] = discovery_info
+        # Offer the desks in range that are not set up yet
+        configured = self._async_current_ids(include_ignore=False)
+        self._discovered_devices = {
+            info.address: info
+            for info in async_discovered_service_info(self.hass)
+            if info.name and "Desky" in info.name and info.address not in configured
+        }
 
         if self._discovered_devices:
             return await self.async_step_pick_device()

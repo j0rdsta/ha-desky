@@ -21,9 +21,10 @@ up under **Settings → Devices & services** as a new device to set up.
 
 1. Go to **Settings → Devices & services** and select **Add integration**.
 2. Search for **Desky Standing Desk**.
-3. If Home Assistant can see one or more desks, select yours from the list. Each entry shows the
-   desk's Bluetooth name and address.
-4. If it cannot see any desk, enter the desk's Bluetooth address, for example
+3. If Home Assistant can see one or more desks that are not set up yet, select yours from the
+   list. Each entry shows the desk's Bluetooth name and address. Desks that are already set up
+   are not listed.
+4. If it cannot see a new desk, enter the desk's Bluetooth address, for example
    `AA:BB:CC:DD:EE:FF`. You can find it under **Settings → Devices & services → Bluetooth** in
    the advertisement monitor, in an ESPHome Bluetooth proxy's log, or with a BLE scanner app such
    as nRF Connect. Home Assistant must be able to see a device at that address right now.
