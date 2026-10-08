@@ -7,7 +7,7 @@ from dataclasses import asdict
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from bleak import BleakClient
-from homeassistant.components.bluetooth import BluetoothServiceInfoBleak
+from bleak_retry_connector.bleak_manager import get_global_bluez_manager_with_timeout
 from homeassistant.const import CONF_ADDRESS
 from homeassistant.core import HomeAssistant
 import pytest
@@ -18,7 +18,7 @@ from syrupy.assertion import SnapshotAssertion
 from custom_components.desky_desk.const import DOMAIN
 from custom_components.desky_desk.coordinator import DeskData
 
-from . import BluetoothCallbacks, desk_data, make_service_info
+from . import BluetoothCallbacks, desk_data
 
 
 @pytest.fixture
@@ -50,12 +50,6 @@ def mock_ble_device() -> MagicMock:
     device.address = "AA:BB:CC:DD:EE:FF"
     device.name = "Desky"
     return device
-
-
-@pytest.fixture
-def mock_service_info() -> BluetoothServiceInfoBleak:
-    """Return a mock Bluetooth service info."""
-    return make_service_info()
 
 
 @pytest.fixture
@@ -141,23 +135,25 @@ def mock_establish_connection(mock_bleak_client):
         yield mock
 
 
-@pytest.fixture
-def mock_bluetooth_device_from_address(mock_ble_device):
-    """Mock the async_ble_device_from_address function."""
-    with patch(
-        "homeassistant.components.bluetooth.async_ble_device_from_address",
-        return_value=mock_ble_device,
-    ) as mock:
-        yield mock
+@pytest.fixture(autouse=True)
+def no_system_bluez() -> Generator[None]:
+    """Keep Home Assistant's Bluetooth stack off the system D-Bus.
+
+    On Linux the stack connects to BlueZ over D-Bus, and the Home Assistant
+    2025.10 test harness leaves that socket open, which fails the test with a
+    ResourceWarning. Newer harnesses set this flag for the whole session. Tests
+    that run the real stack (`enable_bluetooth`) rely on this; tests that do not
+    need it use `mock_bluetooth`, which skips the stack's setup altogether.
+    """
+    with patch.object(
+        get_global_bluez_manager_with_timeout, "_has_dbus_socket", False, create=True
+    ):
+        yield
 
 
 @pytest.fixture
 def mock_bluetooth() -> Generator[None]:
-    """Skip setting up Home Assistant's Bluetooth stack.
-
-    On Linux the real setup connects to BlueZ over D-Bus, and Home Assistant
-    2025.10 leaves that socket open, which fails the test with a ResourceWarning.
-    """
+    """Skip setting up Home Assistant's Bluetooth stack (see `no_system_bluez`)."""
     with (
         patch("homeassistant.components.bluetooth.async_setup", return_value=True),
         patch(

@@ -90,7 +90,7 @@ In `conftest.py`:
 - `init_integration`: sets the integration up through Home Assistant with `mock_desk` and
   returns the entry; the coordinator is `entry.runtime_data`
 - `mock_coordinator_data`: the `DeskData` snapshot matching `mock_desk`
-- `mock_ble_device`, `mock_service_info`: discovery inputs
+- `mock_ble_device`: discovery input
 - `mock_bleak_client`: a Bleak client mock specced to the real `BleakClient`
 - `mock_bleak_client_with_device_info`: the same client with the Device Information Service
 

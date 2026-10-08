@@ -5,16 +5,8 @@ from __future__ import annotations
 from collections.abc import Generator
 from unittest.mock import MagicMock, patch
 
-from bleak.backends.device import BLEDevice
-from bleak.backends.scanner import AdvertisementData
-from bleak_retry_connector.bleak_manager import get_global_bluez_manager_with_timeout
 from homeassistant import config_entries
-from homeassistant.components.bluetooth import (
-    MONOTONIC_TIME,
-    SOURCE_LOCAL,
-    BluetoothServiceInfoBleak,
-    async_get_advertisement_callback,
-)
+from homeassistant.components.bluetooth import async_get_advertisement_callback
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import CONF_ADDRESS
 from homeassistant.core import HomeAssistant
@@ -28,24 +20,12 @@ from custom_components.desky_desk.const import (
     DOMAIN,
 )
 
+from . import make_service_info
+
 DESK_ADDRESS = "AA:BB:CC:DD:EE:FF"
 OTHER_DESK_ADDRESS = "11:22:33:44:55:66"
 # A name discovery does not match, so no discovery card opens for it
 UNMATCHED_NAME = "Standing desk"
-
-
-@pytest.fixture(autouse=True)
-def no_system_bluez() -> Generator[None]:
-    """Keep Home Assistant's Bluetooth stack off the system D-Bus.
-
-    On Linux the stack would connect to BlueZ, and the Home Assistant 2025.10
-    test harness leaves that socket open, which fails the test with a
-    ResourceWarning. Newer harnesses set the same flag for the whole session.
-    """
-    with patch.object(
-        get_global_bluez_manager_with_timeout, "_has_dbus_socket", False, create=True
-    ):
-        yield
 
 
 @pytest.fixture(autouse=True)
@@ -59,35 +39,6 @@ def mock_flow_desk() -> Generator[MagicMock]:
         yield desk
 
 
-def desk_service_info(
-    address: str = DESK_ADDRESS, name: str = "Desky"
-) -> BluetoothServiceInfoBleak:
-    """Return what Home Assistant's Bluetooth stack reports for a desk."""
-    return BluetoothServiceInfoBleak(
-        name=name,
-        address=address,
-        rssi=-60,
-        manufacturer_data={},
-        service_data={},
-        service_uuids=[],
-        source=SOURCE_LOCAL,
-        device=BLEDevice(address, name, {}),
-        advertisement=AdvertisementData(
-            local_name=name,
-            manufacturer_data={},
-            service_data={},
-            service_uuids=[],
-            tx_power=-127,
-            rssi=-60,
-            platform_data=(),
-        ),
-        connectable=True,
-        time=MONOTONIC_TIME(),
-        tx_power=-127,
-        raw=None,
-    )
-
-
 async def advertise(
     hass: HomeAssistant, address: str = DESK_ADDRESS, name: str = "Desky"
 ) -> None:
@@ -96,7 +47,7 @@ async def advertise(
     A name starting with Desky matches the manifest, so Home Assistant opens a
     discovery flow for it, as it does for a real desk in range.
     """
-    async_get_advertisement_callback(hass)(desk_service_info(address, name))
+    async_get_advertisement_callback(hass)(make_service_info(address, name))
     # Home Assistant starts discovery flows as background tasks
     await hass.async_block_till_done(wait_background_tasks=True)
 
@@ -146,7 +97,7 @@ async def test_discovery_of_configured_desk_aborts(
     result = await hass.config_entries.flow.async_init(
         DOMAIN,
         context={"source": config_entries.SOURCE_BLUETOOTH},
-        data=desk_service_info(),
+        data=make_service_info(),
     )
 
     assert result["type"] is FlowResultType.ABORT
@@ -349,6 +300,18 @@ async def test_picker_lists_only_desks_not_set_up(
     assert result["title"] == "Desky B"
     assert result["result"].unique_id == OTHER_DESK_ADDRESS
     assert result["result"].state is ConfigEntryState.LOADED
+
+
+@pytest.mark.usefixtures("enable_bluetooth")
+async def test_picker_needs_name_starting_with_desky(hass: HomeAssistant) -> None:
+    """Test a device whose name only contains Desky is not offered."""
+    await advertise(hass, OTHER_DESK_ADDRESS, "My Desky")
+    assert discovery_flows(hass) == []
+
+    result = await start_user_flow(hass)
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "user"
 
 
 @pytest.mark.usefixtures("enable_bluetooth")
