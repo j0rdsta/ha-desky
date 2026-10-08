@@ -34,6 +34,7 @@ from custom_components.desky_desk.const import (
     MIN_HEIGHT,
     HeightLimit,
 )
+from custom_components.desky_desk.number import DeskHeightLimitNumber
 
 from . import disconnect_desk, notify_desk, set_desk_state
 
@@ -341,6 +342,15 @@ async def test_number_ids(
 
     assert entry is not None
     assert entry.unique_id == f"{init_integration.unique_id}_{suffix}"
+
+
+async def test_limit_number_accepts_a_plain_string(
+    hass: HomeAssistant, init_integration: MockConfigEntry
+) -> None:
+    """Test a limit given as the plain string "upper" reads the upper limit."""
+    entity = DeskHeightLimitNumber(init_integration.runtime_data, "upper")  # type: ignore[arg-type]
+
+    assert entity.native_value == 120.0
 
 
 async def test_vibration_intensity_sent_as_integer(

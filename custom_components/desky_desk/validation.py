@@ -51,7 +51,7 @@ def validate_height_limit(data: DeskData, limit: HeightLimit, height: float) -> 
     limit must be above it and a lower limit below it.
     """
     _check_height_in_range(height, MIN_HEIGHT, MAX_HEIGHT, "limit_out_of_range")
-    upper = limit is HeightLimit.UPPER
+    upper = limit == HeightLimit.UPPER
     other = data.height_limit_lower if upper else data.height_limit_upper
     if other is None:
         return

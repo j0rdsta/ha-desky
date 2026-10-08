@@ -72,7 +72,7 @@ async def async_setup_entry(
         [
             DeskyHeightNumber(coordinator),
             *(DeskHeightLimitNumber(coordinator, limit) for limit in HeightLimit),
-            DeskNumber(coordinator),
+            DeskVibrationIntensityNumber(coordinator),
         ]
     )
 
@@ -120,7 +120,7 @@ class DeskHeightLimitNumber(DeskEntity, NumberEntity):
     def native_value(self) -> float | None:
         """Return the limit in cm, or None if it is not set."""
         data = self.coordinator.data
-        if self._limit is HeightLimit.UPPER:
+        if self._limit == HeightLimit.UPPER:
             return data.height_limit_upper
         return data.height_limit_lower
 
@@ -138,7 +138,7 @@ class DeskHeightLimitNumber(DeskEntity, NumberEntity):
         return {"limits_enabled": self.coordinator.data.limits_enabled}
 
 
-class DeskNumber(DeskEntity, NumberEntity):
+class DeskVibrationIntensityNumber(DeskEntity, NumberEntity):
     """The desk's vibration intensity."""
 
     entity_description = VIBRATION_INTENSITY_DESCRIPTION
