@@ -28,6 +28,9 @@ up under **Settings → Devices & services** as a new device to set up.
    the advertisement monitor, in an ESPHome Bluetooth proxy's log, or with a BLE scanner app such
    as nRF Connect. Home Assistant must be able to see a device at that address right now.
 
+You can add a desk this way even while Home Assistant shows it as discovered. The discovered
+desk goes away once it is added.
+
 ### Connection check
 
 However you add the desk, setup connects to it once before it finishes, then disconnects. If

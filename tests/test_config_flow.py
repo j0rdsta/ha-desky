@@ -250,6 +250,77 @@ async def test_desk_in_range_refuses_then_accepts(
     assert result["result"].state is ConfigEntryState.LOADED
 
 
+@pytest.mark.usefixtures("enable_bluetooth", "mock_setup_entry")
+async def test_pick_desk_that_has_discovery_card(hass: HomeAssistant) -> None:
+    """Test picking a desk by hand while its discovery card is showing."""
+    await advertise(hass)
+    assert len(discovery_flows(hass)) == 1
+
+    result = await start_user_flow(hass)
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "pick_device"
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], user_input={CONF_ADDRESS: DESK_ADDRESS}
+    )
+    await hass.async_block_till_done()
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["title"] == "Desky"
+    assert result["data"] == {CONF_ADDRESS: DESK_ADDRESS}
+    assert result["result"].unique_id == DESK_ADDRESS
+    assert result["result"].state is ConfigEntryState.LOADED
+    assert discovery_flows(hass) == []
+    assert len(hass.config_entries.async_entries(DOMAIN)) == 1
+
+
+@pytest.mark.usefixtures("enable_bluetooth", "mock_setup_entry")
+async def test_pick_desk_cannot_connect_then_recovers(
+    hass: HomeAssistant, mock_flow_desk: MagicMock
+) -> None:
+    """Test picking a desk with a discovery card that does not answer, then answers."""
+    await advertise(hass)
+    result = await start_user_flow(hass)
+
+    mock_flow_desk.connect.return_value = False
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], user_input={CONF_ADDRESS: DESK_ADDRESS}
+    )
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "pick_device"
+    assert result["errors"] == {"base": "cannot_connect"}
+
+    mock_flow_desk.connect.return_value = True
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], user_input={CONF_ADDRESS: DESK_ADDRESS}
+    )
+    await hass.async_block_till_done()
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["result"].unique_id == DESK_ADDRESS
+    assert result["result"].state is ConfigEntryState.LOADED
+    assert discovery_flows(hass) == []
+
+
+@pytest.mark.usefixtures("enable_bluetooth", "mock_setup_entry")
+async def test_address_of_desk_that_has_discovery_card(hass: HomeAssistant) -> None:
+    """Test entering a desk's address while its discovery card is showing."""
+    result = await start_user_flow(hass)
+    assert result["step_id"] == "user"
+    await advertise(hass)
+    assert len(discovery_flows(hass)) == 1
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], user_input={CONF_ADDRESS: DESK_ADDRESS}
+    )
+    await hass.async_block_till_done()
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["result"].unique_id == DESK_ADDRESS
+    assert result["result"].state is ConfigEntryState.LOADED
+    assert discovery_flows(hass) == []
+
+
 async def test_options_flow_sets_standing_threshold(
     hass: HomeAssistant, init_integration: MockConfigEntry
 ) -> None:

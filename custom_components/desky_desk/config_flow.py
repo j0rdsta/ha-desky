@@ -94,8 +94,8 @@ class DeskyConfigFlow(ConfigFlow, domain=DOMAIN):
             # Discovery reports addresses in upper case
             address = user_input[CONF_ADDRESS].strip().upper()
 
-            # Check if already configured
-            await self.async_set_unique_id(address)
+            # Its discovery card may be open; adding it here closes the card
+            await self.async_set_unique_id(address, raise_on_progress=False)
             self._abort_if_unique_id_configured()
 
             # Try to find the device
@@ -124,7 +124,8 @@ class DeskyConfigFlow(ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             address = user_input[CONF_ADDRESS]
 
-            await self.async_set_unique_id(address)
+            # Its discovery card may be open; adding it here closes the card
+            await self.async_set_unique_id(address, raise_on_progress=False)
             self._abort_if_unique_id_configured()
 
             discovery_info = self._discovered_devices[address]
