@@ -215,3 +215,17 @@ async def test_set_position_outside_limits_rejected(
     assert err.value.translation_domain == DOMAIN
     assert err.value.translation_key == "height_out_of_range"
     mock_desk.move_to_height.assert_not_awaited()
+
+
+async def test_set_position_at_a_limit_allowed(
+    hass: HomeAssistant, init_integration: MockConfigEntry, mock_desk: MagicMock
+) -> None:
+    """Test a position whose height equals a limit moves the desk there."""
+    await set_desk_state(
+        hass, init_integration, height_limit_upper=97.8, height_limit_lower=65.0
+    )
+
+    # Position 54 is 97.8 cm, which floating point puts just above 97.8
+    await _call(hass, SERVICE_SET_COVER_POSITION, **{ATTR_POSITION: 54})
+
+    mock_desk.move_to_height.assert_awaited_once_with(97.8)

@@ -100,9 +100,11 @@ class DeskyCover(DeskEntity, CoverEntity):
     @desk_command
     async def async_set_cover_position(self, **kwargs: Any) -> None:
         """Move the cover to a specific position."""
-        # Convert position (0-100) to height (MIN_HEIGHT-MAX_HEIGHT)
+        # Convert position (0-100) to height (MIN_HEIGHT-MAX_HEIGHT), to 0.1 cm
         position = kwargs[ATTR_POSITION]
-        target_height = MIN_HEIGHT + (position / 100) * (MAX_HEIGHT - MIN_HEIGHT)
+        target_height = round(
+            MIN_HEIGHT + (position / 100) * (MAX_HEIGHT - MIN_HEIGHT), 1
+        )
         validate_move_to_height(self.coordinator.data, target_height)
 
         await self._device.move_to_height(target_height)
