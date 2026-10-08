@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 
 from homeassistant.components.light import (
     ATTR_BRIGHTNESS,
+    ATTR_BRIGHTNESS_PCT,
     ATTR_EFFECT,
     DOMAIN as LIGHT_DOMAIN,
     SERVICE_TURN_OFF,
@@ -80,7 +81,7 @@ async def test_light_state(
     """Test the light reports the desk's lighting state."""
     state = hass.states.get(ENTITY_ID)
     assert state.state == STATE_ON
-    assert state.attributes[ATTR_BRIGHTNESS] == 127  # 50%
+    assert state.attributes[ATTR_BRIGHTNESS] == 128  # 50%
     assert state.attributes[ATTR_EFFECT] == "White"
     assert state.attributes["color_name"] == "White"
 
@@ -196,15 +197,52 @@ async def test_light_turn_on_enables_lighting(
     mock_desk.set_light_color.assert_not_called()
 
 
+@pytest.mark.parametrize(
+    ("brightness", "percent"), [(1, 1), (2, 1), (128, 50), (191, 75), (255, 100)]
+)
 async def test_light_turn_on_brightness(
+    hass: HomeAssistant,
+    init_integration: MockConfigEntry,
+    mock_desk: MagicMock,
+    brightness: int,
+    percent: int,
+) -> None:
+    """Test brightness is sent as the nearest percentage, and never as 0 %."""
+    await _turn_on(hass, **{ATTR_BRIGHTNESS: brightness})
+
+    mock_desk.set_brightness.assert_awaited_once_with(percent)
+    mock_desk.get_brightness.assert_awaited_once()
+
+
+async def test_light_brightness_percent_round_trip(
     hass: HomeAssistant, init_integration: MockConfigEntry, mock_desk: MagicMock
 ) -> None:
-    """Test brightness is sent to the desk as a percentage."""
-    await _turn_on(hass, **{ATTR_BRIGHTNESS: 191})
+    """Test every percentage set in Home Assistant reaches the desk unchanged."""
+    for percent in range(1, 101):
+        mock_desk.set_brightness.reset_mock()
 
-    # 191 / 255 * 100 = 74.9, truncated to 74
-    mock_desk.set_brightness.assert_awaited_once_with(74)
-    mock_desk.get_brightness.assert_awaited_once()
+        await _turn_on(hass, **{ATTR_BRIGHTNESS_PCT: percent})
+
+        mock_desk.set_brightness.assert_awaited_once_with(percent)
+        # The desk reports it back, and Home Assistant shows the same percentage
+        await set_desk_state(hass, init_integration, brightness=percent)
+        brightness = hass.states.get(ENTITY_ID).attributes[ATTR_BRIGHTNESS]
+        assert round(brightness / 255 * 100) == percent
+
+
+@pytest.mark.parametrize(
+    ("percent", "brightness"), [(0, 1), (1, 3), (50, 128), (75, 191), (100, 255)]
+)
+async def test_light_reports_brightness(
+    hass: HomeAssistant,
+    init_integration: MockConfigEntry,
+    percent: int,
+    brightness: int,
+) -> None:
+    """Test the desk's percentage is shown as a Home Assistant brightness."""
+    await set_desk_state(hass, init_integration, brightness=percent)
+
+    assert hass.states.get(ENTITY_ID).attributes[ATTR_BRIGHTNESS] == brightness
 
 
 @pytest.mark.parametrize(("effect", "color"), EFFECTS)

@@ -17,6 +17,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import ExtraStoredData, RestoreEntity
+from homeassistant.util.color import brightness_to_value, value_to_brightness
 
 from .const import DOMAIN, LIGHT_COLORS
 from .coordinator import DeskUpdateCoordinator, DeskyConfigEntry
@@ -26,6 +27,9 @@ _LOGGER = logging.getLogger(__name__)
 
 # Commands go to one BLE connection, so send them one at a time
 PARALLEL_UPDATES = 1
+
+# The desk takes brightness in % from 1 to 100
+BRIGHTNESS_SCALE = (1, 100)
 
 COLOR_WHITE = 1
 COLOR_PARTY = 6
@@ -144,8 +148,7 @@ class DeskLight(DeskEntity, LightEntity, RestoreEntity):
         if brightness_percent is None:
             return None
 
-        # Convert percentage (0-100) to Home Assistant brightness (0-255)
-        return int((brightness_percent / 100) * 255)
+        return value_to_brightness(BRIGHTNESS_SCALE, brightness_percent)
 
     @property
     def effect(self) -> str | None:
@@ -175,10 +178,11 @@ class DeskLight(DeskEntity, LightEntity, RestoreEntity):
                 },
             )
 
-        # Handle brightness change
         if ATTR_BRIGHTNESS in kwargs:
-            # Convert Home Assistant brightness (0-255) to percentage (0-100)
-            brightness_percent = int((kwargs[ATTR_BRIGHTNESS] / 255) * 100)
+            # Round to the nearest %, but never send a light that is on as 0 %
+            brightness_percent = max(
+                1, round(brightness_to_value(BRIGHTNESS_SCALE, kwargs[ATTR_BRIGHTNESS]))
+            )
             await self._device.set_brightness(brightness_percent)
 
         if effect is not None:
