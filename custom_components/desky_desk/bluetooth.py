@@ -546,7 +546,7 @@ class DeskBLEDevice:
     async def move_to_height(self, height_cm: float) -> None:
         """Move desk to a specific height in cm."""
         # The target is always in mm, whatever the desk's display unit
-        height_mm = int(height_cm * 10)
+        height_mm = round(height_cm * 10)
 
         # Ensure height is within valid range
 

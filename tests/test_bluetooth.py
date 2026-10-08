@@ -595,6 +595,21 @@ async def test_move_to_height_success(mock_ble_device, mock_bleak_client):
     ]
 
 
+async def test_move_to_height_rounds_to_mm(mock_ble_device, mock_bleak_client):
+    """Test the target is rounded to the nearest mm, not truncated."""
+    device = DeskBLEDevice(mock_ble_device)
+    device._client = mock_bleak_client
+    device._height_cm = 70.0
+
+    await device.move_to_height(85.27)
+
+    # 853 mm = 0x0355; checksum = (0x1B + 0x02 + 0x03 + 0x55) & 0xFF = 0x75
+    expected_command = bytes([0xF1, 0xF1, 0x1B, 0x02, 0x03, 0x55, 0x75, 0x7E])
+    assert mock_bleak_client.write_gatt_char.call_args_list[-1] == call(
+        WRITE_CHARACTERISTIC_UUID, expected_command
+    )
+
+
 async def test_move_to_height_out_of_range(mock_ble_device, mock_bleak_client):
     """Test move_to_height with out of range values."""
     device = DeskBLEDevice(mock_ble_device)
