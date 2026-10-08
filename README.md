@@ -1,7 +1,5 @@
 # Desky Standing Desk for Home Assistant
 
-![A Desky desk's device page in Home Assistant, with its controls, sensors and settings](https://raw.githubusercontent.com/j0rdsta/ha-desky/main/docs/assets/screenshot-device.png)
-
 [![Documentation](https://img.shields.io/badge/docs-j0rdsta.github.io%2Fha--desky-blue)](https://j0rdsta.github.io/ha-desky/)
 [![GitHub release](https://img.shields.io/github/v/release/j0rdsta/ha-desky)](https://github.com/j0rdsta/ha-desky/releases)
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
@@ -11,29 +9,26 @@
 [![Validate](https://github.com/j0rdsta/ha-desky/actions/workflows/validate.yml/badge.svg)](https://github.com/j0rdsta/ha-desky/actions/workflows/validate.yml)
 [![codecov](https://codecov.io/gh/j0rdsta/ha-desky/graph/badge.svg)](https://codecov.io/gh/j0rdsta/ha-desky)
 
-Control a [Desky](https://www.desky.com.au) standing desk from Home Assistant over Bluetooth.
-The integration talks to the Bluetooth controller already in the desk, so nothing extra goes on
-the desk: Home Assistant sees its height as it moves, raises and lowers it, recalls its presets,
-tracks whether you are sitting or standing, and controls its settings, light and lock. It keeps
-the connection open, gets every change pushed to it, and reconnects on its own through whichever
-adapter or ESPHome Bluetooth proxy hears the desk.
+Control a [Desky](https://www.desky.com.au) standing desk from Home Assistant over the same
+Bluetooth connection the Desky app uses. There's no extra hardware to buy or wire into the desk.
 
-**[Read the documentation →](https://j0rdsta.github.io/ha-desky/)**
+![A Desky desk's device page in Home Assistant, with its controls, sensors and settings](https://raw.githubusercontent.com/j0rdsta/ha-desky/main/docs/assets/screenshot-device.png)
 
 ## Features
 
-- **Movement**: raise, lower and stop the desk, move it to a height or to one of its four
-  presets. The desk is a cover entity, so it works in dashboards, scenes and voice assistants.
-- **Live height** in centimetres while the desk moves, whatever unit its display shows.
-- **Posture tracking**: a sitting or standing sensor, and today's sitting and standing time,
-  recorded in long-term statistics.
-- **Collision detection** for movements commanded from Home Assistant.
-- **Desk settings**: height limits, lock, LED strip, vibration, collision sensitivity, touch mode
-  and display unit, on desks that have them.
-- **Actions** to move to a height and set or clear height limits, which fail with a clear error
-  instead of doing nothing.
-- **Blueprints** for a sit/stand reminder, a scheduled stand and a collision alert.
-- **Diagnostics** with the desk's Bluetooth address and serial number redacted, for bug reports.
+- Raise, lower and stop the desk, or move it to a height or one of its four presets. The desk is
+  a cover entity, so it works in dashboards, scenes and voice assistants.
+- Live height in centimetres while the desk moves, whatever unit its display shows.
+- A sitting or standing sensor, and today's sitting and standing time, recorded in long-term
+  statistics.
+- Collision detection for movements commanded from Home Assistant.
+- Height limits, lock, LED strip, vibration, collision sensitivity, touch mode and display unit,
+  on desks that have them.
+- Actions to move to a height and to set or clear height limits.
+- Blueprints for a sit/stand reminder, a scheduled stand and a collision alert.
+- Stays connected, with changes pushed as they happen, and reconnects on its own through whichever
+  adapter or ESPHome Bluetooth proxy hears the desk.
+- Diagnostics for bug reports, with the desk's Bluetooth address and serial number redacted.
 
 | Dashboard | Options | Posture history |
 | --- | --- | --- |
@@ -56,15 +51,13 @@ close the Desky app on your phone.
    **Add**. If it is not discovered, select **Add integration**, search for **Desky Standing
    Desk** and pick the desk or enter its Bluetooth address.
 
-Manual installation and options are covered in the
-[installation](https://j0rdsta.github.io/ha-desky/installation/) and
-[configuration](https://j0rdsta.github.io/ha-desky/configuration/) guides, and removal in
-the [removal](https://j0rdsta.github.io/ha-desky/removal/) guide.
-
 ## Documentation
 
 The full documentation is at **[j0rdsta.github.io/ha-desky](https://j0rdsta.github.io/ha-desky/)**:
 
+- [Installation](https://j0rdsta.github.io/ha-desky/installation/),
+  [configuration](https://j0rdsta.github.io/ha-desky/configuration/) and
+  [removal](https://j0rdsta.github.io/ha-desky/removal/): manual installation and options
 - [Entities](https://j0rdsta.github.io/ha-desky/entities/) and
   [actions](https://j0rdsta.github.io/ha-desky/actions/): everything the integration adds
 - [Use cases](https://j0rdsta.github.io/ha-desky/use-cases/) and
