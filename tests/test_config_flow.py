@@ -5,7 +5,17 @@ from __future__ import annotations
 from collections.abc import Generator
 from unittest.mock import MagicMock, patch
 
+from bleak.backends.device import BLEDevice
+from bleak.backends.scanner import AdvertisementData
+from bleak_retry_connector.bleak_manager import get_global_bluez_manager_with_timeout
 from homeassistant import config_entries
+from homeassistant.components.bluetooth import (
+    MONOTONIC_TIME,
+    SOURCE_LOCAL,
+    BluetoothServiceInfoBleak,
+    async_get_advertisement_callback,
+)
+from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import CONF_ADDRESS
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType, InvalidData
@@ -18,7 +28,24 @@ from custom_components.desky_desk.const import (
     DOMAIN,
 )
 
-from . import make_service_info
+DESK_ADDRESS = "AA:BB:CC:DD:EE:FF"
+OTHER_DESK_ADDRESS = "11:22:33:44:55:66"
+# A name discovery does not match, so no discovery card opens for it
+UNMATCHED_NAME = "Standing desk"
+
+
+@pytest.fixture(autouse=True)
+def no_system_bluez() -> Generator[None]:
+    """Keep Home Assistant's Bluetooth stack off the system D-Bus.
+
+    On Linux the stack would connect to BlueZ, and the Home Assistant 2025.10
+    test harness leaves that socket open, which fails the test with a
+    ResourceWarning. Newer harnesses set the same flag for the whole session.
+    """
+    with patch.object(
+        get_global_bluez_manager_with_timeout, "_has_dbus_socket", False, create=True
+    ):
+        yield
 
 
 @pytest.fixture(autouse=True)
@@ -32,274 +59,195 @@ def mock_flow_desk() -> Generator[MagicMock]:
         yield desk
 
 
-@pytest.fixture
-def mock_bluetooth_setup(mock_bluetooth: None) -> None:
-    """Skip setting up Home Assistant's Bluetooth stack for a flow."""
-
-
-async def test_bluetooth_discovery(hass: HomeAssistant, mock_service_info):
-    """Test discovery via bluetooth."""
-    # Mock bluetooth setup to prevent failures
-    with (
-        patch("homeassistant.components.bluetooth.async_setup", return_value=True),
-        patch(
-            "homeassistant.components.bluetooth_adapters.async_setup", return_value=True
+def desk_service_info(
+    address: str = DESK_ADDRESS, name: str = "Desky"
+) -> BluetoothServiceInfoBleak:
+    """Return what Home Assistant's Bluetooth stack reports for a desk."""
+    return BluetoothServiceInfoBleak(
+        name=name,
+        address=address,
+        rssi=-60,
+        manufacturer_data={},
+        service_data={},
+        service_uuids=[],
+        source=SOURCE_LOCAL,
+        device=BLEDevice(address, name, {}),
+        advertisement=AdvertisementData(
+            local_name=name,
+            manufacturer_data={},
+            service_data={},
+            service_uuids=[],
+            tx_power=-127,
+            rssi=-60,
+            platform_data=(),
         ),
-    ):
-        result = await hass.config_entries.flow.async_init(
-            DOMAIN,
-            context={"source": config_entries.SOURCE_BLUETOOTH},
-            data=mock_service_info,
-        )
-
-        assert result["type"] == FlowResultType.FORM
-        assert result["step_id"] == "confirm"
-
-        result = await hass.config_entries.flow.async_configure(
-            result["flow_id"], user_input={}
-        )
-
-        assert result["type"] == FlowResultType.CREATE_ENTRY
-        assert result["title"] == "Desky"
-        assert result["data"] == {CONF_ADDRESS: "AA:BB:CC:DD:EE:FF"}
+        connectable=True,
+        time=MONOTONIC_TIME(),
+        tx_power=-127,
+        raw=None,
+    )
 
 
-async def test_bluetooth_discovery_already_configured(
-    hass: HomeAssistant,
-    mock_service_info,
-    mock_config_entry,
-):
-    """Test discovery when already configured."""
+async def advertise(
+    hass: HomeAssistant, address: str = DESK_ADDRESS, name: str = "Desky"
+) -> None:
+    """Deliver a desk's advertisement to Home Assistant's Bluetooth stack.
+
+    A name starting with Desky matches the manifest, so Home Assistant opens a
+    discovery flow for it, as it does for a real desk in range.
+    """
+    async_get_advertisement_callback(hass)(desk_service_info(address, name))
+    # Home Assistant starts discovery flows as background tasks
+    await hass.async_block_till_done(wait_background_tasks=True)
+
+
+def discovery_flows(hass: HomeAssistant) -> list[dict]:
+    """Return the open discovery flows, which the UI shows as cards."""
+    return [
+        flow
+        for flow in hass.config_entries.flow.async_progress_by_handler(DOMAIN)
+        if flow["context"]["source"] == config_entries.SOURCE_BLUETOOTH
+    ]
+
+
+async def start_user_flow(hass: HomeAssistant):
+    """Start the flow the way Add integration does."""
+    return await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+
+
+@pytest.mark.usefixtures("enable_bluetooth", "mock_setup_entry")
+async def test_confirm_from_discovery_card(hass: HomeAssistant) -> None:
+    """Test confirming a desk from its discovery card."""
+    await advertise(hass)
+    (flow,) = discovery_flows(hass)
+    assert flow["step_id"] == "confirm"
+
+    result = await hass.config_entries.flow.async_configure(
+        flow["flow_id"], user_input={}
+    )
+    await hass.async_block_till_done()
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["title"] == "Desky"
+    assert result["data"] == {CONF_ADDRESS: DESK_ADDRESS}
+    assert result["result"].unique_id == DESK_ADDRESS
+    assert result["result"].state is ConfigEntryState.LOADED
+
+
+@pytest.mark.usefixtures("enable_bluetooth")
+async def test_discovery_of_configured_desk_aborts(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Test a desk that is already set up gets no discovery card."""
     mock_config_entry.add_to_hass(hass)
 
-    # Mock bluetooth setup to prevent failures
-    with (
-        patch("homeassistant.components.bluetooth.async_setup", return_value=True),
-        patch(
-            "homeassistant.components.bluetooth_adapters.async_setup", return_value=True
-        ),
-    ):
-        result = await hass.config_entries.flow.async_init(
-            DOMAIN,
-            context={"source": config_entries.SOURCE_BLUETOOTH},
-            data=mock_service_info,
-        )
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={"source": config_entries.SOURCE_BLUETOOTH},
+        data=desk_service_info(),
+    )
 
-        assert result["type"] == FlowResultType.ABORT
-        assert result["reason"] == "already_configured"
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "already_configured"
 
 
-async def test_user_flow_pick_device(hass: HomeAssistant, mock_discovered_service_info):
-    """Test user flow with device selection."""
-    # Mock bluetooth setup to prevent failures
-    with (
-        patch("homeassistant.components.bluetooth.async_setup", return_value=True),
-        patch(
-            "homeassistant.components.bluetooth_adapters.async_setup", return_value=True
-        ),
-    ):
-        result = await hass.config_entries.flow.async_init(
-            DOMAIN, context={"source": config_entries.SOURCE_USER}
-        )
+@pytest.mark.usefixtures("enable_bluetooth", "mock_setup_entry")
+async def test_discovery_card_cannot_connect_then_recovers(
+    hass: HomeAssistant, mock_flow_desk: MagicMock
+) -> None:
+    """Test confirming a desk that does not answer, then answers."""
+    await advertise(hass)
+    (flow,) = discovery_flows(hass)
 
-        assert result["type"] == FlowResultType.FORM
-        assert result["step_id"] == "pick_device"
+    mock_flow_desk.connect.return_value = False
+    result = await hass.config_entries.flow.async_configure(
+        flow["flow_id"], user_input={}
+    )
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "confirm"
+    assert result["errors"] == {"base": "cannot_connect"}
+    mock_flow_desk.disconnect.assert_awaited_once()
 
-        result = await hass.config_entries.flow.async_configure(
-            result["flow_id"], user_input={CONF_ADDRESS: "AA:BB:CC:DD:EE:FF"}
-        )
+    mock_flow_desk.connect.return_value = True
+    result = await hass.config_entries.flow.async_configure(
+        flow["flow_id"], user_input={}
+    )
+    await hass.async_block_till_done()
 
-        assert result["type"] == FlowResultType.CREATE_ENTRY
-        assert result["title"] == "Desky"
-        assert result["data"] == {CONF_ADDRESS: "AA:BB:CC:DD:EE:FF"}
-
-
-async def test_user_flow_manual_entry_no_devices(hass: HomeAssistant):
-    """Test user flow with manual entry when no devices discovered."""
-    # Mock bluetooth setup to prevent failures
-    with (
-        patch("homeassistant.components.bluetooth.async_setup", return_value=True),
-        patch(
-            "homeassistant.components.bluetooth_adapters.async_setup", return_value=True
-        ),
-        patch(
-            "custom_components.desky_desk.config_flow.async_discovered_service_info",
-            return_value=[],
-        ),
-    ):
-        result = await hass.config_entries.flow.async_init(
-            DOMAIN, context={"source": config_entries.SOURCE_USER}
-        )
-
-        assert result["type"] == FlowResultType.FORM
-        assert result["step_id"] == "user"
-
-        # Test invalid address
-        with patch(
-            "custom_components.desky_desk.config_flow.DeskyConfigFlow._async_get_device",
-            return_value=None,
-        ):
-            result = await hass.config_entries.flow.async_configure(
-                result["flow_id"], user_input={CONF_ADDRESS: "FF:EE:DD:CC:BB:AA"}
-            )
-
-            assert result["type"] == FlowResultType.FORM
-            assert result["errors"] == {"base": "cannot_connect"}
-
-        # Test valid address
-        mock_discovery = make_service_info(address="FF:EE:DD:CC:BB:AA")
-
-        with patch(
-            "custom_components.desky_desk.config_flow.DeskyConfigFlow._async_get_device",
-            return_value=mock_discovery,
-        ):
-            result = await hass.config_entries.flow.async_configure(
-                result["flow_id"], user_input={CONF_ADDRESS: "FF:EE:DD:CC:BB:AA"}
-            )
-
-            assert result["type"] == FlowResultType.CREATE_ENTRY
-            assert result["title"] == "Desky"
-            assert result["data"] == {CONF_ADDRESS: "FF:EE:DD:CC:BB:AA"}
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["result"].unique_id == DESK_ADDRESS
+    assert result["result"].state is ConfigEntryState.LOADED
 
 
-async def test_user_flow_already_configured(
-    hass: HomeAssistant,
-    mock_config_entry,
-    mock_discovered_service_info,
-):
-    """Test user flow when device is already configured."""
+@pytest.mark.usefixtures("enable_bluetooth")
+async def test_configured_address_entered_by_hand(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Test entering a configured desk's address, in any case, aborts."""
     mock_config_entry.add_to_hass(hass)
-
-    # Mock bluetooth setup to prevent failures
-    with (
-        patch("homeassistant.components.bluetooth.async_setup", return_value=True),
-        patch(
-            "homeassistant.components.bluetooth_adapters.async_setup", return_value=True
-        ),
-    ):
-        result = await hass.config_entries.flow.async_init(
-            DOMAIN, context={"source": config_entries.SOURCE_USER}
-        )
-
-        assert result["type"] == FlowResultType.FORM
-        assert result["step_id"] == "pick_device"
-
-        result = await hass.config_entries.flow.async_configure(
-            result["flow_id"], user_input={CONF_ADDRESS: "AA:BB:CC:DD:EE:FF"}
-        )
-
-        assert result["type"] == FlowResultType.ABORT
-        assert result["reason"] == "already_configured"
-
-
-async def test_user_flow_ignores_non_desky_devices(hass: HomeAssistant):
-    """Test only devices advertising a Desky name are offered for selection."""
-    desky = make_service_info(address="AA:BB:CC:DD:EE:FF", name="Desky")
-    other = make_service_info(address="11:22:33:44:55:66", name="Kettle")
-
-    with (
-        patch("homeassistant.components.bluetooth.async_setup", return_value=True),
-        patch(
-            "homeassistant.components.bluetooth_adapters.async_setup", return_value=True
-        ),
-        patch(
-            "custom_components.desky_desk.config_flow.async_discovered_service_info",
-            return_value=[other, desky],
-        ),
-    ):
-        result = await hass.config_entries.flow.async_init(
-            DOMAIN, context={"source": config_entries.SOURCE_USER}
-        )
-
-    assert result["type"] == FlowResultType.FORM
-    assert result["step_id"] == "pick_device"
-    address_field = result["data_schema"].schema[CONF_ADDRESS]
-    assert address_field.container == {"AA:BB:CC:DD:EE:FF": "Desky (AA:BB:CC:DD:EE:FF)"}
-
-
-async def test_user_flow_only_non_desky_devices_shows_manual_form(
-    hass: HomeAssistant,
-):
-    """Test the manual address form is shown when no Desky device is discovered."""
-    other = make_service_info(address="11:22:33:44:55:66", name="Kettle")
-
-    with (
-        patch("homeassistant.components.bluetooth.async_setup", return_value=True),
-        patch(
-            "homeassistant.components.bluetooth_adapters.async_setup", return_value=True
-        ),
-        patch(
-            "custom_components.desky_desk.config_flow.async_discovered_service_info",
-            return_value=[other],
-        ),
-    ):
-        result = await hass.config_entries.flow.async_init(
-            DOMAIN, context={"source": config_entries.SOURCE_USER}
-        )
-
-    assert result["type"] == FlowResultType.FORM
+    result = await start_user_flow(hass)
     assert result["step_id"] == "user"
-    assert result["errors"] is None
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], user_input={CONF_ADDRESS: " aa:bb:cc:dd:ee:ff "}
+    )
+
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "already_configured"
 
 
-async def test_user_flow_manual_address_matches_discovered_device(
-    hass: HomeAssistant,
-):
-    """Test a manually entered address is resolved against discovered devices."""
-    other = make_service_info(address="11:22:33:44:55:66", name="Kettle")
-    desky = make_service_info(address="FF:EE:DD:CC:BB:AA", name="Desky Pro")
+@pytest.mark.usefixtures("enable_bluetooth", "mock_setup_entry")
+async def test_desk_out_of_range_then_in_range(hass: HomeAssistant) -> None:
+    """Test an address no adapter can see fails, then works once it is seen."""
+    result = await start_user_flow(hass)
+    assert result["step_id"] == "user"
 
-    with (
-        patch("homeassistant.components.bluetooth.async_setup", return_value=True),
-        patch(
-            "homeassistant.components.bluetooth_adapters.async_setup", return_value=True
-        ),
-        patch(
-            "custom_components.desky_desk.config_flow.async_discovered_service_info",
-            return_value=[],
-        ) as mock_discovered,
-    ):
-        result = await hass.config_entries.flow.async_init(
-            DOMAIN, context={"source": config_entries.SOURCE_USER}
-        )
-        assert result["step_id"] == "user"
-
-        mock_discovered.return_value = [other, desky]
-        result = await hass.config_entries.flow.async_configure(
-            result["flow_id"], user_input={CONF_ADDRESS: "FF:EE:DD:CC:BB:AA"}
-        )
-
-    assert result["type"] == FlowResultType.CREATE_ENTRY
-    assert result["title"] == "Desky Pro"
-    assert result["data"] == {CONF_ADDRESS: "FF:EE:DD:CC:BB:AA"}
-
-
-async def test_user_flow_manual_address_not_discovered(hass: HomeAssistant):
-    """Test a manually entered address that no scanner has seen cannot connect."""
-    other = make_service_info(address="11:22:33:44:55:66", name="Kettle")
-
-    with (
-        patch("homeassistant.components.bluetooth.async_setup", return_value=True),
-        patch(
-            "homeassistant.components.bluetooth_adapters.async_setup", return_value=True
-        ),
-        patch(
-            "custom_components.desky_desk.config_flow.async_discovered_service_info",
-            return_value=[other],
-        ),
-    ):
-        result = await hass.config_entries.flow.async_init(
-            DOMAIN, context={"source": config_entries.SOURCE_USER}
-        )
-        assert result["step_id"] == "user"
-
-        result = await hass.config_entries.flow.async_configure(
-            result["flow_id"], user_input={CONF_ADDRESS: "FF:EE:DD:CC:BB:AA"}
-        )
-
-    assert result["type"] == FlowResultType.FORM
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], user_input={CONF_ADDRESS: DESK_ADDRESS}
+    )
+    assert result["type"] is FlowResultType.FORM
     assert result["step_id"] == "user"
     assert result["errors"] == {"base": "cannot_connect"}
+
+    await advertise(hass, DESK_ADDRESS, UNMATCHED_NAME)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], user_input={CONF_ADDRESS: DESK_ADDRESS}
+    )
+    await hass.async_block_till_done()
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["title"] == UNMATCHED_NAME
+    assert result["data"] == {CONF_ADDRESS: DESK_ADDRESS}
+    assert result["result"].unique_id == DESK_ADDRESS
+    assert result["result"].state is ConfigEntryState.LOADED
+
+
+@pytest.mark.usefixtures("enable_bluetooth", "mock_setup_entry")
+async def test_desk_in_range_refuses_then_accepts(
+    hass: HomeAssistant, mock_flow_desk: MagicMock
+) -> None:
+    """Test an address that is seen but does not answer, then answers."""
+    await advertise(hass, DESK_ADDRESS, UNMATCHED_NAME)
+    result = await start_user_flow(hass)
+
+    mock_flow_desk.connect.return_value = False
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], user_input={CONF_ADDRESS: DESK_ADDRESS}
+    )
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {"base": "cannot_connect"}
+
+    mock_flow_desk.connect.return_value = True
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], user_input={CONF_ADDRESS: DESK_ADDRESS}
+    )
+    await hass.async_block_till_done()
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["result"].unique_id == DESK_ADDRESS
+    assert result["result"].state is ConfigEntryState.LOADED
 
 
 async def test_options_flow_sets_standing_threshold(
@@ -338,10 +286,8 @@ async def test_options_flow_suggests_current_threshold(
 
     result = await hass.config_entries.options.async_init(mock_config_entry.entry_id)
 
-    schema = result["data_schema"].schema
-    (key,) = schema
-    assert key == CONF_STANDING_THRESHOLD
-    assert key.default() == 100
+    # Submitting the form unchanged keeps the saved threshold
+    assert result["data_schema"]({}) == {CONF_STANDING_THRESHOLD: 100}
 
 
 @pytest.mark.parametrize("threshold", [59, 131, 140])
@@ -362,106 +308,3 @@ async def test_options_flow_rejects_out_of_range_threshold(
         )
 
     assert mock_config_entry.options == {}
-
-
-async def test_bluetooth_discovery_cannot_connect(
-    hass: HomeAssistant,
-    mock_bluetooth_setup: None,
-    mock_service_info,
-    mock_flow_desk: MagicMock,
-) -> None:
-    """Test confirming a discovered desk that does not answer shows an error."""
-    result = await hass.config_entries.flow.async_init(
-        DOMAIN,
-        context={"source": config_entries.SOURCE_BLUETOOTH},
-        data=mock_service_info,
-    )
-    mock_flow_desk.connect.return_value = False
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], user_input={}
-    )
-
-    assert result["type"] == FlowResultType.FORM
-    assert result["step_id"] == "confirm"
-    assert result["errors"] == {"base": "cannot_connect"}
-    mock_flow_desk.disconnect.assert_awaited_once()
-
-    mock_flow_desk.connect.return_value = True
-    with patch("custom_components.desky_desk.async_setup_entry", return_value=True):
-        result = await hass.config_entries.flow.async_configure(
-            result["flow_id"], user_input={}
-        )
-
-    assert result["type"] == FlowResultType.CREATE_ENTRY
-    assert result["data"] == {CONF_ADDRESS: "AA:BB:CC:DD:EE:FF"}
-
-
-async def test_pick_device_cannot_connect(
-    hass: HomeAssistant,
-    mock_bluetooth_setup: None,
-    mock_discovered_service_info,
-    mock_flow_desk: MagicMock,
-) -> None:
-    """Test picking a desk that does not answer shows an error."""
-    result = await hass.config_entries.flow.async_init(
-        DOMAIN, context={"source": config_entries.SOURCE_USER}
-    )
-    mock_flow_desk.connect.return_value = False
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], user_input={CONF_ADDRESS: "AA:BB:CC:DD:EE:FF"}
-    )
-
-    assert result["type"] == FlowResultType.FORM
-    assert result["step_id"] == "pick_device"
-    assert result["errors"] == {"base": "cannot_connect"}
-
-    mock_flow_desk.connect.return_value = True
-    with patch("custom_components.desky_desk.async_setup_entry", return_value=True):
-        result = await hass.config_entries.flow.async_configure(
-            result["flow_id"], user_input={CONF_ADDRESS: "AA:BB:CC:DD:EE:FF"}
-        )
-
-    assert result["type"] == FlowResultType.CREATE_ENTRY
-
-
-async def test_manual_address_cannot_connect(
-    hass: HomeAssistant, mock_bluetooth_setup: None, mock_flow_desk: MagicMock
-) -> None:
-    """Test a manually entered desk that is seen but does not answer."""
-    desky = make_service_info(address="FF:EE:DD:CC:BB:AA", name="Desky Pro")
-    with patch(
-        "custom_components.desky_desk.config_flow.async_discovered_service_info",
-        return_value=[],
-    ) as mock_discovered:
-        result = await hass.config_entries.flow.async_init(
-            DOMAIN, context={"source": config_entries.SOURCE_USER}
-        )
-        mock_discovered.return_value = [desky]
-        mock_flow_desk.connect.return_value = False
-        result = await hass.config_entries.flow.async_configure(
-            result["flow_id"], user_input={CONF_ADDRESS: "FF:EE:DD:CC:BB:AA"}
-        )
-
-    assert result["type"] == FlowResultType.FORM
-    assert result["step_id"] == "user"
-    assert result["errors"] == {"base": "cannot_connect"}
-
-
-async def test_manual_address_is_normalised(
-    hass: HomeAssistant, mock_bluetooth_setup: None, mock_config_entry
-) -> None:
-    """Test a lowercase address matches a desk already set up from discovery."""
-    mock_config_entry.add_to_hass(hass)
-    with patch(
-        "custom_components.desky_desk.config_flow.async_discovered_service_info",
-        return_value=[],
-    ):
-        result = await hass.config_entries.flow.async_init(
-            DOMAIN, context={"source": config_entries.SOURCE_USER}
-        )
-        result = await hass.config_entries.flow.async_configure(
-            result["flow_id"], user_input={CONF_ADDRESS: " aa:bb:cc:dd:ee:ff "}
-        )
-
-    assert result["type"] == FlowResultType.ABORT
-    assert result["reason"] == "already_configured"

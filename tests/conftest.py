@@ -152,16 +152,6 @@ def mock_bluetooth_device_from_address(mock_ble_device):
 
 
 @pytest.fixture
-def mock_discovered_service_info(mock_service_info):
-    """Mock the async_discovered_service_info function."""
-    with patch(
-        "custom_components.desky_desk.config_flow.async_discovered_service_info",
-        return_value=[mock_service_info],
-    ) as mock:
-        yield mock
-
-
-@pytest.fixture
 def mock_bluetooth() -> Generator[None]:
     """Skip setting up Home Assistant's Bluetooth stack.
 

@@ -12,7 +12,7 @@ which runs a real Home Assistant core in-process. BLE traffic is mocked, so no d
 | `__init__.py` | Shared builders, such as `make_service_info()` for Bluetooth discovery |
 | `conftest.py` | Shared fixtures (see below) |
 | `test_init.py` | Config entry setup and unload |
-| `test_config_flow.py` | User and Bluetooth discovery flows |
+| `test_config_flow.py` | User and Bluetooth discovery flows, run on Home Assistant's Bluetooth stack with the scanner mocked; `advertise()` injects a desk's advertisement |
 | `test_coordinator.py` | `DeskUpdateCoordinator`: refresh, reconnect, disconnect and device info |
 | `test_bluetooth.py` | `DeskBLEDevice`: commands, notification parsing, movement and collision detection |
 | `test_entities.py` | Snapshot of every entity's registry entry and state |
