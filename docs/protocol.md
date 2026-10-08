@@ -1,8 +1,8 @@
 # Protocol notes
 
-Notes on the Bluetooth protocol the desk's controller speaks, as the integration uses it. They are
-for contributors and for anyone debugging a controller the integration does not handle yet. Some
-of it was worked out by observation and may not hold for every controller.
+The desk controller's Bluetooth protocol, as the integration uses it, for contributors and anyone
+debugging a controller the integration does not handle yet. Some of it was worked out by
+observation and may not hold for every controller.
 
 ## GATT layout
 
@@ -76,11 +76,10 @@ F1 F1 <command> 02 <high> <low> <checksum> 7E
 
 ## Waking the desk
 
-The handshake is sent after connecting, which enables movement commands. The controller also
-ignores commands while its display is asleep, about a minute after the last touch, and the
-handshake wakes it. So the integration writes a handshake in front of every command that moves
-the desk or changes a setting. Stop is sent on its own: a moving desk is awake, and a sleeping one
-has nothing to stop.
+The handshake is sent after connecting, which enables movement commands. The controller also ignores
+commands once its display sleeps, about a minute after the last touch. The handshake wakes it, so
+the integration writes a handshake in front of every command that moves the desk or changes a
+setting. Stop is sent on its own: a moving desk is awake, and a sleeping one has nothing to stop.
 
 ## Notifications
 
@@ -98,25 +97,23 @@ The desk reports its height in one of two frames, depending on the controller's 
 
 The L-BTMEB95 controller does not send this frame; it reports movement in status frames.
 
-**Status frame** `F2 F2 01 03 …`: height in bytes 4-5, big-endian. Sent in reply to a status
-request, and about every 200 ms while the desk moves.
+**Status frame** `F2 F2 01 03 …`: height in bytes 4-5, big-endian, unlike the movement frame.
+Sent in reply to a status request, and about every 200 ms while the desk moves.
 
 ```text
 F2 F2 01 03 02 D0    0x02D0 = 720 → 72.0
 ```
 
-The two frames use opposite byte orders.
-
 ### Display units
 
-Both height frames carry tenths of the desk's **display unit**. While the desk shows inches,
+Both height frames carry tenths of the desk's display unit. While the desk shows inches,
 `F2 F2 01 03 01 12 …` is 27.4 in, which is 69.6 cm, not 27.4 cm.
 
 The integration reads each frame in the unit the desk last reported (the `0x0E` response),
 converts inches with 2.54, and rounds to 0.1 cm. The desk's physical range, 60-130 cm or about
-23.6-51.2 in, does not overlap between the units. So a value that is impossible in the reported
-unit but plausible in the other is read in the other unit: when the unit is changed on the hand
-controller, a frame in the new unit arrives before the unit report. Before the desk has reported a
+23.6-51.2 in, does not overlap between the units. When the unit is changed on the hand controller,
+a frame in the new unit arrives before the unit report, so a value that is impossible in the
+reported unit but plausible in the other is read in the other unit. Before the desk has reported a
 unit, a value below 55.0 is read as inches.
 
 Height limit responses are decoded the same way.
@@ -142,11 +139,11 @@ Setting responses start with `F2 F2 <command> <length>`:
 
 ### The settings block
 
-The desk has no query for a single setting. It sends a block of settings (presets `0x25`-`0x28`,
-unit `0x0E`, touch mode `0x19`, `0x17`, sensitivity `0x1D`) in reply to a status request that
-follows a handshake. It also sends the block unprompted when the unit is changed on the hand
-controller. It does not confirm a unit or touch mode change on its own, so the integration asks
-for the block after changing either.
+The desk has no query for the display unit or touch mode on their own. It sends a block of settings
+(presets `0x25`-`0x28`, unit `0x0E`, touch mode `0x19`, an unknown `0x17`, sensitivity `0x1D`) in
+reply to a status request that follows a handshake. It also sends the block unprompted when the unit
+is changed on the hand controller. It does not confirm a unit or touch mode change on its own, so
+the integration asks for the block after changing either.
 
 A desk connected within about a second of powering up ignores the settings request, and sends
 `F2 F2 10 02 02 51` and `F2 F2 0F 02 00 07` instead. Their meaning is unknown.

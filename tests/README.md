@@ -82,7 +82,7 @@ never lower it to get a change through.
 
 ## Fixtures
 
-Key fixtures in `conftest.py`:
+In `conftest.py`:
 
 - `mock_config_entry`: a `MockConfigEntry` for a desk at `AA:BB:CC:DD:EE:FF`
 - `mock_desk`: the desk's BLE device, autospecced from `DeskBLEDevice` and connected; assert
@@ -105,7 +105,6 @@ Helpers in `__init__.py` change the desk's state:
 
 ## Writing tests
 
-- New behaviour needs tests. A bug fix needs a test that fails without the fix.
 - Mock at the boundary (Bleak, `establish_connection`, Home Assistant's Bluetooth helpers), not the
   integration's own classes.
 - Drive platforms through `hass.services.async_call` and assert on `hass.states`, as users and

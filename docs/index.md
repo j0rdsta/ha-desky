@@ -1,8 +1,7 @@
 # Desky Standing Desk for Home Assistant
 
-A custom integration that controls a Desky standing desk from Home Assistant over Bluetooth Low
-Energy. It talks to the Bluetooth controller built into the desk, so no extra hardware goes on
-the desk.
+A custom integration that controls a Desky standing desk from Home Assistant over the same
+Bluetooth connection the Desky app uses. There's no extra hardware to buy or wire into the desk.
 
 !!! warning "Unofficial integration"
     This project is not affiliated with, endorsed by or supported by Desky. A standing desk is
@@ -19,11 +18,9 @@ the desk.
   reports it as a collision.
 - Controls the settings the desk exposes over Bluetooth: height limits, collision sensitivity,
   touch mode, display unit, lock, vibration and the LED strip. Not every desk has every feature.
-- Reconnects on its own when the desk comes back into range, through whichever Bluetooth adapter
-  or ESPHome Bluetooth proxy hears it.
-
-The integration keeps a connection open to the desk and gets height and settings changes pushed
-to it as they happen. See [How data updates](data-updates.md).
+- Stays connected and gets height and settings changes as they happen (see
+  [How data updates](data-updates.md)). It reconnects on its own when the desk comes back into
+  range, through whichever Bluetooth adapter or ESPHome Bluetooth proxy hears it.
 
 ## Requirements
 

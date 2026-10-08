@@ -1,8 +1,8 @@
 blueprint:
   name: Desky - Collision alert
   description: >-
-    Sends a notification when the desk detects a collision: a commanded movement
-    that stopped early or bounced back.
+    Sends a notification when a movement commanded from Home Assistant stops early
+    or bounces back, which the integration reports as a collision.
   domain: automation
   author: Jordan Gardiner
   source_url: https://github.com/j0rdsta/ha-desky/blob/main/blueprints/automation/desky_desk/collision_alert.yaml

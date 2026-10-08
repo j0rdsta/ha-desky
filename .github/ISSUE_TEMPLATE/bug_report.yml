@@ -60,6 +60,7 @@ body:
     attributes:
       label: Debug logs
       description: |
-        Enable debug logging for `custom_components.desky_desk` (see the README), reproduce
+        Enable debug logging for `custom_components.desky_desk` (see
+        https://j0rdsta.github.io/ha-desky/troubleshooting/#debug-logging), reproduce
         the problem, then paste the relevant lines. Look for `Received notification:` entries.
       render: text

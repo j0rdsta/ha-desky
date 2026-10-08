@@ -8,13 +8,13 @@ advertises a Bluetooth name that starts with `Desky`, which is how Home Assistan
 Desky desks use more than one controller, and controllers differ in firmware. The integration
 handles the differences it knows about:
 
-- **Height reports.** Some controllers report the height in a dedicated movement frame, others
-  only in their status frame. Both are read. See [Protocol notes](protocol.md#height-frames).
-- **Display unit.** The desk reports heights in the unit its display shows, centimetres or
-  inches. The integration converts to centimetres, so entities and actions always use cm.
-- **Features.** On connecting, the integration asks the desk for its lighting, vibration, lock,
-  collision sensitivity and height limit settings. Every entity is created whatever the desk
-  answers; for a feature the desk does not report, the entity shows unknown or a default value.
+- Some controllers report the height in a dedicated movement frame, others only in their status
+  frame. Both are read. See [Protocol notes](protocol.md#height-frames).
+- The desk reports heights in the unit its display shows, centimetres or inches. The integration
+  converts to centimetres, so entities and actions always use cm.
+- On connecting, the integration asks the desk for its lighting, vibration, lock, collision
+  sensitivity and height limit settings. For a feature the desk does not report, the entity shows
+  unknown or a default value.
 
 The integration has been developed against an L-BTMEB95 desk controller. If you have a different
 Desky controller and something does not work, [open an issue](https://github.com/j0rdsta/ha-desky/issues)
@@ -46,9 +46,9 @@ are not discovered automatically unless their name starts with `Desky`.
 - **Presets are recalled, not saved.** The four preset buttons move the desk to the heights saved
   on the hand controller. Save or change a preset on the hand controller.
 - **Collision detection is inferred.** The desk does not report collisions over Bluetooth. The
-  integration infers one when a commanded movement stops early or bounces back, so movements
-  made with the hand controller are never reported as collisions. The desk's own anti-collision
-  system is what stops the desk. See [Safety](safety.md).
+  integration infers one when a commanded movement stops early or bounces back, so movements made
+  with the hand controller are never reported as collisions. The desk's own anti-collision system
+  stops the desk. See [Safety](safety.md).
 - **Settings changed elsewhere.** Settings such as the lock, lighting and vibration are read when
   the desk connects, and updated when you change them from Home Assistant. A change made on the
   desk or in the Desky app may not appear until the desk reconnects.

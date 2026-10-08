@@ -1,6 +1,5 @@
 # Contributing
 
-Bug reports, protocol captures from other desk controllers and pull requests are all welcome.
 Development setup, checks, pull request rules and the release process are in
 [CONTRIBUTING.md](https://github.com/j0rdsta/ha-desky/blob/main/CONTRIBUTING.md) in the
 repository.

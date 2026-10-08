@@ -28,7 +28,7 @@ pre-commit run --all-files   # ruff, ruff-format, mypy and file hygiene
 pytest --cov                 # tests with coverage
 ```
 
-CI runs the same checks on every pull request:
+CI runs these workflows on every pull request:
 
 | Workflow | What it runs |
 | --- | --- |
@@ -57,13 +57,11 @@ test that fails without the fix.
 
 ## Hardware notes
 
-A standing desk is motorised furniture. When testing movement on a real desk:
+Read [Safety](docs/safety.md) before testing movement on a real desk.
 
-- Keep the area above and below the desk clear, and stay within reach of the desk's own controls.
-- Test presets and height commands with small movements first.
-- Desk firmware differs between controllers. If you see notifications the integration does not
-  recognise, enable debug logging (see the [README](README.md#troubleshooting)) and include the
-  `Received notification:` lines in your issue or PR.
+Desk firmware differs between controllers. If you see notifications the integration does not
+recognise, turn on [debug logging](docs/troubleshooting.md#debug-logging) and include the
+`Received notification:` lines in your issue or PR.
 
 ## Releases
 
@@ -81,6 +79,6 @@ the major version.
 
 The workflow authenticates with the `RELEASE_PLEASE_TOKEN` repository secret: a fine-grained
 personal access token limited to this repository, with read and write access to Contents and Pull
-requests. It can't use the built-in `GITHUB_TOKEN`, because pull requests opened with that token
-don't trigger workflows, so the release PR would never get the status checks `main` requires.
+requests. It cannot use the built-in `GITHUB_TOKEN`: pull requests opened with that token do not
+trigger workflows, so the release PR would never get the status checks `main` requires.
 When the token expires, release-please fails until the secret is replaced.

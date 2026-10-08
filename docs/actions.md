@@ -10,7 +10,7 @@ The integration adds three actions. Use them in automations and scripts, or try 
 | [`desky_desk.clear_height_limits`](#clear-height-limits) | Removes both height limits |
 
 To move to a saved preset, press its button entity instead, for example
-`button.desky_desk_preset_1` (see [Entities](entities.md#preset-1-preset-4)).
+`button.desky_desk_preset_1` (see [Entities](entities.md#presets-1-to-4)).
 
 ## Targeting a desk
 
@@ -18,10 +18,9 @@ Every action targets one or more desks through their cover entity, for example
 `cover.desky_desk`. You can also target a desk's device, or an area that contains it. The entity
 picker only offers Desky desk covers.
 
-The actions work on the desk's connection rather than on its entities, so they never do nothing
-silently: a desk that cannot take the command makes the action fail with an error. Every targeted
-desk is checked before any command is sent, so a call that is rejected for one desk sends nothing
-to any of them.
+A desk that cannot take the command makes the action fail with an error, even while its entities are
+unavailable. Every targeted desk is checked before any command is sent, so a call that is rejected
+for one desk sends nothing to any of them.
 
 ## Move to height
 
@@ -31,8 +30,8 @@ to any of them.
 | --- | --- | --- |
 | `height` | Yes | The height to move to, in cm, to 0.1 cm |
 
-The height must be within the desk's height limits. A limit that is not set is replaced by the
-integration's range of 60-130 cm, so with no limits set the height must be from 60 to 130 cm.
+The height must be within the desk's height limits, using 60 or 130 cm for a limit that is not
+set.
 
 ```yaml
 action: desky_desk.move_to_height
@@ -52,10 +51,9 @@ the desk's control box.
 | `limit` | Yes | `upper` or `lower` |
 | `height` | Yes | The height of the limit, in cm, from 60 to 130 |
 
-The upper limit must be above the lower limit, and the lower limit below the upper one, when the
-other limit is set. After setting the limit, the integration reads the limits back from the desk,
-so the [limit entities](entities.md#upper-height-limit-and-lower-height-limit) show what the desk
-reports.
+If the other limit is set, the upper limit must be above the lower one. After setting the limit,
+the integration reads the limits back from the desk, so the
+[limit entities](entities.md#upper-height-limit-and-lower-height-limit) show what the desk reports.
 
 ```yaml
 action: desky_desk.set_height_limit
@@ -93,6 +91,4 @@ the run unless the step uses `continue_on_error`.
 | *The desk is not connected* | The desk is set up but not connected |
 | *Could not send the command to the desk: …* | The Bluetooth write failed. The rest of the message is the error from the Bluetooth stack |
 
-All but the last two are validation errors, raised before anything is sent to any desk. **The
-desk is not connected** and **Could not send the command to the desk** mean the command could not
-reach the desk.
+All but the last two are validation errors, raised before anything is sent to any desk.

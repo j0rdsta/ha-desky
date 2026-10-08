@@ -10,8 +10,8 @@
 
 - **Crushing and pinch points.** Keep hands, feet, children and pets away from the frame, the
   legs and the space under the desktop while it moves.
-- **Collisions.** Make sure the space above and below the desk is clear: shelves, window sills,
-  chairs, drawers and cables.
+- **Collisions.** Keep the space above and below the desk clear of shelves, window sills, chairs,
+  drawers and cables.
 - **Unexpected movement.** A remote command or an automation can move the desk when nobody
   expects it.
 
@@ -20,13 +20,13 @@ reach.
 
 ## What the integration does and does not do
 
-- It sends **stop** on its own, without the wake-up handshake that precedes other commands, when
-  you stop the desk from Home Assistant.
+- When you stop the desk from Home Assistant, it sends **stop** on its own, without the wake-up
+  handshake that precedes other commands.
 - A command that cannot reach the desk fails with an error, so an automation records the failure
   instead of carrying on as if the desk moved.
-- The **collision** sensor is inferred from how a commanded movement ends (see
-  [limitations](supported-devices.md#known-limitations)). It is information, not a safety device.
-  It reacts after the desk has stopped, and does not see movements made with the hand controller.
+- The collision sensor is inferred from how a commanded movement ends (see
+  [limitations](supported-devices.md#known-limitations)). It is information, not a safety device,
+  and reacts after the desk has stopped.
 - It cannot make the desk stop faster than the desk's own anti-collision system. Set the desk's
   collision sensitivity to suit your setup.
 - The move to height action refuses heights outside the height limits set on the desk. Set
@@ -36,9 +36,8 @@ reach.
 
 Before you write an automation that moves the desk:
 
-1. **Require presence.** Only move the desk when someone is at it, confirmed by a presence or
-   occupancy sensor, and preferably for a minute or more. Remember pets and children who may be
-   under the desk.
+1. **Require presence.** Only move the desk when a presence or occupancy sensor shows someone at it,
+   ideally for a minute or more. Remember pets and children who may be under the desk.
 2. **Warn first.** Send a notification, flash a light or play a sound, then wait a few seconds
    and check presence again before moving.
 3. **Prefer prompts to automatic movement.** An actionable notification that asks before raising

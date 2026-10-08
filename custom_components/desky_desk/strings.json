@@ -6,18 +6,18 @@
         "title": "Set up Desky Desk",
         "description": "No Desky desk was found nearby. Enter the Bluetooth address of your desk.",
         "data": {
-          "address": "Bluetooth Address"
+          "address": "Bluetooth address"
         },
         "data_description": {
           "address": "The desk's Bluetooth address, for example AA:BB:CC:DD:EE:FF. The desk must be powered on and in range of a Bluetooth adapter or proxy."
         }
       },
       "confirm": {
-        "title": "Confirm Device",
+        "title": "Confirm device",
         "description": "Do you want to set up {name} at address {address}?"
       },
       "pick_device": {
-        "title": "Choose Device",
+        "title": "Choose device",
         "description": "Select your Desky desk from the list of discovered devices.",
         "data": {
           "address": "Device"
