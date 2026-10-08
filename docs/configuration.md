@@ -32,11 +32,11 @@ up under **Settings → Devices & services** as a new device to set up.
 
 However you add the desk, setup connects to it once before it finishes, then disconnects. If
 Home Assistant cannot see the desk, or the desk does not accept the connection, the form shows
-**Could not connect to the desk. Make sure it is powered on, in range and not connected to the
-Desky app.** See [Troubleshooting](troubleshooting.md#adding-the-desk-fails), then submit again.
+*Could not connect to the desk. Make sure it is powered on, in range and not connected to the
+Desky app.* See [Troubleshooting](troubleshooting.md#adding-the-desk-fails), then submit again.
 
-Each desk can only be added once. Adding the same desk again stops with **Device is already
-configured**.
+Each desk can only be added once. Adding the same desk again stops with *Device is already
+configured*.
 
 ## What happens after setup
 
@@ -45,8 +45,8 @@ the desk's Bluetooth name, and its manufacturer, model, serial number and versio
 desk's Device Information service where the desk reports them. A desk that reports nothing useful
 is shown as a Desky Standing Desk.
 
-If the desk cannot be found or does not accept the connection, setup fails with one of these
-messages, and Home Assistant retries it in the background:
+If the desk cannot be found or does not accept the connection when the integration loads, Home
+Assistant shows one of these messages and retries in the background:
 
 - *Could not find the desk at AA:BB:CC:DD:EE:FF. Make sure it is powered on and in Bluetooth
   range*
@@ -61,17 +61,17 @@ select **Configure** on the desk's entry.
 
 | Option | Default | Range | Description |
 | --- | --- | --- | --- |
-| Standing threshold | 95 cm | 60-130 cm, in steps of 1 cm | The desk counts as standing when it stops at or above this height, and as sitting when it stops below it |
+| Standing threshold | 95 cm | 60-130 cm, in steps of 1 cm | Height at or above which the desk counts as standing |
 
 The threshold sets the [Posture](entities.md#posture) sensor, and through it the
 [sitting and standing time](entities.md#standing-time-today-and-sitting-time-today) sensors and
 the sit/stand reminder [blueprint](blueprints.md).
 
 Saving the options reloads the desk: the integration disconnects, reconnects and applies the new
-threshold. The posture is unknown until the desk has reported its height again, and today's
-sitting and standing times are kept.
+threshold. Today's sitting and standing times are kept. The posture is unknown until the desk
+reports its height again.
 
 ## More than one desk
 
-Add each desk separately. Every desk gets its own device, connection and entities, and holds its
-own Bluetooth connection slot.
+Add each desk separately. Each desk gets its own device and entities, and uses its own Bluetooth
+connection slot.

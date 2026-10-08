@@ -37,8 +37,8 @@ The desk at AA:BB:CC:DD:EE:FF is unavailable
 
 The integration reconnects on its own when the desk advertises again (see
 [Connection loss and reconnecting](data-updates.md#connection-loss-and-reconnecting)). Failed
-attempts are logged at debug level only, so a long outage does not fill the log. When the desk is back, the
-log gets one info line:
+attempts are logged at debug level only, so a long outage does not fill the log. When the desk is
+back, the log gets one info line:
 
 ```text
 The desk at AA:BB:CC:DD:EE:FF is available again
@@ -51,8 +51,8 @@ If the desk stays unavailable, work through [Setup keeps retrying](#setup-keeps-
 Home Assistant does not run commands on unavailable entities. If the connection drops just as a
 command is sent, the command fails with:
 
-- **The desk is not connected**: the desk was not connected when the command was sent.
-- **Could not send the command to the desk: …**: the Bluetooth write failed. The rest of the
+- *The desk is not connected*
+- *Could not send the command to the desk: …*: the Bluetooth write failed. The rest of the
   message is the error from the Bluetooth stack.
 
 An automation records either as an error, and stops unless the step uses `continue_on_error`.
@@ -84,8 +84,7 @@ bluetooth_proxy:
 
 The desk stays connected, so it holds one of the proxy's connection slots for as long as it is
 loaded. An ESP32 proxy has three slots by default. If every slot is taken by other devices, the
-desk cannot connect and stays unavailable. Free a slot, or add
-another proxy near the desk.
+desk cannot connect and stays unavailable. Free a slot, or add another proxy near the desk.
 
 ## Download diagnostics
 
@@ -111,9 +110,9 @@ something compared with another reading from the same run of Home Assistant.
 ### What is redacted
 
 The desk's Bluetooth address, the entry's unique ID (which is the address) and the serial number
-are replaced by `**REDACTED**`. The address is also removed from every other text in the file,
-written with colons, dashes or no separator, in upper or lower case, because some Bluetooth
-stacks name a device after its address.
+are replaced by `**REDACTED**`. Some Bluetooth stacks name a device after its address, so the
+address is also removed from every other string in the file, in upper or lower case, with colons,
+dashes or no separator.
 
 ### Reading the notification headers
 

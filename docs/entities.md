@@ -5,25 +5,25 @@ names are translated and prefixed with the device name, which is the desk's Blue
 entity IDs on this page are for a desk named "Desky Desk"; yours follow your desk's name.
 Entities created by earlier versions of the integration keep their existing entity IDs.
 
-Every entity is enabled by default. All of them are unavailable while the desk is not connected.
+All entities are enabled by default, and unavailable while the desk is not connected.
 
-Heights are always in centimetres, whatever unit the desk's display shows, except for the
-**Height display** sensor, which follows the display unit.
+Heights are in centimetres, whatever unit the desk's display shows. The one exception is the
+Height display sensor, which follows the display unit.
 
-Not every desk has every feature. Every entity is created whatever the desk supports; for a
-feature the desk does not report, the entity shows unknown or a default value (see
+Not every desk has every feature, but the entities are created anyway. For a feature the desk
+does not report, the entity shows unknown or a default value (see
 [Supported devices](supported-devices.md#supported-desks)).
 
 ## Summary
 
-The category column shows where Home Assistant lists the entity on the device page: **Controls**
-and **Sensors**, **Configuration** or **Diagnostic**.
+Category is the section of the device page that lists the entity: **Controls**, **Sensors**,
+**Configuration** or **Diagnostic**.
 
 | Entity | Entity ID | Platform | Unit | Category |
 | --- | --- | --- | --- | --- |
 | Desky Desk | `cover.desky_desk` | Cover | % | Controls |
 | Height | `number.desky_desk_height` | Number | cm | Controls |
-| Preset 1 – Preset 4 | `button.desky_desk_preset_1` … `_4` | Button | | Controls |
+| Presets 1 to 4 | `button.desky_desk_preset_1` … `_4` | Button | | Controls |
 | Move up | `button.desky_desk_move_up` | Button | | Controls |
 | Move down | `button.desky_desk_move_down` | Button | | Controls |
 | LED strip | `light.desky_desk_led_strip` | Light | | Controls |
@@ -47,16 +47,15 @@ and **Sensors**, **Configuration** or **Diagnostic**.
 
 ### Desk (cover)
 
-The main control. The cover takes the device's name, so it is called after the desk.
+The main control, named after the desk.
 
 - **Open** raises the desk, **close** lowers it and **stop** stops it.
-- **Position** maps the fixed range of 60-130 cm to 0-100 %: 0 % is 60 cm and 100 % is 130 cm,
-  whatever the desk's own range or height limits. Setting a position moves the desk to the
-  matching height.
+- **Position** maps 60-130 cm to 0-100 %, whatever the desk's own range or height limits.
+  Setting a position moves the desk to the matching height.
 - The cover is **closed** when its position is 0 %, that is below about 60.7 cm, since the
   position is rounded down to a whole percent.
-- It shows **opening** or **closing** while a movement commanded from Home Assistant is under
-  way, in the direction of that movement, so Home Assistant keeps the other direction's button
+- While a movement commanded from Home Assistant is under way, it shows **opening** or
+  **closing** to match its direction, so Home Assistant keeps the other direction's button
   available. Movements made with the hand controller update the position but not the opening or
   closing state.
 
@@ -66,10 +65,10 @@ The desk's current height in centimetres, to 0.1 cm, from 60 to 130 cm. Setting 
 the desk to that height. To move to a height in an automation and get an error for a height
 outside the desk's limits, use the [`move_to_height` action](actions.md#move-to-height).
 
-### Preset 1 – Preset 4
+### Presets 1 to 4
 
-Moves the desk to the height saved in that preset on the hand controller. Presets are saved and
-changed on the hand controller; the integration recalls them.
+Moves the desk to the height saved in that preset. Presets are saved on the hand controller; the
+integration can only recall them.
 
 ### Move up and Move down
 
@@ -79,11 +78,10 @@ cover's stop. The buttons stay available whatever the cover's state.
 ### Collision detected
 
 On when a movement commanded from Home Assistant stops early or bounces back, which the integration
-reads as a collision. It turns off on its own after 10 seconds, sooner if a later commanded movement
-runs normally more than 2 seconds after the collision, and when the desk disconnects. Movements made
-with the hand controller are never reported as collisions. The desk does not report collisions over
-Bluetooth; this sensor is inferred, and is information rather than a safety device (see
-[Safety](safety.md)).
+reads as a collision. It turns off after 10 seconds, or sooner if the desk disconnects or a later
+commanded movement runs normally more than 2 seconds after the collision. Movements made with the
+hand controller are never reported as collisions. The desk does not report collisions over
+Bluetooth, so the sensor is inferred and is not a safety device (see [Safety](safety.md)).
 
 Device class: problem.
 
@@ -113,8 +111,8 @@ Device class: enum, with the states `sitting` and `standing`. Use these values i
 
 ### Standing time today and Sitting time today
 
-Minutes spent in each posture today, counted while the desk is connected. Time while the desk is
-disconnected, or before its posture is known, counts towards neither.
+Minutes spent in each posture today. Only time while the desk is connected and its posture is
+known counts.
 
 - A change of posture counts from when the desk stopped in the new posture.
 - Both totals reset at local midnight, including on a day whose midnight a clock change skips.
@@ -130,8 +128,8 @@ They are recorded in long-term statistics, so a statistics graph can show each d
 ### Upper height limit and Lower height limit
 
 The highest and lowest heights the desk will move to, stored on the desk's control box. From 60
-to 130 cm in steps of 1 cm. Setting a value sets the limit on the desk, then reads the limits
-back, so the entity shows what the desk reports. A limit that is not set shows as unknown.
+to 130 cm in steps of 1 cm. Setting a value writes the limit to the desk and reads the limits
+back. A limit that is not set shows as unknown.
 
 Attribute `limits_enabled`: true while at least one limit is set.
 
@@ -150,7 +148,7 @@ the desk has reported it.
 
 ### Lock
 
-Locks the desk's controls. Turn it off to unlock them.
+Locks the desk's controls.
 
 ### Collision sensitivity
 
@@ -163,10 +161,9 @@ the change, so the integration asks for its settings again after changing it.
 
 ### Display unit
 
-The unit the desk's display shows: **cm** or **in**. The integration converts heights to
-centimetres either way; only the **Height display** sensor follows this setting. The integration
-asks for the desk's settings again after changing it, and also picks up a change made on the
-hand controller.
+The unit the desk's display shows: **cm** or **in**. Only the Height display sensor follows this
+setting. The integration asks for the desk's settings again after changing it, and also picks up a
+change made on the hand controller.
 
 ## LED strip
 
@@ -175,9 +172,9 @@ hand controller.
 Turns the desk's LED strip on or off and sets its brightness. The colours are effects: **White**,
 **Red**, **Green**, **Blue**, **Yellow** and **Party mode**.
 
-Turning the light on without an effect, while the desk reports its colour as off, restores the last
-colour you chose other than party mode, which is kept across restarts. Attribute `color_name`: the
-current colour.
+If the desk reports its colour as off and you turn the light on without an effect, it goes back to
+the last colour you chose other than party mode. That colour is kept across restarts. Attribute
+`color_name`: the current colour.
 
 ### LED color
 

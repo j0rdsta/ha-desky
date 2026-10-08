@@ -1,7 +1,7 @@
 # How data updates
 
 The integration is a local push integration: it keeps a Bluetooth connection open to the desk,
-and the desk sends changes over it as they happen. A slow poll fills the gaps.
+and the desk sends changes over it as they happen. It also polls the desk every 30 seconds.
 
 ## On connecting
 
@@ -30,15 +30,14 @@ closing state, and collision detection are worked out from the stream of heights
 
 ## Polling
 
-Every 30 seconds the integration asks the desk for its status. This keeps the height current
-when the desk was moved while a notification was missed, and checks that the connection still
-works: a status request that cannot be sent closes the connection, and the reconnect logic takes
-over.
+Every 30 seconds the integration asks the desk for its status. This catches height changes whose
+notification was missed. It also checks the connection: if the request cannot be sent, the
+integration closes the connection and the reconnect logic takes over.
 
-The poll sends no handshake, so it does not wake the desk's display. The first poll after each connection is
-different: a desk connected within about a second of powering up ignores the settings request it
-gets while connecting, so if the display unit or touch mode is still unknown, the first poll asks
-for the settings again. It asks once per connection, because asking wakes the display.
+The poll sends no handshake, so it does not wake the desk's display. A desk connected within about
+a second of powering up ignores the settings request sent while connecting. If the display unit or
+touch mode is still unknown at the first poll after a connection, that poll asks for the settings
+again. It asks only once per connection, because asking wakes the display.
 
 A poll while the desk is disconnected sends nothing and is not reported as an error.
 

@@ -1,11 +1,8 @@
 # Use cases
 
-Ideas for using the desk in Home Assistant. The examples use the entity IDs of a desk named
-"Desky Desk", such as `cover.desky_desk` and `button.desky_desk_preset_1`; yours are named after
-your desk. Read [Safety](safety.md) before you automate movement.
-
-For a sit/stand reminder, a scheduled stand or a collision alert, import one of the
-[blueprints](blueprints.md) instead of writing the YAML yourself.
+The examples on this page use the entity IDs of a desk named "Desky Desk", such as
+`cover.desky_desk` and `button.desky_desk_preset_1`; yours are named after your desk. Read
+[Safety](safety.md) before you automate movement.
 
 ## Sit and stand from a dashboard
 
@@ -47,23 +44,14 @@ The [`desky_desk.move_to_height`](actions.md#move-to-height) action moves the de
 centimetres. It fails with an error if the desk is not connected or the height is outside its
 limits.
 
-```yaml
-action: desky_desk.move_to_height
-target:
-  entity_id: cover.desky_desk
-data:
-  height: 105
-```
-
 ## Standing reminders
 
 For a plain reminder, import the [sit/stand reminder blueprint](blueprints.md#sitstand-reminder).
-It uses the posture sensor, so it knows when you have been sitting, not just how long you have
-been at the desk.
+It goes off once the posture sensor has shown **Sitting** for a set time.
 
 To have the reminder offer to raise the desk, write the automation yourself. This example waits
-until the posture sensor has said **Sitting** for 45 minutes, asks on your phone, and only moves
-the desk if you accept and you are still at it. It assumes an occupancy sensor at the desk,
+until the posture sensor has said **Sitting** for 45 minutes, asks on your phone, and only moves the
+desk if you accept and you are still there. It assumes an occupancy sensor at the desk,
 `binary_sensor.office_occupied`, and the Home Assistant companion app.
 
 ```yaml
@@ -105,9 +93,9 @@ mode: single
 
 ## Track sitting and standing time
 
-The integration counts this for you. The **Standing time today** and **Sitting time today**
-sensors add up the minutes in each posture, reset at midnight, and are recorded in long-term
-statistics. A statistics graph shows each day's totals:
+The **Standing time today** and **Sitting time today** sensors add up the minutes in each posture,
+reset at midnight, and are recorded in long-term statistics. A statistics graph shows each day's
+totals:
 
 ```yaml
 type: statistics-graph
@@ -129,9 +117,8 @@ The posture follows the [standing threshold](configuration.md#options). See
 
 ## Get told about collisions
 
-The collision binary sensor turns on when a commanded movement stops early or bounces back.
 Import the [collision alert blueprint](blueprints.md#collision-alert) to get a notification when
-it does.
+the [collision sensor](entities.md#collision-detected) turns on.
 
 ## Lock the desk when nobody is home
 
@@ -152,5 +139,5 @@ actions:
 
 ## Use the LED strip as a status light
 
-On desks with an LED strip, change its colour to show something at a glance, such as a meeting
-in progress or a door left open.
+On desks with an LED strip, change its colour to show a status, such as a meeting in progress or
+a door left open.
