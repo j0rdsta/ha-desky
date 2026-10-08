@@ -35,33 +35,9 @@ COLOR_WHITE = 1
 COLOR_PARTY = 6
 COLOR_OFF = 7
 
-# Map color names to simple colors for Home Assistant
-COLOR_MAP = {
-    1: "white",  # White
-    2: "red",  # Red
-    3: "green",  # Green
-    4: "blue",  # Blue
-    5: "yellow",  # Yellow
-    6: None,  # Party mode (effect)
-    7: None,  # Off
-}
-
-# Effects list
-EFFECT_PARTY = "Party mode"
-EFFECT_WHITE = "White"
-EFFECT_RED = "Red"
-EFFECT_GREEN = "Green"
-EFFECT_BLUE = "Blue"
-EFFECT_YELLOW = "Yellow"
-
-# Map effect names to color codes
+# Map effect names to colour codes; every colour except Off is an effect
 EFFECT_TO_COLOR = {
-    EFFECT_WHITE: 1,
-    EFFECT_RED: 2,
-    EFFECT_GREEN: 3,
-    EFFECT_BLUE: 4,
-    EFFECT_YELLOW: 5,
-    EFFECT_PARTY: 6,
+    name: code for code, name in LIGHT_COLORS.items() if code != COLOR_OFF
 }
 
 # Map color codes to effect names
@@ -106,14 +82,7 @@ class DeskLight(DeskEntity, LightEntity, RestoreEntity):
     _attr_color_mode = ColorMode.BRIGHTNESS
     _attr_supported_color_modes = {ColorMode.BRIGHTNESS}
     _attr_supported_features = LightEntityFeature.EFFECT
-    _attr_effect_list = [
-        EFFECT_WHITE,
-        EFFECT_RED,
-        EFFECT_GREEN,
-        EFFECT_BLUE,
-        EFFECT_YELLOW,
-        EFFECT_PARTY,
-    ]
+    _attr_effect_list = list(EFFECT_TO_COLOR)
 
     def __init__(self, coordinator: DeskUpdateCoordinator) -> None:
         """Initialize the light."""
@@ -166,15 +135,14 @@ class DeskLight(DeskEntity, LightEntity, RestoreEntity):
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn on the light."""
         effect = kwargs.get(ATTR_EFFECT)
-        effects = self.effect_list or []
         # Home Assistant does not check the effect against the effect list
-        if effect is not None and effect not in effects:
+        if effect is not None and effect not in EFFECT_TO_COLOR:
             raise ServiceValidationError(
                 translation_domain=DOMAIN,
                 translation_key="unknown_effect",
                 translation_placeholders={
                     "effect": effect,
-                    "effects": ", ".join(effects),
+                    "effects": ", ".join(EFFECT_TO_COLOR),
                 },
             )
 

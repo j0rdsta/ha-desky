@@ -9,6 +9,7 @@ from homeassistant.components.light import (
     ATTR_BRIGHTNESS,
     ATTR_BRIGHTNESS_PCT,
     ATTR_EFFECT,
+    ATTR_EFFECT_LIST,
     DOMAIN as LIGHT_DOMAIN,
     SERVICE_TURN_OFF,
     SERVICE_TURN_ON,
@@ -84,6 +85,20 @@ async def test_light_state(
     assert state.attributes[ATTR_BRIGHTNESS] == 128  # 50%
     assert state.attributes[ATTR_EFFECT] == "White"
     assert state.attributes["color_name"] == "White"
+
+
+async def test_light_effect_list(
+    hass: HomeAssistant, init_integration: MockConfigEntry
+) -> None:
+    """Test the effects are the desk's colours except Off, in the desk's order."""
+    assert hass.states.get(ENTITY_ID).attributes[ATTR_EFFECT_LIST] == [
+        "White",
+        "Red",
+        "Green",
+        "Blue",
+        "Yellow",
+        "Party mode",
+    ]
 
 
 @pytest.mark.parametrize(("effect", "color"), EFFECTS)
