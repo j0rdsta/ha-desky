@@ -20,7 +20,10 @@ from custom_components.desky_desk.bluetooth import (
 )
 from custom_components.desky_desk.const import (
     BRIGHTNESS_RESPONSE_HEADER,
+    COMMAND_GET_LIGHTING,
+    COMMAND_GET_LIMITS,
     COMMAND_GET_STATUS,
+    COMMAND_GET_VIBRATION,
     COMMAND_HANDSHAKE,
     COMMAND_MEMORY_1,
     COMMAND_MEMORY_2,
@@ -261,6 +264,48 @@ def _bleak_client() -> MagicMock:
     return client
 
 
+async def test_connect_waits_on_no_fixed_delays(
+    mock_ble_device, mock_establish_connection, mock_bleak_client
+):
+    """Test connecting sends its queries back to back, without sleeping."""
+    device = DeskBLEDevice(mock_ble_device)
+
+    with patch(
+        "custom_components.desky_desk.bluetooth.asyncio.sleep", new_callable=AsyncMock
+    ) as mock_sleep:
+        assert await device.connect() is True
+
+    mock_sleep.assert_not_awaited()
+    # Handshake, status and the eight capability queries
+    assert mock_bleak_client.write_gatt_char.await_count == 10
+
+
+async def test_capability_query_failure_is_not_an_unsupported_feature(
+    mock_ble_device, mock_establish_connection, mock_bleak_client, caplog
+):
+    """Test a desk that stops answering during the queries fails the connect.
+
+    A failed write means the connection is gone, not that the desk lacks the
+    feature, so nothing is logged as unsupported.
+    """
+    caplog.set_level("DEBUG", logger="custom_components.desky_desk.bluetooth")
+    device = DeskBLEDevice(mock_ble_device)
+
+    async def _write(_uuid: str, command: bytes) -> None:
+        if command == COMMAND_GET_VIBRATION:
+            mock_bleak_client.is_connected = False
+            raise BleakError("not connected")
+
+    mock_bleak_client.write_gatt_char.side_effect = _write
+
+    assert await device.connect() is False
+
+    mock_bleak_client.disconnect.assert_awaited_once()
+    assert device._client is None
+    assert "not supported" not in caplog.text
+    assert "Failed to connect to desk at AA:BB:CC:DD:EE:FF" in caplog.text
+
+
 async def test_connect_releases_the_link_when_notifications_fail(
     mock_ble_device, mock_establish_connection, mock_bleak_client
 ):
@@ -277,8 +322,8 @@ async def test_connect_releases_the_link_when_notifications_fail(
 
 @pytest.mark.parametrize(
     "failing_command",
-    [COMMAND_HANDSHAKE, COMMAND_GET_STATUS],
-    ids=["handshake", "status"],
+    [COMMAND_HANDSHAKE, COMMAND_GET_STATUS, COMMAND_GET_LIGHTING, COMMAND_GET_LIMITS],
+    ids=["handshake", "status", "first capability query", "last capability query"],
 )
 async def test_connect_releases_the_link_when_a_setup_write_fails(
     mock_ble_device, mock_establish_connection, mock_bleak_client, failing_command

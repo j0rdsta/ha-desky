@@ -404,9 +404,6 @@ class DeskBLEDevice:
         await self.get_status()
         await self._query_device_capabilities()
 
-        # Small delay to ensure all services are properly discovered
-        await asyncio.sleep(0.5)
-
         # Device Information Service (0x180A)
         await self._read_device_information()
 
@@ -723,53 +720,20 @@ class DeskBLEDevice:
         await self._send_awake_command(COMMAND_CLEAR_LIMITS)
 
     async def _query_device_capabilities(self) -> None:
-        """Query device capabilities to determine supported features."""
+        """Ask the desk for its settings; the answers arrive as notifications.
+
+        A desk without a feature does not answer its query. A write that fails
+        means the connection is gone, so the error fails the connect.
+        """
         _LOGGER.debug("Querying device capabilities...")
-
-        # Query each capability with a short delay between commands
-        # We ignore failures as not all desks support all features
-
-        try:
-            # Lighting features
-            await self.get_lighting_status()
-            await asyncio.sleep(0.1)
-            await self.get_light_color()
-            await asyncio.sleep(0.1)
-            await self.get_brightness()
-            await asyncio.sleep(0.1)
-        except Exception as e:
-            _LOGGER.debug("Lighting features not supported: %s", e)
-
-        try:
-            # Vibration features
-            await self.get_vibration_status()
-            await asyncio.sleep(0.1)
-            await self.get_vibration_intensity()
-            await asyncio.sleep(0.1)
-        except Exception as e:
-            _LOGGER.debug("Vibration features not supported: %s", e)
-
-        try:
-            # Lock status
-            await self.get_lock_status()
-            await asyncio.sleep(0.1)
-        except Exception as e:
-            _LOGGER.debug("Lock feature not supported: %s", e)
-
-        try:
-            # Collision sensitivity
-            await self.get_sensitivity()
-            await asyncio.sleep(0.1)
-        except Exception as e:
-            _LOGGER.debug("Sensitivity adjustment not supported: %s", e)
-
-        try:
-            # Height limits
-            await self.get_limits()
-            await asyncio.sleep(0.1)
-        except Exception as e:
-            _LOGGER.debug("Height limits not supported: %s", e)
-
+        await self.get_lighting_status()
+        await self.get_light_color()
+        await self.get_brightness()
+        await self.get_vibration_status()
+        await self.get_vibration_intensity()
+        await self.get_lock_status()
+        await self.get_sensitivity()
+        await self.get_limits()
         _LOGGER.debug("Device capability query complete")
 
     async def _read_device_information(self) -> None:
