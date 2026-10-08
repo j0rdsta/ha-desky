@@ -411,6 +411,55 @@ async def test_ignored_desk_can_be_picked(hass: HomeAssistant) -> None:
     assert entry.source == config_entries.SOURCE_USER
 
 
+@pytest.mark.usefixtures("enable_bluetooth", "mock_setup_entry")
+@pytest.mark.parametrize(
+    "typed",
+    ["AA:BB:CC:DD:EE", "AA:BB:CC:DD:EE:GG", "AA:BB:CC:DD:EE:FF:00", "desk", ""],
+)
+async def test_typo_in_address(hass: HomeAssistant, typed: str) -> None:
+    """Test a mistyped address shows an error, and the corrected one works."""
+    await advertise(hass, DESK_ADDRESS, UNMATCHED_NAME)
+    result = await start_user_flow(hass)
+    assert result["step_id"] == "user"
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], user_input={CONF_ADDRESS: typed}
+    )
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "user"
+    assert result["errors"] == {CONF_ADDRESS: "invalid_address"}
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], user_input={CONF_ADDRESS: DESK_ADDRESS}
+    )
+    await hass.async_block_till_done()
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["result"].unique_id == DESK_ADDRESS
+    assert result["result"].state is ConfigEntryState.LOADED
+
+
+@pytest.mark.usefixtures("enable_bluetooth", "mock_setup_entry")
+@pytest.mark.parametrize(
+    "typed",
+    ["aa:bb:cc:dd:ee:ff", " AA:BB:CC:DD:EE:FF ", "AA-BB-CC-DD-EE-FF", "aabbccddeeff"],
+)
+async def test_address_formats_accepted(hass: HomeAssistant, typed: str) -> None:
+    """Test common ways of writing an address all find the desk."""
+    await advertise(hass, DESK_ADDRESS, UNMATCHED_NAME)
+    result = await start_user_flow(hass)
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], user_input={CONF_ADDRESS: typed}
+    )
+    await hass.async_block_till_done()
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["data"] == {CONF_ADDRESS: DESK_ADDRESS}
+    assert result["result"].unique_id == DESK_ADDRESS
+    assert result["result"].state is ConfigEntryState.LOADED
+
+
 async def test_options_flow_sets_standing_threshold(
     hass: HomeAssistant, init_integration: MockConfigEntry
 ) -> None:

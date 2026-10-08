@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from homeassistant.components.bluetooth import (
     BluetoothServiceInfoBleak,
     async_discovered_service_info,
+    async_last_service_info,
 )
 from homeassistant.config_entries import (
     ConfigEntry,
@@ -17,6 +19,7 @@ from homeassistant.config_entries import (
 )
 from homeassistant.const import CONF_ADDRESS, UnitOfLength
 from homeassistant.core import callback
+from homeassistant.helpers.device_registry import format_mac
 from homeassistant.helpers.selector import (
     NumberSelector,
     NumberSelectorConfig,
@@ -34,6 +37,9 @@ from .const import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+# A Bluetooth address after `_normalise_address()`, for example AA:BB:CC:DD:EE:FF
+_ADDRESS = re.compile(r"(?:[0-9A-F]{2}:){5}[0-9A-F]{2}")
 
 
 class DeskyConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -91,15 +97,15 @@ class DeskyConfigFlow(ConfigFlow, domain=DOMAIN):
     ) -> ConfigFlowResult:
         """Handle the initial step."""
         if user_input is not None:
-            # Discovery reports addresses in upper case
-            address = user_input[CONF_ADDRESS].strip().upper()
+            address = _normalise_address(user_input[CONF_ADDRESS])
+            if not _ADDRESS.fullmatch(address):
+                return self._async_show_user_form({CONF_ADDRESS: "invalid_address"})
 
             # Its discovery card may be open; adding it here closes the card
             await self.async_set_unique_id(address, raise_on_progress=False)
             self._abort_if_unique_id_configured()
 
-            # Try to find the device
-            discovery_info = await self._async_get_device(address)
+            discovery_info = async_last_service_info(self.hass, address)
             if discovery_info and await _async_can_connect(discovery_info):
                 return self._async_create_desk_entry(discovery_info)
 
@@ -169,13 +175,6 @@ class DeskyConfigFlow(ConfigFlow, domain=DOMAIN):
             data={CONF_ADDRESS: discovery_info.address},
         )
 
-    async def _async_get_device(self, address: str) -> BluetoothServiceInfoBleak | None:
-        """Get device by address."""
-        for discovery_info in async_discovered_service_info(self.hass):
-            if discovery_info.address == address:
-                return discovery_info
-        return None
-
 
 class DeskyOptionsFlow(OptionsFlowWithReload):
     """Handle the options for a desk; saving them reloads the desk."""
@@ -222,3 +221,8 @@ async def _async_can_connect(discovery_info: BluetoothServiceInfoBleak) -> bool:
 def _desk_name(discovery_info: BluetoothServiceInfoBleak) -> str:
     """Return the name the desk advertises, or a generic one."""
     return discovery_info.name or "Desky Desk"
+
+
+def _normalise_address(address: str) -> str:
+    """Return an entered address in the upper-case form discovery reports."""
+    return format_mac(address.strip()).upper()
