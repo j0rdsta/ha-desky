@@ -938,3 +938,22 @@ async def test_update_device_registry_before_connecting(
         await coordinator.async_update_device_registry()
 
     get_or_create.assert_not_called()
+
+
+async def test_reconnect_without_a_reported_outage_logs_nothing(
+    hass: HomeAssistant,
+    init_integration: MockConfigEntry,
+    mock_desk: MagicMock,
+    mock_bluetooth_callbacks: BluetoothCallbacks,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A link found down without a disconnect report reconnects quietly."""
+    mock_desk.is_connected = False
+    mock_desk.connect.reset_mock()
+    caplog.clear()
+
+    mock_bluetooth_callbacks.advertise()
+    await hass.async_block_till_done(wait_background_tasks=True)
+
+    mock_desk.connect.assert_awaited_once_with()
+    assert "available again" not in caplog.text
