@@ -163,7 +163,7 @@ The desk can send height updates in two different formats depending on firmware 
 
 Note: The two formats use different byte orders for height data - movement notifications use little-endian while status notifications use big-endian.
 
-**Display units.** Both formats carry tenths of the desk's display unit. While the desk shows inches, `f2 f2 01 03 01 12 …` is 27.4 in, which is 69.6 cm, not 27.4 cm. `_decode_height()` reads a frame in the unit the desk reported (`0x0E` response), converting inches with 2.54 and rounding to 0.1 cm. The desk's physical range (60-130 cm, about 23.6-51.2 in) does not overlap between units, so a value impossible in the reported unit but plausible in the other is read in the other unit (a frame in the new unit arrives before the unit report when the unit changes on the hand controller), and before the desk has reported a unit a value below 55.0 is inches. Height limit responses (`0x21`/`0x22`) are decoded the same way, and the limit setters send display units. The move-to-height target (`0x1B`) is always in mm, whatever the display unit.
+**Display units.** Both formats carry tenths of the desk's display unit. While the desk shows inches, `f2 f2 01 03 01 12 …` is 27.4 in, which is 69.6 cm, not 27.4 cm. `_decode_height()` reads a frame in the unit the desk reported (`0x0E` response), converting inches with 2.54 and rounding to 0.1 cm. The desk's physical range (60-130 cm, about 23.6-51.2 in) does not overlap between units, so a value impossible in the reported unit but plausible in the other is read in the other unit (a frame in the new unit arrives before the unit report when the unit changes on the hand controller), and before the desk has reported a unit a value below 55.0 is inches. Height limit responses (`0x21`/`0x22`) are decoded the same way after `_decode_limit()` adds one tenth to a raw value that is not a multiple of 5 (the desk reports 124.0 cm as 1239; the official app does the same), and the limit setters send display units. Height frames are never corrected. The move-to-height target (`0x1B`) is always in mm, whatever the display unit.
 
 ### Advanced Feature Response Formats
 
@@ -192,8 +192,8 @@ Additional device features send responses with specific headers:
    The desk has no query for a single setting. It sends a settings block (presets `0x25`-`0x28`, unit `0x0E`, touch mode `0x19`, `0x17`, sensitivity `0x1D`) for a status request (`0x07`) that follows a handshake, which the integration sends on connect and after changing the unit, touch mode or sensitivity (`get_settings()`). It also sends the block unprompted when the unit is changed on the hand controller. It does not confirm a unit, touch-mode or sensitivity change by itself.
 
 7. **Height Limit Responses**:
-   - Upper limit (0xF2 0xF2 0x21 0x02): Height in mm (big-endian)
-   - Lower limit (0xF2 0xF2 0x22 0x02): Height in mm (big-endian)
+   - Upper limit (0xF2 0xF2 0x21 0x02): tenths of the display unit (big-endian), one tenth low; a raw value not divisible by 5 is rounded up by one tenth before decoding
+   - Lower limit (0xF2 0xF2 0x22 0x02): tenths of the display unit (big-endian), same correction
    - Limit status (0xF2 0xF2 0x20 0x01): 0x00=No limits, 0x01=Upper only, 0x10=Lower only, 0x11=Both
 
 ### Troubleshooting Height Updates
@@ -218,7 +218,7 @@ If height updates aren't working:
 
 Three actions, registered in `async_setup` so they exist whether or not a desk is loaded:
 - `move_to_height`: moves to a height in cm (`0x1B`). The height must be within the desk's limits when set, clamped to 60-130 cm, otherwise 60-130 cm (`validate_move_to_height` in `validation.py`)
-- `set_height_limit`: sets the `upper` or `lower` limit (`0x21`/`0x22`), then re-reads the limits (`0x0C`). The upper limit must be above the lower one. The limit number entities run the same check (`validate_height_limit` in `validation.py`)
+- `set_height_limit`: sets the `upper` or `lower` limit (`0x21`/`0x22`), then re-reads the limits (`0x0C`). The limit must be within 60-124 cm (`LIMIT_MIN_HEIGHT`/`LIMIT_MAX_HEIGHT`), or 24-48 in (61.0-121.9 cm) when the desk shows inches (`limit_range()` in `validation.py`): the desk silently ignores a limit outside that range. The upper limit must be above the lower one. The limit number entities use the same range and run the same check (`validate_height_limit`)
 - `clear_height_limits`: clears both limits (`0x23`), then re-reads them
 
 They are plain actions with a `target:` limited to the desk cover, not entity actions: Home Assistant skips unavailable entities in entity actions, so a disconnected desk would do nothing silently. The handler resolves the target to config entries and raises a translated `ServiceValidationError` (no desk targeted, entry not loaded, bad height) or `HomeAssistantError` (not connected, write failed). Validation runs for every targeted desk before any command is sent.
@@ -251,7 +251,7 @@ The limit status (`0x20`: `0x00` none, `0x01` upper, `0x10` lower, `0x11` both) 
 
 ## Important Technical Notes
 
-1. **Height Range**: Hardcoded 60-130cm range based on typical Desky desk limits
+1. **Height Range**: Hardcoded 60-130cm range for heights and moves, based on typical Desky desk limits. Height limits are 60-124 cm (24-48 in), the range the desk accepts
 2. **Update Strategy**: Passive updates via BLE notifications, with periodic status requests
 3. **Error Handling**: Connection errors trigger reconnection; entity commands raise translated errors instead of failing silently
 4. **Bluetooth Proxies**: Fully supported through Home Assistant's bluetooth component

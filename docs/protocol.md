@@ -77,7 +77,7 @@ F1 F1 <command> 02 <high> <low> <checksum> 7E
 - **Move to height** (`0x1B`): the target is always in millimetres, whatever the display unit.
   850 mm is `0x0352`, so the frame is `F1 F1 1B 02 03 52 72 7E`.
 - **Upper limit** (`0x21`) and **lower limit** (`0x22`): the limit is in tenths of the desk's
-  display unit.
+  display unit. The desk accepts 60-124 cm, or 24-48 in, and ignores a limit outside that range.
 
 ## Waking the desk
 
@@ -121,7 +121,9 @@ a frame in the new unit arrives before the unit report, so a value that is impos
 reported unit but plausible in the other is read in the other unit. Before the desk has reported a
 unit, a value below 55.0 is read as inches.
 
-Height limit responses are decoded the same way.
+Height limit responses are decoded the same way, after one correction. The desk reports a limit a
+tenth low: 124.0 cm comes back as 1239. Like the official app, the integration adds one tenth to a
+limit value that is not a multiple of 5. Height frames are not corrected.
 
 ### Setting responses
 
