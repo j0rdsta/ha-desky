@@ -672,13 +672,41 @@ async def test_press_and_hold_stops_at_sixty_seconds(
 ) -> None:
     """The repeat never runs longer than 60 seconds, even while the desk moves."""
     await held_desk.move_up()
-    held_desk._handle_notification(None, _status_frame(82.0))  # it moves
-    await clock.advance(70.0)
+    for n in range(140):  # a reading every 500 ms, the height still changing
+        held_desk._handle_notification(None, _status_frame(82.0 + n % 2 / 10))
+        await clock.advance(0.5)
 
     repeats = [at for at, frame in frames if frame == UP]
     assert len(repeats) == 601  # the first frame, then 600 repeats
     assert repeats[-1] == 60.0
     assert held_desk._sequencer.idle
+
+
+@pytest.mark.parametrize("touch_mode", [ONE_PRESS, PRESS_AND_HOLD])
+async def test_held_movement_ends_when_readings_stop(
+    held_desk: DeskBLEDevice,
+    frames: Frames,
+    clock: FakeClock,
+    touch_mode: bytearray,
+) -> None:
+    """A held arrow stops repeating once the desk's height readings stop.
+
+    Without readings a bounce or collision cannot be seen.
+    """
+    held_desk._handle_notification(None, touch_mode)
+    notified = MagicMock()
+    held_desk.register_notification_callback(notified)
+    await held_desk.move_up()
+    for height in (81.0, 82.0, 83.0):  # at 0.2, 0.4 and 0.6 s
+        await clock.advance(0.2)
+        held_desk._handle_notification(None, _status_frame(height))
+    await clock.advance(5.0)
+
+    repeats = [at for at, frame in frames if frame == UP]
+    assert 1.6 <= repeats[-1] <= 1.7  # about a second after the last reading
+    assert held_desk._movement is None
+    assert held_desk._sequencer.idle
+    assert notified.call_args.args[2] is False  # not moving
 
 
 async def test_press_and_hold_ends_on_disconnect(

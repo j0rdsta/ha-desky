@@ -143,6 +143,10 @@ def _steps_at(at: float, frames: tuple[bytes, ...]) -> tuple[Step, ...]:
 # and the app repeats a held button's frame this often
 HOLD_REPEAT_INTERVAL = 0.1
 HOLD_REPEAT_MAX_SECONDS = 60.0
+# A moving desk reports its height about every 200 ms. Without readings the
+# bounce and collision checks are blind, so a held movement that has started
+# ends once no reading has come for this long.
+READING_WATCHDOG_SECONDS = 1.0
 
 
 @dataclass(slots=True)
@@ -227,6 +231,8 @@ class DeskBLEDevice:
         self._client: BleakClient | None = None
         # Writes go out one at a time; timed sequences pause without blocking them
         self._sequencer = Sequencer(self._write_frame, clock)
+        # When the last height reading came, on the sequencer's clock
+        self._last_reading_at = 0.0
         # Callers waiting for the next report with a given header
         self._report_waiters: dict[bytes, set[asyncio.Future[None]]] = {}
         self._height_cm: float = 0.0
@@ -593,7 +599,9 @@ class DeskBLEDevice:
             raise
         held = kind == "continuous" or self._touch_mode == TOUCH_MODE_PRESS_AND_HOLD
         if held and self._movement is movement:
-            self._sequencer.start_repeat(_hold_steps(frame, movement))
+            self._sequencer.start_repeat(
+                _hold_steps(frame, movement, lambda: self._readings_stopped(movement))
+            )
 
     async def move_up(self) -> None:
         """Start moving the desk up."""
@@ -721,8 +729,30 @@ class DeskBLEDevice:
             raise
         if self._touch_mode == TOUCH_MODE_PRESS_AND_HOLD and self._movement is movement:
             self._sequencer.start_repeat(
-                _hold_steps(command, movement, lambda: self._reached(movement))
+                _hold_steps(
+                    command,
+                    movement,
+                    lambda: self._readings_stopped(movement) or self._reached(movement),
+                )
             )
+
+    def _readings_stopped(self, movement: _Movement) -> bool:
+        """End a started, held movement once its height readings have stopped.
+
+        Return if they have. The repeat that asks then ends too.
+        """
+        quiet = self._sequencer.now() - self._last_reading_at
+        if not movement.started or quiet <= READING_WATCHDOG_SECONDS:
+            return False
+        _LOGGER.info(
+            "No height reading from the desk for %.1f seconds; releasing the held "
+            "command",
+            quiet,
+        )
+        # Only the current movement's repeat runs: a new command cancels it first
+        self._end_movement()
+        self._notify_callbacks()
+        return True
 
     def _reached(self, movement: _Movement) -> bool:
         """Return if a move to height has come within the jitter band of its target.
@@ -1272,6 +1302,7 @@ class DeskBLEDevice:
         previous_time = self._last_notification_time
         self._height_cm = height_cm
         self._last_notification_time = now
+        self._last_reading_at = self._sequencer.now()
 
         movement = self._movement
         if movement is not None and not movement.started:

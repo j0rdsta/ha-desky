@@ -89,6 +89,10 @@ class Sequencer:
         self._running: dict[asyncio.Task[None], _Sequence] = {}
         self._motion: _Sequence | None = None
 
+    def now(self) -> float:
+        """Return the time on the sequencer's clock, in seconds."""
+        return self._clock.time()
+
     @property
     def idle(self) -> bool:
         """Return if no sequence is being sent."""
