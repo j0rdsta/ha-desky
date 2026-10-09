@@ -1925,8 +1925,10 @@ async def test_set_height_limit_frames(
 
     await device.set_height_limit(limit, height)
 
+    # The desk has not reported its limits, so the limit is sent alone, twice
     assert mock_bleak_client.write_gatt_char.call_args_list == [
         call(WRITE_CHARACTERISTIC_UUID, COMMAND_HANDSHAKE),
+        call(WRITE_CHARACTERISTIC_UUID, bytes.fromhex(frame)),
         call(WRITE_CHARACTERISTIC_UUID, bytes.fromhex(frame)),
     ]
 
@@ -3311,10 +3313,11 @@ async def test_height_limits_round_trip_in_cm(
     await device.set_height_limit(HeightLimit.UPPER, 110.0)
     await device.set_height_limit(HeightLimit.LOWER, 70.0)
 
+    # The desk has not reported its limits, so each is sent alone, twice
     writes = [c.args[1] for c in mock_bleak_client.write_gatt_char.call_args_list]
     assert writes[1] == device._create_command_with_word_param(0x21, sent)
     lower = 700 if unit_report is CM_REPORT else 280  # 70 cm = 27.6 in, so 28 in
-    assert writes[3] == device._create_command_with_word_param(0x22, lower)
+    assert writes[4] == device._create_command_with_word_param(0x22, lower)
 
     device._handle_notification(None, bytearray.fromhex(response))
     assert device.height_limit_upper == read_back

@@ -111,6 +111,7 @@ MODE_SETTING_TIMES = (0.5,)  # collision sensitivity, touch mode
 LIGHT_SETTING_TIMES = (0.0, 0.1)  # LED colour, brightness
 UNIT_SETTING_TIMES = (0.0, 0.1, 0.2)
 CLEAR_LIMITS_TIMES = (0.0, 0.2)
+SET_LIMITS_SPACING = 0.05  # clear, upper and lower limit, each twice
 # The app asks for the settings this long after setting the sensitivity
 SENSITIVITY_READ_BACK_DELAY = 0.5
 
@@ -815,11 +816,34 @@ class DeskBLEDevice:
                 f"Invalid {limit} height limit: {height_cm:.1f} "
                 f"(must be {low:.1f}-{high:.1f})"
             )
-        # Limits are in the desk's display unit, unlike move-to-height targets
-        command = self._create_command_with_word_param(
-            LIMIT_COMMANDS[limit], self._encode_height(height_cm)
+        limits = {
+            HeightLimit.UPPER: self.height_limit_upper,
+            HeightLimit.LOWER: self.height_limit_lower,
+        }
+        # The desk only tightens a limit that is set and silently ignores a
+        # looser one. So, as the app does, both limits are cleared, then both
+        # set, each frame twice; the other limit is sent again so it is kept.
+        # Nothing is cleared until the desk has reported which limits are set
+        # and the value of each, so no limit is lost.
+        clear = self._height_limit_upper_set is not None and not (
+            (self._height_limit_upper_set and limits[HeightLimit.UPPER] is None)
+            or (self._height_limit_lower_set and limits[HeightLimit.LOWER] is None)
         )
-        await self._send_awake_command(command)
+        limits[limit] = height_cm
+        frames = [COMMAND_CLEAR_LIMITS] * 2 if clear else []
+        for each in (HeightLimit.UPPER, HeightLimit.LOWER):
+            if (value := limits[each]) is not None:
+                # Limits are in the desk's display unit, unlike move-to-height targets
+                frame = self._create_command_with_word_param(
+                    LIMIT_COMMANDS[each], self._encode_height(value)
+                )
+                frames += [frame] * 2
+        await self._run_sequence(
+            [
+                (0.0, COMMAND_HANDSHAKE),
+                *((n * SET_LIMITS_SPACING, frame) for n, frame in enumerate(frames)),
+            ]
+        )
 
     async def clear_height_limits(self) -> None:
         """Clear all height limits."""

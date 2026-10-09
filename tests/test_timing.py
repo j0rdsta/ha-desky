@@ -24,9 +24,14 @@ from custom_components.desky_desk.const import (
     COMMAND_MOVE_DOWN,
     COMMAND_MOVE_UP,
     COMMAND_STOP,
+    LIMIT_LOWER_RESPONSE_HEADER,
+    LIMIT_STATUS_RESPONSE_HEADER,
+    LIMIT_UPPER_RESPONSE_HEADER,
+    UNIT_RESPONSE_HEADER,
+    HeightLimit,
 )
 
-from . import FakeClock, record_frames
+from . import FakeClock, desk_response, record_frames
 
 H = COMMAND_HANDSHAKE.hex()
 STATUS = COMMAND_GET_STATUS.hex()
@@ -318,3 +323,146 @@ async def test_settings_read_back_half_a_second_after_sensitivity(
         (1.0, H),
         (1.0, STATUS),
     ]
+
+
+# Height limits
+
+
+@pytest.mark.parametrize(
+    ("limit_status", "limit", "height", "expected"),
+    [
+        # Both set: clear twice, then upper and lower twice each, 50 ms apart
+        (
+            0x11,
+            HeightLimit.UPPER,
+            120.0,
+            [
+                (0.0, H),
+                (0.0, CLEAR),
+                (0.05, CLEAR),
+                (0.1, UPPER_120),
+                (0.15, UPPER_120),
+                (0.2, LOWER_65),
+                (0.25, LOWER_65),
+            ],
+        ),
+        # None set: clear twice, then the new limit twice
+        (
+            0x00,
+            HeightLimit.LOWER,
+            65.0,
+            [(0.0, H), (0.0, CLEAR), (0.05, CLEAR), (0.1, LOWER_65), (0.15, LOWER_65)],
+        ),
+        # Limits not reported yet: nothing is cleared that might be set
+        (
+            None,
+            HeightLimit.UPPER,
+            120.0,
+            [(0.0, H), (0.0, UPPER_120), (0.05, UPPER_120)],
+        ),
+    ],
+)
+async def test_setting_a_limit_sends_the_other_again(
+    desk: DeskBLEDevice,
+    frames: Frames,
+    limit_status: int | None,
+    limit: HeightLimit,
+    height: float,
+    expected: Frames,
+) -> None:
+    """The app clears the limits and sets both, so the other limit is kept."""
+    desk._handle_notification(None, bytearray.fromhex("f2f20e01000f7e"))  # cm
+    if limit_status is not None:
+        status = bytearray(
+            [0xF2, 0xF2, 0x20, 0x01, limit_status, (0x21 + limit_status) & 0xFF, 0x7E]
+        )
+        desk._handle_notification(None, status)
+        desk._handle_notification(None, bytearray.fromhex("f2f2210204b0d97e"))  # 120
+        desk._handle_notification(None, bytearray.fromhex("f2f22202028ab07e"))  # 65
+    frames.clear()
+
+    await desk.set_height_limit(limit, height)
+
+    assert frames == expected
+
+
+async def test_limit_sent_again_uses_the_display_unit(
+    desk: DeskBLEDevice, frames: Frames
+) -> None:
+    """While the desk shows inches, the limit sent again is in inches too."""
+    for frame in (
+        "f2f20e0101107e",  # inches
+        "f2f2200111327e",  # both limits set
+        "f2f2210201b8dc7e",  # upper 44.0 in
+        "f2f2220201183d7e",  # lower 28.0 in
+    ):
+        desk._handle_notification(None, bytearray.fromhex(frame))
+    frames.clear()
+
+    await desk.set_height_limit(HeightLimit.UPPER, 120.0)
+
+    upper = desk._create_command_with_word_param(0x21, 470).hex()  # a whole 47 in
+    lower = desk._create_command_with_word_param(0x22, 280).hex()  # 28.0 in
+    assert [frame for _, frame in frames[3:]] == [upper, upper, lower, lower]
+
+
+def _report_limits(desk: DeskBLEDevice, upper: int | None, lower: int | None) -> None:
+    """Have a cm desk report its limit status and limits, in tenths of a cm."""
+    desk._handle_notification(None, desk_response(UNIT_RESPONSE_HEADER, 0x00))
+    status = (0x01 if upper is not None else 0) | (0x10 if lower is not None else 0)
+    desk._handle_notification(None, desk_response(LIMIT_STATUS_RESPONSE_HEADER, status))
+    if upper is not None:
+        desk._handle_notification(
+            None, desk_response(LIMIT_UPPER_RESPONSE_HEADER, upper >> 8, upper & 0xFF)
+        )
+    if lower is not None:
+        desk._handle_notification(
+            None, desk_response(LIMIT_LOWER_RESPONSE_HEADER, lower >> 8, lower & 0xFF)
+        )
+
+
+@pytest.mark.parametrize(
+    ("limit", "height", "upper", "lower"),
+    [
+        # Upper 110 to 124, lower 65 kept
+        (HeightLimit.UPPER, 124.0, "f1f1210204d8ff7e", LOWER_65),
+        # Lower 65 to 62, upper 110 kept
+        (HeightLimit.LOWER, 62.0, "f1f12102044c737e", "f1f12202026c927e"),
+    ],
+)
+async def test_loosening_a_limit_clears_it_first(
+    desk: DeskBLEDevice,
+    frames: Frames,
+    limit: HeightLimit,
+    height: float,
+    upper: str,
+    lower: str,
+) -> None:
+    """The desk ignores a looser limit while one is set, so both are cleared first."""
+    _report_limits(desk, upper=1100, lower=650)
+    frames.clear()
+
+    await desk.set_height_limit(limit, height)
+
+    assert frames == [
+        (0.0, H),
+        (0.0, CLEAR),
+        (0.05, CLEAR),
+        (0.1, upper),
+        (0.15, upper),
+        (0.2, lower),
+        (0.25, lower),
+    ]
+
+
+async def test_limit_not_cleared_while_the_other_is_unread(
+    desk: DeskBLEDevice, frames: Frames
+) -> None:
+    """A set limit whose value has not arrived yet is not cleared, so it is kept."""
+    _report_limits(desk, upper=1100, lower=None)
+    desk._handle_notification(None, desk_response(LIMIT_STATUS_RESPONSE_HEADER, 0x11))
+    frames.clear()
+
+    await desk.set_height_limit(HeightLimit.UPPER, 120.0)
+
+    assert frames == [(0.0, H), (0.0, UPPER_120), (0.05, UPPER_120)]
