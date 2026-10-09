@@ -278,8 +278,8 @@ async def test_connect_waits_on_no_fixed_delays(
         assert await device.connect() is True
 
     mock_sleep.assert_not_awaited()
-    # Handshake, status and the seven capability queries
-    assert mock_bleak_client.write_gatt_char.await_count == 9
+    # Handshake, status and the six capability queries
+    assert mock_bleak_client.write_gatt_char.await_count == 8
 
 
 async def test_capability_query_failure_is_not_an_unsupported_feature(
@@ -566,6 +566,7 @@ async def test_disconnect_resets_link_state_without_a_callback(
     await device.connect()
     device._unit_preference = "in"
     device._touch_mode = 1
+    device._handle_notification(None, bytearray.fromhex("f2f21d0102207e"))
     # The mocked client.disconnect() does not call the disconnect callback
 
     await device.disconnect()
@@ -574,6 +575,7 @@ async def test_disconnect_resets_link_state_without_a_callback(
     assert device._unit_preference is None
     assert device._effective_unit is None
     assert device._touch_mode is None
+    assert device.sensitivity_level is None
     assert device.collision_detected is False
 
 
@@ -1939,7 +1941,6 @@ async def test_device_capability_queries(mock_ble_device, mock_bleak_client):
         (device.get_lighting_status, bytes([0xF1, 0xF1, 0xB5, 0x00, 0xB5, 0x7E])),
         (device.get_vibration_status, bytes([0xF1, 0xF1, 0xB3, 0x00, 0xB3, 0x7E])),
         (device.get_lock_status, bytes([0xF1, 0xF1, 0xB2, 0x00, 0xB2, 0x7E])),
-        (device.get_sensitivity, bytes([0xF1, 0xF1, 0x1D, 0x00, 0x1D, 0x7E])),
         (device.get_limits, bytes([0xF1, 0xF1, 0x0C, 0x00, 0x0C, 0x7E])),
     ]
 
@@ -2116,7 +2117,6 @@ async def test_device_capability_detection(mock_ble_device, mock_bleak_client):
             bytes([0xF1, 0xF1, 0xB5, 0x00, 0xB5, 0x7E]),  # get_lighting_status
             bytes([0xF1, 0xF1, 0xB3, 0x00, 0xB3, 0x7E]),  # get_vibration_status
             bytes([0xF1, 0xF1, 0xB2, 0x00, 0xB2, 0x7E]),  # get_lock_status
-            bytes([0xF1, 0xF1, 0x1D, 0x00, 0x1D, 0x7E]),  # get_sensitivity
             bytes([0xF1, 0xF1, 0x0C, 0x00, 0x0C, 0x7E]),  # get_limits
         ]
 
@@ -2126,6 +2126,23 @@ async def test_device_capability_detection(mock_ble_device, mock_bleak_client):
             assert expected in sent_commands
         # The desk never answers the vibration intensity query, so it is not sent
         assert not any(command[2] == 0xA4 for command in sent_commands)
+
+
+async def test_connect_sends_no_sensitivity_query(
+    mock_ble_device, mock_establish_connection, mock_bleak_client
+):
+    """Connecting reads the sensitivity from the settings block, not its own query.
+
+    The desk's reply to the query can disagree with the settings block, and
+    the official app never sends the query.
+    """
+    device = DeskBLEDevice(mock_ble_device)
+
+    assert await device.connect() is True
+
+    writes = [c.args[1] for c in mock_bleak_client.write_gatt_char.call_args_list]
+    assert not any(write.startswith(bytes.fromhex("f1f11d00")) for write in writes)
+    assert writes[:2] == [COMMAND_HANDSHAKE, COMMAND_GET_STATUS]
 
 
 @pytest.mark.parametrize(
@@ -2912,17 +2929,36 @@ def test_settings_block_after_connecting(mock_ble_device):
     assert device.sensitivity_level == 1
 
 
-def test_disconnect_forgets_unit_and_touch_mode(mock_ble_device, mock_bleak_client):
+@pytest.mark.parametrize(
+    "unknown", [None, "f2f20e01000f7e", "f2f21901001a7e", "f2f21d0102207e"]
+)
+def test_settings_known_needs_every_setting_of_the_block(
+    mock_ble_device, unknown: str | None
+):
+    """The settings are known once the unit, touch mode and sensitivity all are."""
+    device = DeskBLEDevice(mock_ble_device)
+    assert device.settings_known is False
+
+    for frame in ("f2f20e01000f7e", "f2f21901001a7e", "f2f21d0102207e"):
+        if frame != unknown:
+            device._handle_notification(None, bytearray.fromhex(frame))
+
+    assert device.settings_known is (unknown is None)
+
+
+def test_disconnect_forgets_settings(mock_ble_device, mock_bleak_client):
     """Settings are read again after reconnecting, so a disconnect clears them."""
     device = DeskBLEDevice(mock_ble_device)
     device._client = mock_bleak_client
     device._handle_notification(None, bytearray.fromhex("f2f20e0101107e"))
     device._handle_notification(None, bytearray.fromhex("f2f21901011b7e"))
+    device._handle_notification(None, bytearray.fromhex("f2f21d0102207e"))
 
     device._handle_disconnect(mock_bleak_client)
 
     assert device.unit_preference is None
     assert device.touch_mode is None
+    assert device.sensitivity_level is None
 
 
 @pytest.mark.parametrize(

@@ -327,12 +327,12 @@ class DeskUpdateCoordinator(DataUpdateCoordinator[DeskData]):
         A desk reached just after it powers up ignores the settings request
         sent while connecting. Asking once more at the first scheduled poll
         catches that; asking at every poll would wake the display of a desk
-        that never reports its unit. The refresh straight after setup is not
-        a scheduled poll, so it is skipped.
+        that never reports one of its settings. The refresh straight after
+        setup is not a scheduled poll, so it is skipped.
         """
         if self._recheck_settings and self.data is not None:
             self._recheck_settings = False
-            if device.unit_preference is None or device.touch_mode is None:
+            if not device.settings_known:
                 _LOGGER.debug("Asking the desk at %s for its settings", self._address)
                 await device.get_settings()
                 return

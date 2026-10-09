@@ -11,8 +11,8 @@ When the desk connects, the integration:
 2. Sends the handshake, which enables movement commands.
 3. Asks for the desk's status. The desk replies with its height and, because the request follows
    a handshake, its settings block (display unit, touch mode, collision sensitivity and presets).
-4. Asks for the lighting, vibration, lock, collision sensitivity and height limit settings. A
-   query the desk does not answer is ignored.
+4. Asks for the lighting, vibration, lock and height limit settings. A query the desk does not
+   answer is ignored. The collision sensitivity comes from the settings block in step 3.
 5. Reads the standard Bluetooth Device Information service for the manufacturer, model, serial
    number and versions shown on the device page.
 
@@ -35,9 +35,9 @@ notification was missed. It also checks the connection: if the request cannot be
 integration closes the connection and the reconnect logic takes over.
 
 The poll sends no handshake, so it does not wake the desk's display. A desk connected within about
-a second of powering up ignores the settings request sent while connecting. If the display unit or
-touch mode is still unknown at the first poll after a connection, that poll asks for the settings
-again. It asks only once per connection, because asking wakes the display.
+a second of powering up ignores the settings request sent while connecting. If the display unit,
+touch mode or collision sensitivity is still unknown at the first poll after a connection, that
+poll asks for the settings again. It asks only once per connection, because asking wakes the display.
 
 A poll while the desk is disconnected sends nothing and is not reported as an error.
 

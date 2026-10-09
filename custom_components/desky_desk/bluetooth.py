@@ -24,7 +24,6 @@ from .const import (
     COMMAND_GET_LIGHTING,
     COMMAND_GET_LIMITS,
     COMMAND_GET_LOCK_STATUS,
-    COMMAND_GET_SENSITIVITY,
     COMMAND_GET_STATUS,
     COMMAND_GET_VIBRATION,
     COMMAND_HANDSHAKE,
@@ -510,7 +509,7 @@ class DeskBLEDevice:
         await self._send_command(COMMAND_GET_STATUS)
 
     async def get_settings(self) -> None:
-        """Ask the desk to report its settings, including unit and touch mode.
+        """Ask the desk to report its settings: unit, touch mode and sensitivity.
 
         The desk sends its settings block for a status request that follows a
         handshake; it has no query for a single setting.
@@ -605,10 +604,6 @@ class DeskBLEDevice:
         """Request current lock status."""
         await self._send_command(COMMAND_GET_LOCK_STATUS)
 
-    async def get_sensitivity(self) -> None:
-        """Request current collision sensitivity level."""
-        await self._send_command(COMMAND_GET_SENSITIVITY)
-
     async def get_limits(self) -> None:
         """Request current height limit settings."""
         await self._send_command(COMMAND_GET_LIMITS)
@@ -692,7 +687,9 @@ class DeskBLEDevice:
         """Ask the desk for its settings; the answers arrive as notifications.
 
         A desk without a feature does not answer its query. A write that fails
-        means the connection is gone, so the error fails the connect.
+        means the connection is gone, so the error fails the connect. The
+        collision sensitivity is not queried: it comes from the settings block,
+        and the desk's reply to the sensitivity query can disagree with it.
         """
         _LOGGER.debug("Querying device capabilities...")
         await self.get_lighting_status()
@@ -700,7 +697,6 @@ class DeskBLEDevice:
         await self.get_brightness()
         await self.get_vibration_status()
         await self.get_lock_status()
-        await self.get_sensitivity()
         await self.get_limits()
         _LOGGER.debug("Device capability query complete")
 
@@ -1305,6 +1301,15 @@ class DeskBLEDevice:
             self._auto_clear_task.cancel()
         self._auto_clear_task = None
 
+    @property
+    def settings_known(self) -> bool:
+        """Return whether the desk has reported every setting of its settings block."""
+        return None not in (
+            self._unit_preference,
+            self._touch_mode,
+            self._sensitivity_level,
+        )
+
     def _reset_link_state(self) -> None:
         """Forget everything that belongs to the current connection."""
         self._client = None
@@ -1319,6 +1324,7 @@ class DeskBLEDevice:
         self._unit_preference = None
         self._effective_unit = None
         self._touch_mode = None
+        self._sensitivity_level = None
 
     def _handle_disconnect(self, client: BleakClient) -> None:
         """Handle disconnection from the desk."""

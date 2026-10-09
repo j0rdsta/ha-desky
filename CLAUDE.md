@@ -104,7 +104,6 @@ COMMAND_GET_BRIGHTNESS = bytes([0xF1, 0xF1, 0xB6, 0x00, 0xB6, 0x7E])
 COMMAND_GET_LIGHTING = bytes([0xF1, 0xF1, 0xB5, 0x00, 0xB5, 0x7E])
 COMMAND_GET_VIBRATION = bytes([0xF1, 0xF1, 0xB3, 0x00, 0xB3, 0x7E])
 COMMAND_GET_LOCK_STATUS = bytes([0xF1, 0xF1, 0xB2, 0x00, 0xB2, 0x7E])
-COMMAND_GET_SENSITIVITY = bytes([0xF1, 0xF1, 0x1D, 0x00, 0x1D, 0x7E])
 COMMAND_GET_LIMITS = bytes([0xF1, 0xF1, 0x0C, 0x00, 0x0C, 0x7E])
 COMMAND_CLEAR_LIMITS = bytes([0xF1, 0xF1, 0x23, 0x00, 0x23, 0x7E])
 
@@ -182,6 +181,7 @@ Additional device features send responses with specific headers:
 
 4. **Sensitivity Response** (0xF2 0xF2 0x1D 0x01):
    - Values: 1=High, 2=Medium, 3=Low
+   - Read from the settings block only. The integration never sends the `0x1D` query (`F1 F1 1D 00`): on a real desk its reply disagreed with the block, and the official app never sends it. A lone `0x1D` frame is still parsed
 
 5. **Display Unit Response** (0xF2 0xF2 0x0E 0x01):
    - Values: 0=cm (`f2 f2 0e 01 00 0f 7e`), 1=inches (`f2 f2 0e 01 01 10 7e`)
@@ -189,7 +189,7 @@ Additional device features send responses with specific headers:
 6. **Touch Mode Response** (0xF2 0xF2 0x19 0x01):
    - Values: 0=One press (`f2 f2 19 01 00 1a 7e`), 1=Press and hold (`f2 f2 19 01 01 1b 7e`)
 
-   The desk has no query for a single setting. It sends a settings block (presets `0x25`-`0x28`, unit `0x0E`, touch mode `0x19`, `0x17`, sensitivity `0x1D`) for a status request (`0x07`) that follows a handshake, which the integration sends on connect and after changing the unit or touch mode (`get_settings()`). It also sends the block unprompted when the unit is changed on the hand controller. It does not confirm a unit or touch-mode change by itself.
+   The desk has no query for a single setting. It sends a settings block (presets `0x25`-`0x28`, unit `0x0E`, touch mode `0x19`, `0x17`, sensitivity `0x1D`) for a status request (`0x07`) that follows a handshake, which the integration sends on connect and after changing the unit, touch mode or sensitivity (`get_settings()`). It also sends the block unprompted when the unit is changed on the hand controller. It does not confirm a unit, touch-mode or sensitivity change by itself.
 
 7. **Height Limit Responses**:
    - Upper limit (0xF2 0xF2 0x21 0x02): Height in mm (big-endian)
@@ -236,9 +236,9 @@ The limit status (`0x20`: `0x00` none, `0x01` upper, `0x10` lower, `0x11` both) 
 - A disconnect logs one warning and the recovery one info line (`The desk at <address> is unavailable` / `is available again`); everything in between is debug
 - Commands raise `DeskNotConnectedError` or `DeskCommandError` (the bool returns are gone; bad arguments raise `ValueError`). Writes are serialised with an `asyncio.Lock`, and a woken command writes its handshake under the same lock. Entity command methods use `@desk_command` (`entity.py`), which turns those into translated `HomeAssistantError`s
 - A poll on a disconnected desk sends nothing and is not an update failure; a poll whose status write fails drops the connection
-- A desk connected within about a second of powering up ignores the settings request sent while connecting, and instead sends `f2 f2 10 02 02 51` and `f2 f2 0f 02 00 07` (meaning unknown). So the first scheduled poll after each connection asks for the settings again (`get_settings()`) if the unit or touch mode is still unknown. It asks only once per connection, because the handshake wakes the desk's display
+- A desk connected within about a second of powering up ignores the settings request sent while connecting, and instead sends `f2 f2 10 02 02 51` and `f2 f2 0f 02 00 07` (meaning unknown). So the first scheduled poll after each connection asks for the settings again (`get_settings()`) if the unit, touch mode or sensitivity is still unknown. It asks only once per connection, because the handshake wakes the desk's display
 - Connection state tracked in coordinator data
-- All entities become unavailable when disconnected
+- All entities become unavailable when disconnected. A disconnect forgets the unit, touch mode and sensitivity, which can change on the hand controller meanwhile; they show unknown until the desk reports them again
 - BLE device discovery uses Home Assistant's bluetooth component
 
 ### Posture Tracking

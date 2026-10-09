@@ -150,7 +150,9 @@ then confirms it, or switches it back.
 ### Collision sensitivity
 
 How sensitive the desk's own anti-collision system is: **High**, **Medium** or **Low**. The states
-are `high`, `medium` and `low`. Use these values in automations.
+are `high`, `medium` and `low`. Use these values in automations. The desk does not confirm the
+change, so the integration asks for its settings again after changing it. The select changes when
+the desk reports the new value.
 
 ### Touch mode
 

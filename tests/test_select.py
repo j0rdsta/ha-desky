@@ -27,7 +27,13 @@ import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.desky_desk.bluetooth import DeskCommandError
-from custom_components.desky_desk.const import DOMAIN, SENSITIVITY_RESPONSE_HEADER
+from custom_components.desky_desk.const import (
+    COMMAND_GET_STATUS,
+    COMMAND_HANDSHAKE,
+    DOMAIN,
+    SENSITIVITY_RESPONSE_HEADER,
+    WRITE_CHARACTERISTIC_UUID,
+)
 from custom_components.desky_desk.select import SELECT_DESCRIPTIONS
 
 from . import deliver_frame, desk_response, disconnect_desk, notify_desk, set_desk_state
@@ -102,15 +108,15 @@ async def test_select_current_option(
 
 
 @pytest.mark.parametrize(
-    ("entity_id", "option", "command", "argument", "follow_up"),
+    ("entity_id", "option", "command", "argument"),
     [
-        (SENSITIVITY, "high", "set_sensitivity", 1, "get_sensitivity"),
-        (SENSITIVITY, "low", "set_sensitivity", 3, "get_sensitivity"),
-        # The desk has no query for one setting, so all settings are read back
-        (TOUCH_MODE, "press_and_hold", "set_touch_mode", 1, "get_settings"),
-        (TOUCH_MODE, "one_press", "set_touch_mode", 0, "get_settings"),
-        (UNIT, "in", "set_unit", "in", "get_settings"),
-        (UNIT, "cm", "set_unit", "cm", "get_settings"),
+        (SENSITIVITY, "high", "set_sensitivity", 1),
+        (SENSITIVITY, "medium", "set_sensitivity", 2),
+        (SENSITIVITY, "low", "set_sensitivity", 3),
+        (TOUCH_MODE, "press_and_hold", "set_touch_mode", 1),
+        (TOUCH_MODE, "one_press", "set_touch_mode", 0),
+        (UNIT, "in", "set_unit", "in"),
+        (UNIT, "cm", "set_unit", "cm"),
     ],
 )
 async def test_select_option(
@@ -121,9 +127,11 @@ async def test_select_option(
     option: str,
     command: str,
     argument: Any,
-    follow_up: str | None,
 ) -> None:
-    """Test selecting an option sends the matching command to the desk."""
+    """Test selecting an option sends it, then asks the desk for its settings.
+
+    The desk confirms none of these settings, and has no query for one setting.
+    """
     await hass.services.async_call(
         SELECT_DOMAIN,
         SERVICE_SELECT_OPTION,
@@ -132,10 +140,7 @@ async def test_select_option(
     )
 
     getattr(mock_desk, command).assert_awaited_once_with(argument)
-    if follow_up is None:
-        mock_desk.get_sensitivity.assert_not_awaited()
-    else:
-        getattr(mock_desk, follow_up).assert_awaited_once_with()
+    mock_desk.get_settings.assert_awaited_once_with()
 
 
 async def test_select_state_follows_desk(
@@ -173,7 +178,7 @@ async def test_selects_unavailable_when_disconnected(
     )
 
     mock_desk.set_sensitivity.assert_not_awaited()
-    mock_desk.get_sensitivity.assert_not_awaited()
+    mock_desk.get_settings.assert_not_awaited()
 
 
 @pytest.mark.parametrize(
@@ -181,6 +186,7 @@ async def test_selects_unavailable_when_disconnected(
     [
         (UNIT, "unit_preference", "in", "in"),
         (TOUCH_MODE, "touch_mode", "press_and_hold", 1),
+        (SENSITIVITY, "sensitivity_level", "low", 3),
     ],
 )
 async def test_select_shows_the_desk_report_after_selecting(
@@ -210,7 +216,11 @@ async def test_select_shows_the_desk_report_after_selecting(
 
 @pytest.mark.parametrize(
     ("entity_id", "option", "command"),
-    [(UNIT, "in", "set_unit"), (TOUCH_MODE, "press_and_hold", "set_touch_mode")],
+    [
+        (UNIT, "in", "set_unit"),
+        (TOUCH_MODE, "press_and_hold", "set_touch_mode"),
+        (SENSITIVITY, "low", "set_sensitivity"),
+    ],
 )
 async def test_select_skips_read_back_when_the_write_fails(
     hass: HomeAssistant,
@@ -278,6 +288,64 @@ async def test_sensitivity_follows_a_desk_report(
     assert hass.states.get(SENSITIVITY).state == STATE_UNKNOWN
 
     deliver_frame(desk_client, desk_response(SENSITIVITY_RESPONSE_HEADER, 0x03))
+    await hass.async_block_till_done()
+    assert hass.states.get(SENSITIVITY).state == "low"
+
+
+async def test_sensitivity_is_read_back_from_the_settings_block(
+    hass: HomeAssistant, desk_client: MagicMock
+) -> None:
+    """Test a new sensitivity shows once the settings block reports it, not before."""
+    desk_client.write_gatt_char.reset_mock()
+
+    await hass.services.async_call(
+        SELECT_DOMAIN,
+        SERVICE_SELECT_OPTION,
+        {ATTR_ENTITY_ID: SENSITIVITY, ATTR_OPTION: "low"},
+        blocking=True,
+    )
+
+    # Set Low (checksum 0x1D + 0x01 + 0x03 = 0x21), then ask for the settings
+    assert [c.args for c in desk_client.write_gatt_char.call_args_list] == [
+        (WRITE_CHARACTERISTIC_UUID, COMMAND_HANDSHAKE),
+        (WRITE_CHARACTERISTIC_UUID, bytes.fromhex("f1f11d0103217e")),
+        (WRITE_CHARACTERISTIC_UUID, COMMAND_HANDSHAKE),
+        (WRITE_CHARACTERISTIC_UUID, COMMAND_GET_STATUS),
+    ]
+    # The desk sends nothing back for the set itself
+    await hass.async_block_till_done()
+    assert hass.states.get(SENSITIVITY).state == STATE_UNKNOWN
+
+    # The settings block the status request brings
+    for frame in (
+        "f2f20e01000f7e",  # unit: cm
+        "f2f21901001a7e",  # touch mode: one press
+        "f2f2170101197e",  # unknown
+        "f2f21d0103217e",  # sensitivity: low
+    ):
+        deliver_frame(desk_client, bytearray.fromhex(frame))
+    await hass.async_block_till_done()
+    assert hass.states.get(SENSITIVITY).state == "low"
+
+
+async def test_sensitivity_is_forgotten_on_disconnect(
+    hass: HomeAssistant, desk_client: MagicMock, mock_establish_connection: MagicMock
+) -> None:
+    """After reconnecting the select shows no option until the desk reports again.
+
+    The sensitivity can change on the hand controller while disconnected.
+    """
+    deliver_frame(desk_client, bytearray.fromhex("f2f21d0102207e"))
+    await hass.async_block_till_done()
+    assert hass.states.get(SENSITIVITY).state == "medium"
+
+    # The coordinator reconnects at once; the desk has not reported anything yet
+    mock_establish_connection.call_args.kwargs["disconnected_callback"](desk_client)
+    await hass.async_block_till_done()
+    assert mock_establish_connection.call_count == 2
+    assert hass.states.get(SENSITIVITY).state == STATE_UNKNOWN
+
+    deliver_frame(desk_client, bytearray.fromhex("f2f21d0103217e"))
     await hass.async_block_till_done()
     assert hass.states.get(SENSITIVITY).state == "low"
 
