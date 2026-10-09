@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import timedelta
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from freezegun.api import FrozenDateTimeFactory
 from homeassistant.components.sensor import (
@@ -29,7 +29,7 @@ from pytest_homeassistant_custom_component.common import (
     async_fire_time_changed,
 )
 
-from custom_components.desky_desk.const import POSTURE_SETTLE_SECONDS
+from custom_components.desky_desk.const import DOMAIN, POSTURE_SETTLE_SECONDS
 
 from . import disconnect_desk, notify_desk, set_desk_state
 
@@ -52,16 +52,48 @@ async def test_height_display(
     }
 
 
+@pytest.mark.parametrize("unit", [None, "cm", "in"])
 async def test_height_display_ignores_the_desk_display_unit(
-    hass: HomeAssistant, init_integration: MockConfigEntry
+    hass: HomeAssistant, init_integration: MockConfigEntry, unit: str | None
 ) -> None:
-    """Test the height display stays in centimetres while the desk shows inches."""
-    await set_desk_state(hass, init_integration, unit_preference="in", height_cm=101.6)
+    """Test the height display is in centimetres whatever unit the desk shows."""
+    await set_desk_state(hass, init_integration, unit_preference=unit, height_cm=69.6)
 
     state = hass.states.get(HEIGHT_DISPLAY)
     assert state is not None
-    assert state.state == "101.6"
+    assert state.state == "69.6"
     assert state.attributes[ATTR_UNIT_OF_MEASUREMENT] == UnitOfLength.CENTIMETERS
+
+
+async def test_height_display_keeps_inches_after_upgrade(
+    hass: HomeAssistant,
+    entity_registry: er.EntityRegistry,
+    mock_config_entry: MockConfigEntry,
+    mock_desk: MagicMock,
+) -> None:
+    """Test a height display that showed inches before 2.0.0 still shows inches."""
+    mock_config_entry.add_to_hass(hass)
+    entity_registry.async_get_or_create(
+        SENSOR_DOMAIN,
+        DOMAIN,
+        f"{mock_config_entry.unique_id}_height_display",
+        suggested_object_id="desky_desk_height_display",
+        config_entry=mock_config_entry,
+        unit_of_measurement=UnitOfLength.INCHES,
+    )
+
+    with patch(
+        "homeassistant.components.bluetooth.async_ble_device_from_address",
+        return_value=MagicMock(address=mock_config_entry.unique_id),
+    ):
+        assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+
+    state = hass.states.get(HEIGHT_DISPLAY)
+    assert state is not None
+    # The desk is at 80.0 cm
+    assert float(state.state) == pytest.approx(31.5, abs=0.05)
+    assert state.attributes[ATTR_UNIT_OF_MEASUREMENT] == UnitOfLength.INCHES
 
 
 async def test_height_display_in_the_unit_the_user_picks(
@@ -125,33 +157,6 @@ async def test_sensors_unavailable_when_disconnected(
         state = hass.states.get(entity_id)
         assert state is not None
         assert state.state == STATE_UNAVAILABLE
-
-
-async def test_height_display_while_unit_unreported(
-    hass: HomeAssistant, init_integration: MockConfigEntry
-) -> None:
-    """Test the height display uses centimetres until the desk reports a unit."""
-    await set_desk_state(hass, init_integration, unit_preference=None, height_cm=69.8)
-
-    state = hass.states.get(HEIGHT_DISPLAY)
-    assert state is not None
-    assert state.state == "69.8"
-    assert state.attributes[ATTR_UNIT_OF_MEASUREMENT] == UnitOfLength.CENTIMETERS
-
-
-async def test_height_display_unit_changed_while_connected(
-    hass: HomeAssistant, init_integration: MockConfigEntry
-) -> None:
-    """Test a switch to inches on the desk keeps the height display in centimetres."""
-    await set_desk_state(hass, init_integration, unit_preference="cm", height_cm=69.8)
-    assert hass.states.get(HEIGHT_DISPLAY).state == "69.8"
-
-    # The desk reports inches; its next height (27.4 in) decodes to 69.6 cm
-    await set_desk_state(hass, init_integration, unit_preference="in", height_cm=69.6)
-
-    state = hass.states.get(HEIGHT_DISPLAY)
-    assert state.state == "69.6"
-    assert state.attributes[ATTR_UNIT_OF_MEASUREMENT] == UnitOfLength.CENTIMETERS
 
 
 async def test_posture_sensor(
