@@ -32,7 +32,7 @@ from custom_components.desky_desk.const import (
     LIGHTING_RESPONSE_HEADER,
     WRITE_CHARACTERISTIC_UUID,
 )
-from custom_components.desky_desk.light import DeskLight
+from custom_components.desky_desk.light import DeskLight, _nearest_color
 
 from . import deliver_frame, desk_response, set_desk_state
 
@@ -82,6 +82,36 @@ async def _turn_on(hass: HomeAssistant, **data: Any) -> None:
         {ATTR_ENTITY_ID: ENTITY_ID, **data},
         blocking=True,
     )
+
+
+@pytest.mark.parametrize(
+    ("hs_color", "color"),
+    [
+        # Saturation below 30 is White, whatever the hue
+        ((0, 0), 1),
+        ((200, 29), 1),
+        ((200, 29.9), 1),
+        ((200, 30), 4),
+        ((0, 100), 2),
+        # A tie goes to the colour below the hue
+        ((30, 100), 2),
+        ((31, 100), 5),
+        ((60, 100), 5),
+        ((90, 100), 5),
+        ((91, 100), 3),
+        ((120, 100), 3),
+        ((180, 100), 3),
+        ((181, 100), 4),
+        ((240, 100), 4),
+        ((300, 100), 4),
+        ((301, 100), 2),
+        ((359, 100), 2),
+        ((360, 100), 2),
+    ],
+)
+def test_nearest_color(hs_color: tuple[float, float], color: int) -> None:
+    """Test a hue and saturation snap to the nearest desk colour."""
+    assert _nearest_color(hs_color) == color
 
 
 async def test_light_state(

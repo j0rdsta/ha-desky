@@ -32,7 +32,23 @@ PARALLEL_UPDATES = 1
 BRIGHTNESS_SCALE = (1, 100)
 
 COLOR_WHITE = 1
+COLOR_RED = 2
+COLOR_GREEN = 3
+COLOR_BLUE = 4
+COLOR_YELLOW = 5
 COLOR_PARTY = 6
+
+# Hue and saturation of each static colour; party mode has none
+COLOR_TO_HS: dict[int, tuple[float, float]] = {
+    COLOR_WHITE: (0, 0),
+    COLOR_RED: (0, 100),
+    COLOR_YELLOW: (60, 100),
+    COLOR_GREEN: (120, 100),
+    COLOR_BLUE: (240, 100),
+}
+
+# A picked colour less saturated than this is White
+MIN_SATURATION = 30
 
 # Map effect names to colour codes; every colour except Off is an effect
 EFFECT_TO_COLOR = {
@@ -44,6 +60,20 @@ COLOR_TO_EFFECT = {v: k for k, v in EFFECT_TO_COLOR.items()}
 
 # Colours that can be restored when the light turns on; party mode is an effect
 STATIC_COLORS = frozenset(EFFECT_TO_COLOR.values()) - {COLOR_PARTY}
+
+
+def _nearest_color(hs_color: tuple[float, float]) -> int:
+    """Return the desk colour nearest to a hue and saturation."""
+    hue, saturation = hs_color
+    if saturation < MIN_SATURATION:
+        return COLOR_WHITE
+
+    def distance(color: int) -> tuple[float, float]:
+        # Nearest round the colour wheel; a tie goes to the colour below the hue
+        offset = (hue - COLOR_TO_HS[color][0]) % 360
+        return min(offset, 360 - offset), offset
+
+    return min((COLOR_RED, COLOR_YELLOW, COLOR_GREEN, COLOR_BLUE), key=distance)
 
 
 async def async_setup_entry(
