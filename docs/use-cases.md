@@ -141,3 +141,21 @@ actions:
 
 On desks with an LED strip, change its colour to show a status, such as a meeting in progress or
 a door left open.
+
+The strip shows white, red, green, blue or yellow. Pick one by effect, or by colour: any colour is
+snapped to the nearest of the five. This automation turns the strip red while a door sensor,
+here `binary_sensor.front_door`, shows the door open, and back to white when it closes.
+
+```yaml
+alias: Desk light shows an open door
+triggers:
+  - trigger: state
+    entity_id: binary_sensor.front_door
+    to: ["on", "off"]
+actions:
+  - action: light.turn_on
+    target:
+      entity_id: light.desky_desk_led_strip
+    data:
+      effect: "{{ 'Red' if trigger.to_state.state == 'on' else 'White' }}"
+```
