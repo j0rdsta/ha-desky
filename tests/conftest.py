@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections.abc import AsyncGenerator, Generator
 from dataclasses import asdict
 from functools import partial
-from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from bleak import BleakClient
@@ -21,31 +20,8 @@ from syrupy.assertion import SnapshotAssertion
 from custom_components.desky_desk.bluetooth import round_limit_to_unit
 from custom_components.desky_desk.const import DOMAIN
 from custom_components.desky_desk.coordinator import DeskData
-from custom_components.desky_desk.sequencer import Sequencer
 
 from . import BluetoothCallbacks, FakeClock, desk_data
-
-
-@pytest.fixture(autouse=True)
-async def end_sequences() -> AsyncGenerator[None]:
-    """Cancel the frames a test's desks are still sending when it ends.
-
-    Move up and down repeat until they are stopped, so a test that only looks
-    at how a movement is tracked would otherwise leave the repeat running.
-    """
-    sequencers: list[Sequencer] = []
-    init = Sequencer.__init__
-
-    def _init(self: Sequencer, *args: Any, **kwargs: Any) -> None:
-        init(self, *args, **kwargs)
-        sequencers.append(self)
-
-    with patch.object(Sequencer, "__init__", _init):
-        yield
-    for sequencer in sequencers:
-        sequencer.cancel_all()
-    for sequencer in sequencers:
-        await sequencer.wait_cancelled()
 
 
 @pytest.fixture(autouse=True)

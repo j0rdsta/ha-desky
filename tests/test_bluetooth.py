@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncGenerator
 from unittest.mock import AsyncMock, MagicMock, call, patch
 
 from bleak import BleakClient
@@ -114,11 +115,26 @@ def test_desk_device_init(mock_ble_device):
     assert device.is_connected is False
 
 
-@patch("time.time")
-async def test_desk_device_properties(mock_time, mock_ble_device, mock_bleak_client):
-    """Test DeskBLEDevice properties."""
+@pytest.fixture
+async def connected_device(
+    mock_ble_device: MagicMock, mock_bleak_client: MagicMock
+) -> AsyncGenerator[DeskBLEDevice]:
+    """Return a connected desk, cancelling whatever it still sends at the end.
+
+    Move up and down repeat until they are stopped, so a test that only looks
+    at how a movement is tracked would otherwise leave the repeat running.
+    """
     device = DeskBLEDevice(mock_ble_device)
     device._client = mock_bleak_client
+    yield device
+    device._sequencer.cancel_all()
+    await device._sequencer.wait_cancelled()
+
+
+@patch("time.time")
+async def test_desk_device_properties(mock_time, connected_device):
+    """Test DeskBLEDevice properties."""
+    device = connected_device
     device._collision_detected = True
 
     _replay(device, mock_time, [(0.0, 84.0)])
@@ -1377,11 +1393,10 @@ async def test_collision_persists_on_new_movement(mock_ble_device, mock_bleak_cl
 
 @patch("time.time")
 async def test_collision_clears_after_successful_movement_from_collision_time(
-    mock_time, mock_ble_device, mock_bleak_client
+    mock_time, connected_device
 ):
     """Test collision clears after 2 seconds of movement from collision detection time."""
-    device = DeskBLEDevice(mock_ble_device)
-    device._client = mock_bleak_client
+    device = connected_device
     _replay(device, mock_time, [(0.0, 80.0)])
 
     # Collision detected at t=1.0
@@ -1749,12 +1764,9 @@ def test_preset_movement_collision_slow_overall_speed(mock_time, mock_ble_device
 
 
 @patch("time.time")
-async def test_velocity_tracking_reset_on_new_movement(
-    mock_time, mock_ble_device, mock_bleak_client
-):
+async def test_velocity_tracking_reset_on_new_movement(mock_time, connected_device):
     """Test that velocity tracking is reset when new movement starts."""
-    device = DeskBLEDevice(mock_ble_device)
-    device._client = mock_bleak_client
+    device = connected_device
 
     # A movement that has measured some velocities
     _replay(device, mock_time, [(0.0, 80.0)])
@@ -2690,12 +2702,9 @@ async def test_frame_type_does_not_change_movement_behaviour(
 
 
 @patch("time.time")
-async def test_commanded_movement_begins_past_the_jitter(
-    mock_time, mock_ble_device, mock_bleak_client
-):
+async def test_commanded_movement_begins_past_the_jitter(mock_time, connected_device):
     """A move-up command followed by a rise beyond the jitter is a movement up."""
-    device = DeskBLEDevice(mock_ble_device)
-    device._client = mock_bleak_client
+    device = connected_device
 
     _replay(device, mock_time, [(0.0, 70.0)])
     await device.move_up()
@@ -2708,12 +2717,9 @@ async def test_commanded_movement_begins_past_the_jitter(
 
 
 @patch("time.time")
-async def test_jitter_before_the_desk_responds(
-    mock_time, mock_ble_device, mock_bleak_client
-):
+async def test_jitter_before_the_desk_responds(mock_time, connected_device):
     """A 0.2 cm drop after a move-up command, before the desk moves, is jitter."""
-    device = DeskBLEDevice(mock_ble_device)
-    device._client = mock_bleak_client
+    device = connected_device
 
     _replay(device, mock_time, [(0.0, 70.0)])
     await device.move_up()
@@ -2728,11 +2734,10 @@ async def test_jitter_before_the_desk_responds(
 
 @patch("time.time")
 async def test_movement_down_ignores_a_rise_before_the_desk_responds(
-    mock_time, mock_ble_device, mock_bleak_client
+    mock_time, connected_device
 ):
     """A rise after a move-down command never starts a movement down."""
-    device = DeskBLEDevice(mock_ble_device)
-    device._client = mock_bleak_client
+    device = connected_device
 
     _replay(device, mock_time, [(0.0, 70.0)])
     await device.move_down()
@@ -2743,12 +2748,9 @@ async def test_movement_down_ignores_a_rise_before_the_desk_responds(
 
 
 @patch("time.time")
-async def test_reversal_within_jitter_is_not_a_bounce(
-    mock_time, mock_ble_device, mock_bleak_client
-):
+async def test_reversal_within_jitter_is_not_a_bounce(mock_time, connected_device):
     """A 0.2 cm rise while moving down is not a collision; the movement continues."""
-    device = DeskBLEDevice(mock_ble_device)
-    device._client = mock_bleak_client
+    device = connected_device
 
     _replay(device, mock_time, [(0.0, 80.0)])
     await device.move_down()
@@ -2813,12 +2815,9 @@ async def test_command_that_never_moves_the_desk_expires(
 
 
 @patch("time.time")
-async def test_command_expires_only_after_the_expiry_time(
-    mock_time, mock_ble_device, mock_bleak_client
-):
+async def test_command_expires_only_after_the_expiry_time(mock_time, connected_device):
     """A desk that responds within the expiry time still starts the movement."""
-    device = DeskBLEDevice(mock_ble_device)
-    device._client = mock_bleak_client
+    device = connected_device
 
     _replay(device, mock_time, [(0.0, 70.0)])
     await device.move_up()
@@ -3021,11 +3020,10 @@ def test_disconnect_forgets_settings(mock_ble_device, mock_bleak_client):
     ],
 )
 async def test_commands_wake_the_desk_first(
-    mock_ble_device, mock_bleak_client, method, args
+    connected_device, mock_bleak_client, method, args
 ):
     """Movement and settings commands are preceded by the handshake."""
-    device = DeskBLEDevice(mock_ble_device)
-    device._client = mock_bleak_client
+    device = connected_device
     device._height_cm = 80.0
 
     await getattr(device, method)(*args)

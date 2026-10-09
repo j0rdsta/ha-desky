@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Coroutine
+from collections.abc import AsyncGenerator, Coroutine
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -85,14 +85,19 @@ async def _run(
 
 
 @pytest.fixture
-def desk(
+async def desk(
     mock_ble_device: MagicMock, mock_bleak_client: MagicMock, clock: FakeClock
-) -> DeskBLEDevice:
-    """Return a connected desk at 80 cm, timed on the virtual clock."""
+) -> AsyncGenerator[DeskBLEDevice]:
+    """Return a connected desk at 80 cm, timed on the virtual clock.
+
+    Whatever it still sends when the test ends, such as a repeat, is cancelled.
+    """
     device = DeskBLEDevice(mock_ble_device, clock=clock)
     device._client = mock_bleak_client
     device._height_cm = 80.0
-    return device
+    yield device
+    device._sequencer.cancel_all()
+    await device._sequencer.wait_cancelled()
 
 
 @pytest.fixture
