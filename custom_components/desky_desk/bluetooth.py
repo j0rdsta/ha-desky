@@ -913,16 +913,12 @@ class DeskBLEDevice:
 
         # Check for upper limit response (in display units, like heights)
         elif len(data) >= 7 and bytes(data[:4]) == LIMIT_UPPER_RESPONSE_HEADER:
-            self._height_limit_upper = self._decode_height(
-                (data[4] << 8) | data[5], data
-            )
+            self._height_limit_upper = self._decode_limit(data)
             _LOGGER.debug("Upper limit response: %.1f cm", self._height_limit_upper)
 
         # Check for lower limit response (in display units, like heights)
         elif len(data) >= 7 and bytes(data[:4]) == LIMIT_LOWER_RESPONSE_HEADER:
-            self._height_limit_lower = self._decode_height(
-                (data[4] << 8) | data[5], data
-            )
+            self._height_limit_lower = self._decode_limit(data)
             _LOGGER.debug("Lower limit response: %.1f cm", self._height_limit_lower)
 
         # Check for limit status response (0xF2 0xF2 0x20 0x01):
@@ -970,6 +966,18 @@ class DeskBLEDevice:
             )
         self._effective_unit = unit
         return height_cm
+
+    def _decode_limit(self, data: bytearray) -> float:
+        """Turn a height limit reply into centimetres.
+
+        The desk reports a limit one tenth low: 124.0 cm as 1239. As the
+        official app does, a raw value that is not a multiple of 5 is rounded
+        up by one tenth. Height frames are never adjusted.
+        """
+        raw = (data[4] << 8) | data[5]
+        if raw % 5:
+            raw += 1
+        return self._decode_height(raw, data)
 
     def _encode_height(self, height_cm: float) -> int:
         """Turn centimetres into tenths of the unit the desk currently uses."""

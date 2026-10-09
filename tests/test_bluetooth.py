@@ -42,6 +42,7 @@ from custom_components.desky_desk.const import (
     MIN_HEIGHT,
     NOTIFY_CHARACTERISTIC_UUID,
     SENSITIVITY_RESPONSE_HEADER,
+    STATUS_NOTIFICATION_HEADER,
     VIBRATION_RESPONSE_HEADER,
     WRITE_CHARACTERISTIC_UUID,
     HeightLimit,
@@ -2019,7 +2020,7 @@ def test_setting_reply_mid_movement_keeps_the_movement(mock_ble_device):
 
 
 def test_parse_height_limit_responses(mock_ble_device):
-    """Test parsing of height limit responses, which are big-endian millimetres."""
+    """Test parsing of height limit responses, big-endian tenths of the display unit."""
     device = DeskBLEDevice(mock_ble_device)
 
     device._handle_notification(
@@ -3267,8 +3268,9 @@ async def test_move_to_height_target_is_always_mm(
     [
         # cm: tenths of a cm (mm)
         (CM_REPORT, "f2f2010302ba07c77e", 1100, "f2f22102044c737e", 110.0),
-        # inches: 110 cm is sent as 43.3 in; the desk reports 43.2 in back
-        (INCH_REPORT, "f2f201030112071e7e", 433, "f2f2210201b0d47e", 109.7),
+        # inches: 110 cm is sent as 43.3 in; the desk reports 43.2 in, a tenth
+        # low, which is rounded back up to 43.3 in
+        (INCH_REPORT, "f2f201030112071e7e", 433, "f2f2210201b0d47e", 110.0),
     ],
 )
 async def test_height_limits_round_trip_in_cm(
@@ -3294,7 +3296,6 @@ async def test_height_limits_round_trip_in_cm(
     lower = 700 if unit_report is CM_REPORT else 276  # 70 cm = 27.6 in
     assert writes[3] == device._create_command_with_word_param(0x22, lower)
 
-    # The desk truncates the stored limit, so in inches it reads back a step low
     device._handle_notification(None, bytearray.fromhex(response))
     assert device.height_limit_upper == read_back
 
@@ -3313,3 +3314,48 @@ async def test_inch_limit_range_ends_are_sent_within_24_48_in(
     assert mock_bleak_client.write_gatt_char.call_args_list[-1] == call(
         WRITE_CHARACTERISTIC_UUID, device._create_command_with_word_param(0x21, sent)
     )
+
+
+@pytest.mark.parametrize(
+    ("unit_report", "header", "raw", "attribute", "expected"),
+    [
+        # The desk reports 124.0 cm as 1239 and 65.0 cm as 649
+        (CM_REPORT, LIMIT_UPPER_RESPONSE_HEADER, 1239, "height_limit_upper", 124.0),
+        (CM_REPORT, LIMIT_LOWER_RESPONSE_HEADER, 649, "height_limit_lower", 65.0),
+        # A multiple of 5 is already exact
+        (CM_REPORT, LIMIT_UPPER_RESPONSE_HEADER, 1240, "height_limit_upper", 124.0),
+        (CM_REPORT, LIMIT_LOWER_RESPONSE_HEADER, 650, "height_limit_lower", 65.0),
+        # Inches: 47.9 in is read as 48.0 in, 121.9 cm; 23.9 in as 24.0 in, 61.0 cm
+        (INCH_REPORT, LIMIT_UPPER_RESPONSE_HEADER, 479, "height_limit_upper", 121.9),
+        (INCH_REPORT, LIMIT_LOWER_RESPONSE_HEADER, 239, "height_limit_lower", 61.0),
+        (INCH_REPORT, LIMIT_UPPER_RESPONSE_HEADER, 480, "height_limit_upper", 121.9),
+    ],
+)
+def test_limit_replies_are_rounded_up_a_tenth(
+    mock_ble_device, unit_report, header, raw, attribute, expected
+):
+    """A limit reply not on a multiple of 5 tenths is a tenth low, as the app knows."""
+    device = DeskBLEDevice(mock_ble_device)
+    device._handle_notification(None, unit_report)
+
+    device._handle_notification(None, desk_response(header, raw >> 8, raw & 0xFF))
+
+    assert getattr(device, attribute) == expected
+
+
+@pytest.mark.parametrize(
+    "frame",
+    [
+        desk_response(STATUS_NOTIFICATION_HEADER, 0x04, 0xD7),
+        bytearray([0x98, 0x98, 0x00, 0x00, 0xD7, 0x04]),
+    ],
+    ids=["status frame", "movement frame"],
+)
+def test_height_frames_are_not_rounded(mock_ble_device, frame):
+    """Only limit replies are rounded; a height of 1239 tenths is 123.9 cm."""
+    device = DeskBLEDevice(mock_ble_device)
+    device._handle_notification(None, CM_REPORT)
+
+    device._handle_notification(None, frame)
+
+    assert device.height_cm == 123.9

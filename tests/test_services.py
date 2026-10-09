@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, call
 
 from homeassistant.config_entries import ConfigEntryDisabler
 from homeassistant.const import ATTR_DEVICE_ID, ATTR_ENTITY_ID
@@ -16,9 +16,16 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 import voluptuous as vol
 
 from custom_components.desky_desk.bluetooth import DeskCommandError
-from custom_components.desky_desk.const import DOMAIN, HeightLimit
+from custom_components.desky_desk.const import (
+    COMMAND_GET_LIMITS,
+    DOMAIN,
+    LIMIT_STATUS_RESPONSE_HEADER,
+    LIMIT_UPPER_RESPONSE_HEADER,
+    WRITE_CHARACTERISTIC_UUID,
+    HeightLimit,
+)
 
-from . import notify_desk, set_desk_state
+from . import deliver_frame, desk_response, notify_desk, set_desk_state
 
 COVER = "cover.desky_desk"
 UPPER_LIMIT = "number.desky_desk_upper_height_limit"
@@ -407,3 +414,23 @@ async def test_action_write_fails(
     assert err.value.translation_placeholders == {"error": "write failed"}
     mock_desk.get_limits.assert_not_awaited()
     assert {s.entity_id: s.state for s in hass.states.async_all()} == before
+
+
+async def test_upper_limit_reads_back_exactly(
+    hass: HomeAssistant, desk_client: MagicMock
+) -> None:
+    """Test an upper limit of 124 cm shows 124.0 cm, though the desk reports 1239."""
+    await _call(hass, "set_height_limit", {"limit": "upper", "height": 124})
+
+    # 1240 = 0x04D8; checksum (0x21 + 0x02 + 0x04 + 0xD8) & 0xFF = 0xFF
+    assert desk_client.write_gatt_char.call_args_list[-2:] == [
+        call(WRITE_CHARACTERISTIC_UUID, bytes.fromhex("f1f1210204d8ff7e")),
+        call(WRITE_CHARACTERISTIC_UUID, COMMAND_GET_LIMITS),
+    ]
+
+    # The desk answers the limit query: upper set, at 1239 tenths of a cm
+    deliver_frame(desk_client, desk_response(LIMIT_STATUS_RESPONSE_HEADER, 0x01))
+    deliver_frame(desk_client, desk_response(LIMIT_UPPER_RESPONSE_HEADER, 0x04, 0xD7))
+    await hass.async_block_till_done()
+
+    assert hass.states.get(UPPER_LIMIT).state == "124.0"
