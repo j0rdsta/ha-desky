@@ -131,7 +131,6 @@ async def test_poll_reads_desk(
         "brightness": 100,
         "lighting_enabled": False,
         "vibration_enabled": False,
-        "vibration_intensity": 25,
         "lock_status": True,
         "sensitivity_level": 1,  # High
         "height_limit_upper": 130.0,

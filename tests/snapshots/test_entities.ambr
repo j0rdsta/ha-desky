@@ -190,24 +190,6 @@
       'translation_key': 'height_limit_upper',
       'unique_id': 'AA:BB:CC:DD:EE:FF_height_limit_upper',
     }),
-    'number.desky_desk_vibration_intensity': dict({
-      'attributes': dict({
-        'friendly_name': 'Desky Desk Vibration intensity',
-        'max': 100,
-        'min': 0,
-        'mode': 'slider',
-        'step': 1,
-        'unit_of_measurement': '%',
-      }),
-      'disabled_by': None,
-      'entity_category': 'config',
-      'original_device_class': None,
-      'original_name': 'Vibration intensity',
-      'platform': 'desky_desk',
-      'state': '75',
-      'translation_key': 'vibration_intensity',
-      'unique_id': 'AA:BB:CC:DD:EE:FF_vibration_intensity',
-    }),
     'select.desky_desk_collision_sensitivity': dict({
       'attributes': dict({
         'friendly_name': 'Desky Desk Collision sensitivity',

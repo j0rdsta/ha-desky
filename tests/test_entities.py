@@ -117,6 +117,7 @@ NEW_ENTITIES = {
 
 # Entities removed since v1.0.x; setup deletes their registry entries
 REMOVED_ENTITIES = {
+    ("number", "vibration_intensity"),
     ("sensor", "led_color"),
     ("sensor", "vibration_intensity_display"),
 }

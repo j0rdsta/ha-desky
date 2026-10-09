@@ -27,7 +27,6 @@ from .const import (
     COMMAND_GET_SENSITIVITY,
     COMMAND_GET_STATUS,
     COMMAND_GET_VIBRATION,
-    COMMAND_GET_VIBRATION_INTENSITY,
     COMMAND_HANDSHAKE,
     COMMAND_MEMORY_1,
     COMMAND_MEMORY_2,
@@ -59,7 +58,6 @@ from .const import (
     TOUCH_MODE_RESPONSE_HEADER,
     TOUCH_MODES,
     UNIT_RESPONSE_HEADER,
-    VIBRATION_INTENSITY_RESPONSE_HEADER,
     VIBRATION_RESPONSE_HEADER,
     WRITE_CHARACTERISTIC_UUID,
     HeightLimit,
@@ -182,7 +180,6 @@ class DeskBLEDevice:
         self._brightness: int | None = None
         self._lighting_enabled: bool | None = None
         self._vibration_enabled: bool | None = None
-        self._vibration_intensity: int | None = None
         self._lock_status: bool = False
         self._sensitivity_level: int | None = None
         self._height_limit_upper: float | None = None
@@ -257,11 +254,6 @@ class DeskBLEDevice:
     def vibration_enabled(self) -> bool | None:
         """Return if vibration is enabled."""
         return self._vibration_enabled
-
-    @property
-    def vibration_intensity(self) -> int | None:
-        """Return vibration intensity level."""
-        return self._vibration_intensity
 
     @property
     def lock_status(self) -> bool:
@@ -609,10 +601,6 @@ class DeskBLEDevice:
         """Request current vibration on/off status."""
         await self._send_command(COMMAND_GET_VIBRATION)
 
-    async def get_vibration_intensity(self) -> None:
-        """Request current vibration intensity."""
-        await self._send_command(COMMAND_GET_VIBRATION_INTENSITY)
-
     async def get_lock_status(self) -> None:
         """Request current lock status."""
         await self._send_command(COMMAND_GET_LOCK_STATUS)
@@ -650,13 +638,6 @@ class DeskBLEDevice:
         """Enable or disable vibration."""
         value = 1 if enabled else 0
         command = self._create_command_with_byte_param(0xB3, value)
-        await self._send_awake_command(command)
-
-    async def set_vibration_intensity(self, level: int) -> None:
-        """Set vibration intensity level."""
-        if level < 0 or level > 100:
-            raise ValueError(f"Invalid vibration intensity: {level} (must be 0-100)")
-        command = self._create_command_with_byte_param(0xA4, level)
         await self._send_awake_command(command)
 
     async def set_lock_status(self, locked: bool) -> None:
@@ -718,7 +699,6 @@ class DeskBLEDevice:
         await self.get_light_color()
         await self.get_brightness()
         await self.get_vibration_status()
-        await self.get_vibration_intensity()
         await self.get_lock_status()
         await self.get_sensitivity()
         await self.get_limits()
@@ -912,11 +892,6 @@ class DeskBLEDevice:
         elif len(data) >= 6 and bytes(data[:4]) == VIBRATION_RESPONSE_HEADER:
             self._vibration_enabled = data[4] != 0
             _LOGGER.debug("Vibration enabled response: %s", self._vibration_enabled)
-
-        # Check for vibration intensity response
-        elif len(data) >= 6 and bytes(data[:4]) == VIBRATION_INTENSITY_RESPONSE_HEADER:
-            self._vibration_intensity = data[4]
-            _LOGGER.debug("Vibration intensity response: %s", self._vibration_intensity)
 
         # Check for lock status response
         elif len(data) >= 6 and bytes(data[:4]) == LOCK_STATUS_RESPONSE_HEADER:

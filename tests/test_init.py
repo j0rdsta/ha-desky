@@ -25,6 +25,13 @@ from . import BluetoothCallbacks, disconnect_desk
 
 ADDRESS = "AA:BB:CC:DD:EE:FF"
 
+# Entities earlier releases created that setup deletes, by platform and unique ID suffix
+RETIRED = (
+    (Platform.SENSOR, "led_color"),
+    (Platform.SENSOR, "vibration_intensity_display"),
+    (Platform.NUMBER, "vibration_intensity"),
+)
+
 
 def _desk_entity_states(hass: HomeAssistant, entry: MockConfigEntry) -> list[str]:
     """Return the states of the entry's entities."""
@@ -45,7 +52,7 @@ async def test_setup_entry(
     mock_desk.connect.assert_awaited_once()
 
     states = _desk_entity_states(hass, init_integration)
-    assert len(states) == 22
+    assert len(states) == 21
     assert STATE_UNAVAILABLE not in states
 
 
@@ -143,7 +150,7 @@ async def test_setup_retry_succeeds_when_desk_comes_into_range(
 
     assert mock_config_entry.state is ConfigEntryState.LOADED
     states = _desk_entity_states(hass, mock_config_entry)
-    assert len(states) == 22
+    assert len(states) == 21
     assert STATE_UNAVAILABLE not in states
 
 
@@ -315,17 +322,17 @@ async def test_upgrade_keeps_one_device(
     assert devices[0].connections == {(dr.CONNECTION_BLUETOOTH, ADDRESS)}
 
 
-async def test_setup_removes_retired_sensors(
+async def test_setup_removes_retired_entities(
     hass: HomeAssistant,
     entity_registry: er.EntityRegistry,
     mock_config_entry: MockConfigEntry,
     mock_desk: MagicMock,
 ) -> None:
-    """Test setup deletes the LED color and Vibration intensity display sensors."""
+    """Test setup deletes the retired sensors and the Vibration intensity number."""
     mock_config_entry.add_to_hass(hass)
-    for key in ("led_color", "vibration_intensity_display", "height_display"):
+    for platform, key in (*RETIRED, (Platform.SENSOR, "height_display")):
         entity_registry.async_get_or_create(
-            Platform.SENSOR,
+            platform,
             DOMAIN,
             f"{ADDRESS}_{key}",
             suggested_object_id=f"standing_desk_{key}",
@@ -339,14 +346,12 @@ async def test_setup_removes_retired_sensors(
         assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
         await hass.async_block_till_done()
 
-    for key in ("led_color", "vibration_intensity_display"):
+    for platform, key in RETIRED:
         assert (
-            entity_registry.async_get_entity_id(
-                Platform.SENSOR, DOMAIN, f"{ADDRESS}_{key}"
-            )
+            entity_registry.async_get_entity_id(platform, DOMAIN, f"{ADDRESS}_{key}")
             is None
         )
-        assert hass.states.get(f"sensor.standing_desk_{key}") is None
+        assert hass.states.get(f"{platform}.standing_desk_{key}") is None
     # Every other entity keeps its entity ID
     assert (
         entity_registry.async_get_entity_id(
@@ -357,17 +362,18 @@ async def test_setup_removes_retired_sensors(
     assert hass.states.get("sensor.standing_desk_height_display") is not None
 
 
-async def test_retired_sensors_removed_while_the_desk_is_away(
+async def test_retired_entities_removed_while_the_desk_is_away(
     hass: HomeAssistant,
     entity_registry: er.EntityRegistry,
     mock_config_entry: MockConfigEntry,
     mock_desk: MagicMock,
 ) -> None:
-    """Test the retired sensors go even when the desk is not in range at upgrade."""
+    """Test the retired entities go even when the desk is not in range at upgrade."""
     mock_config_entry.add_to_hass(hass)
-    entity_registry.async_get_or_create(
-        Platform.SENSOR, DOMAIN, f"{ADDRESS}_led_color", config_entry=mock_config_entry
-    )
+    for platform, key in RETIRED:
+        entity_registry.async_get_or_create(
+            platform, DOMAIN, f"{ADDRESS}_{key}", config_entry=mock_config_entry
+        )
 
     with patch(
         "homeassistant.components.bluetooth.async_ble_device_from_address",
@@ -377,12 +383,11 @@ async def test_retired_sensors_removed_while_the_desk_is_away(
         await hass.async_block_till_done()
 
     assert mock_config_entry.state is ConfigEntryState.SETUP_RETRY
-    assert (
-        entity_registry.async_get_entity_id(
-            Platform.SENSOR, DOMAIN, f"{ADDRESS}_led_color"
+    for platform, key in RETIRED:
+        assert (
+            entity_registry.async_get_entity_id(platform, DOMAIN, f"{ADDRESS}_{key}")
+            is None
         )
-        is None
-    )
 
 
 async def test_retired_sensor_cleanup_leaves_other_desks_alone(

@@ -67,7 +67,6 @@ class DeskData:
     brightness: int | None
     lighting_enabled: bool | None
     vibration_enabled: bool | None
-    vibration_intensity: int | None
     lock_status: bool
     sensitivity_level: int | None
     height_limit_upper: float | None
@@ -201,7 +200,6 @@ class DeskUpdateCoordinator(DataUpdateCoordinator[DeskData]):
             brightness=device.brightness,
             lighting_enabled=device.lighting_enabled,
             vibration_enabled=device.vibration_enabled,
-            vibration_intensity=device.vibration_intensity,
             lock_status=device.lock_status,
             sensitivity_level=device.sensitivity_level,
             height_limit_upper=device.height_limit_upper,

@@ -5,7 +5,8 @@ names are translated and prefixed with the device name, which is the desk's Blue
 entity IDs on this page are for a desk named "Desky Desk"; yours follow your desk's name.
 Entities created by earlier versions of the integration keep their existing entity IDs.
 Version 2.0.0 removed the LED color and Vibration intensity display sensors, which repeated other
-entities. Setting up the desk deletes them.
+entities, and the Vibration intensity number, which the desk does not support. Setting up the desk
+deletes them.
 
 All entities are enabled by default, and unavailable while the desk is not connected.
 Entities have no attributes of their own. Each value has its own entity.
@@ -37,7 +38,6 @@ Category is the section of the device page that lists the entity: **Controls**, 
 | Sitting time today | `sensor.desky_desk_sitting_time_today` | Sensor | min | Sensors |
 | Upper height limit | `number.desky_desk_upper_height_limit` | Number | cm | Configuration |
 | Lower height limit | `number.desky_desk_lower_height_limit` | Number | cm | Configuration |
-| Vibration intensity | `number.desky_desk_vibration_intensity` | Number | % | Configuration |
 | Vibration | `switch.desky_desk_vibration` | Switch | | Configuration |
 | Collision sensitivity | `select.desky_desk_collision_sensitivity` | Select | | Configuration |
 | Touch mode | `select.desky_desk_touch_mode` | Select | | Configuration |
@@ -137,11 +137,6 @@ back. A limit that is not set shows as unknown.
 If the other limit is set, the upper limit must be above it and the lower limit below it.
 Otherwise setting the value fails with an error, and nothing is sent to the desk. To set or clear
 limits from an automation, use the [actions](actions.md).
-
-### Vibration intensity
-
-The strength of the desk's vibration, from 0 to 100 %. Setting it reads the value back from the
-desk.
 
 ### Vibration
 

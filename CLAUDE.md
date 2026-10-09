@@ -78,7 +78,7 @@ This is a Home Assistant custom integration that follows the standard component 
 
 3. **Entity Implementation**:
    - Cover entity: Main control interface (0-100% position mapping) with proper direction tracking
-   - Number entities: Direct height control (60-130cm range), height limits, vibration intensity
+   - Number entities: Direct height control (60-130cm range), height limits. There is no vibration intensity entity: the desk never answers the `A4` query, and the official app neither sends it nor sets it
    - Button entities: Four preset positions + manual Move Up/Down controls
    - Binary sensor: Collision detection
    - Light entity: LED strip control with color, brightness, and effects

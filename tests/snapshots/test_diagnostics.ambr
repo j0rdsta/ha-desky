@@ -53,7 +53,6 @@
       'touch_mode': 0,
       'unit_preference': 'cm',
       'vibration_enabled': True,
-      'vibration_intensity': 75,
     }),
   })
 # ---
@@ -111,7 +110,6 @@
       'touch_mode': 0,
       'unit_preference': 'cm',
       'vibration_enabled': True,
-      'vibration_intensity': 75,
     }),
   })
 # ---

@@ -9,7 +9,7 @@ from homeassistant.components.number import (
     NumberEntityDescription,
     NumberMode,
 )
-from homeassistant.const import PERCENTAGE, EntityCategory, UnitOfLength
+from homeassistant.const import EntityCategory, UnitOfLength
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -47,17 +47,6 @@ HEIGHT_LIMIT_DESCRIPTIONS = {
     ),
 }
 
-VIBRATION_INTENSITY_DESCRIPTION = NumberEntityDescription(
-    key="vibration_intensity",
-    translation_key="vibration_intensity",
-    native_unit_of_measurement=PERCENTAGE,
-    native_min_value=0,
-    native_max_value=100,
-    native_step=1,
-    mode=NumberMode.SLIDER,
-    entity_category=EntityCategory.CONFIG,
-)
-
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -71,7 +60,6 @@ async def async_setup_entry(
         [
             DeskyHeightNumber(coordinator),
             *(DeskHeightLimitNumber(coordinator, limit) for limit in HeightLimit),
-            DeskVibrationIntensityNumber(coordinator),
         ]
     )
 
@@ -129,24 +117,3 @@ class DeskHeightLimitNumber(DeskEntity, NumberEntity):
         validate_height_limit(self.coordinator.data, self._limit, value)
         await self._device.set_height_limit(self._limit, value)
         await self._device.get_limits()
-
-
-class DeskVibrationIntensityNumber(DeskEntity, NumberEntity):
-    """The desk's vibration intensity."""
-
-    entity_description = VIBRATION_INTENSITY_DESCRIPTION
-
-    def __init__(self, coordinator: DeskUpdateCoordinator) -> None:
-        """Initialize the number entity."""
-        super().__init__(coordinator, VIBRATION_INTENSITY_DESCRIPTION.key)
-
-    @property
-    def native_value(self) -> int | None:
-        """Return the vibration intensity in %."""
-        return self.coordinator.data.vibration_intensity
-
-    @desk_command
-    async def async_set_native_value(self, value: float) -> None:
-        """Set the vibration intensity."""
-        await self._device.set_vibration_intensity(int(value))
-        await self._device.get_vibration_intensity()

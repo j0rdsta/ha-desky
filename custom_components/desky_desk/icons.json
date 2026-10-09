@@ -33,9 +33,6 @@
       },
       "height_limit_upper": {
         "default": "mdi:arrow-collapse-up"
-      },
-      "vibration_intensity": {
-        "default": "mdi:vibrate"
       }
     },
     "select": {

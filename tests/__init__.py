@@ -27,7 +27,6 @@ CONNECTED_DESK = DeskData(
     brightness=50,
     lighting_enabled=True,
     vibration_enabled=True,
-    vibration_intensity=75,
     lock_status=False,
     sensitivity_level=2,  # Medium
     height_limit_upper=120.0,

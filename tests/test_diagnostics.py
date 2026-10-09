@@ -45,7 +45,6 @@ async def test_diagnostics_connected(
     state = diagnostics["state"]
     assert state["light_color"] == 1
     assert state["limits_enabled"] is True
-    assert state["vibration_intensity"] == 75
     assert state["vibration_enabled"] is True
     assert (state["height_limit_lower"], state["height_limit_upper"]) == (65.0, 120.0)
     assert diagnostics == snapshot

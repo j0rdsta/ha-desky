@@ -28,9 +28,13 @@ PLATFORMS: list[Platform] = [
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
-# Sensors removed in 2.0.0 because they only repeated other entities, by unique
-# ID suffix
-REMOVED_SENSORS = ("led_color", "vibration_intensity_display")
+# Entities removed in 2.0.0, by platform and unique ID suffix: two sensors that
+# only repeated other entities, and a vibration intensity the desk never reports
+REMOVED_ENTITIES = (
+    (Platform.SENSOR, "led_color"),
+    (Platform.SENSOR, "vibration_intensity_display"),
+    (Platform.NUMBER, "vibration_intensity"),
+)
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
@@ -43,7 +47,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: DeskyConfigEntry) -> boo
     """Set up Desky Desk from a config entry."""
     _LOGGER.debug("Setting up Desky Desk integration for %s", entry.unique_id)
 
-    _async_remove_retired_sensors(hass, entry)
+    _async_remove_retired_entities(hass, entry)
 
     coordinator = DeskUpdateCoordinator(hass, entry)
     await coordinator.async_connect()
@@ -56,12 +60,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: DeskyConfigEntry) -> boo
 
 
 @callback
-def _async_remove_retired_sensors(hass: HomeAssistant, entry: DeskyConfigEntry) -> None:
+def _async_remove_retired_entities(
+    hass: HomeAssistant, entry: DeskyConfigEntry
+) -> None:
     """Delete the registry entries of entities earlier releases created."""
     entity_registry = er.async_get(hass)
-    for key in REMOVED_SENSORS:
+    for platform, key in REMOVED_ENTITIES:
         if entity_id := entity_registry.async_get_entity_id(
-            Platform.SENSOR, DOMAIN, f"{entry.unique_id}_{key}"
+            platform, DOMAIN, f"{entry.unique_id}_{key}"
         ):
             entity_registry.async_remove(entity_id)
 

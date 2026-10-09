@@ -79,9 +79,6 @@
       },
       "height_limit_upper": {
         "name": "Upper height limit"
-      },
-      "vibration_intensity": {
-        "name": "Vibration intensity"
       }
     },
     "select": {
