@@ -35,7 +35,11 @@ from custom_components.desky_desk.const import (
     UNIT_RESPONSE_HEADER,
     HeightLimit,
 )
-from custom_components.desky_desk.errors import DeskCommandError, DeskNotConnectedError
+from custom_components.desky_desk.errors import (
+    DeskCommandError,
+    DeskNotConnectedError,
+    DeskSettingNotAppliedError,
+)
 
 from . import (
     FakeClock,
@@ -119,7 +123,8 @@ VIBRATION_OFF = "f1f1b30100b47e"
             [(0.0, H), (0.2, "f1f1b50101b77e"), (0.4, "f1f1b50101b77e")],
         ),
         # Sensitivity and touch mode: the set once at 500 ms
-        # The read-back for sensitivity follows 500 ms after the set, as in the app
+        # The settings are read back 500 ms after the last set, as the app does
+        # for the sensitivity
         (
             "set_sensitivity",
             (2,),
@@ -128,7 +133,7 @@ VIBRATION_OFF = "f1f1b30100b47e"
         (
             "set_touch_mode",
             (1,),
-            [(0.0, H), (0.5, "f1f11901011b7e"), (0.5, H), (0.5, STATUS)],
+            [(0.0, H), (0.5, "f1f11901011b7e"), (1.0, H), (1.0, STATUS)],
         ),
         # Colour and brightness: twice, 100 ms apart
         (
@@ -150,8 +155,8 @@ VIBRATION_OFF = "f1f1b30100b47e"
                 (0.0, "f1f10e0101107e"),
                 (0.1, "f1f10e0101107e"),
                 (0.2, "f1f10e0101107e"),
-                (0.2, H),
-                (0.2, STATUS),
+                (0.7, H),
+                (0.7, STATUS),
             ],
         ),
         # Clearing the limits: twice, 200 ms apart
@@ -1208,3 +1213,138 @@ async def test_only_the_repeats_skip_the_response(
         (0.25, STOP, True),
         (0.3, STOP, True),
     ]
+
+
+# Settings the desk does not confirm, checked after they are sent
+
+TOUCH_PRESS_AND_HOLD = "f1f11901011b7e"
+UNIT_IN = "f1f10e0101107e"
+CHECKED_SETTINGS = [
+    # method, argument, the report of each value, the frames of one attempt
+    (
+        "set_touch_mode",
+        1,
+        {0: ONE_PRESS, 1: PRESS_AND_HOLD},
+        [(0.0, H), (0.5, TOUCH_PRESS_AND_HOLD), (1.0, H), (1.0, STATUS)],
+    ),
+    (
+        "set_unit",
+        "in",
+        {
+            "cm": bytearray.fromhex("f2f20e01000f7e"),
+            "in": bytearray.fromhex("f2f20e0101107e"),
+        },
+        [
+            (0.0, H),
+            (0.0, UNIT_IN),
+            (0.1, UNIT_IN),
+            (0.2, UNIT_IN),
+            (0.7, H),
+            (0.7, STATUS),
+        ],
+    ),
+]
+
+
+def _answer_status(
+    desk: DeskBLEDevice,
+    mock_bleak_client: MagicMock,
+    clock: FakeClock,
+    reports: list[bytearray],
+) -> Frames:
+    """Record frames, and answer each status request with the next report."""
+    frames: Frames = []
+
+    async def _write(_uuid: str, data: bytes, *, response: bool) -> None:
+        frames.append((round(clock.now, 3), bytes(data).hex()))
+        if bytes(data) == COMMAND_GET_STATUS and reports:
+            desk._handle_notification(None, reports.pop(0))
+
+    mock_bleak_client.write_gatt_char.side_effect = _write
+    return frames
+
+
+def _later(attempt: Frames, seconds: float) -> Frames:
+    """Return an attempt's frames, sent the given seconds later."""
+    return [(round(at + seconds, 3), frame) for at, frame in attempt]
+
+
+@pytest.mark.parametrize(("method", "value", "report", "attempt"), CHECKED_SETTINGS)
+async def test_checked_setting_applied_first_time(
+    desk: DeskBLEDevice,
+    clock: FakeClock,
+    mock_bleak_client: MagicMock,
+    method: str,
+    value: Any,
+    report: dict[Any, bytearray],
+    attempt: Frames,
+) -> None:
+    """A setting the desk reports as applied is sent once."""
+    frames = _answer_status(desk, mock_bleak_client, clock, [report[value]])
+
+    await getattr(desk, method)(value)
+
+    assert frames == attempt
+
+
+@pytest.mark.parametrize(("method", "value", "report", "attempt"), CHECKED_SETTINGS)
+async def test_checked_setting_applied_on_the_retry(
+    desk: DeskBLEDevice,
+    clock: FakeClock,
+    mock_bleak_client: MagicMock,
+    method: str,
+    value: Any,
+    report: dict[Any, bytearray],
+    attempt: Frames,
+) -> None:
+    """A setting the desk ignored once is sent again, and applies."""
+    old = next(report[other] for other in report if other != value)
+    frames = _answer_status(desk, mock_bleak_client, clock, [old, report[value]])
+
+    await getattr(desk, method)(value)
+
+    end = attempt[-1][0]
+    assert frames == attempt + _later(attempt, end)
+
+
+@pytest.mark.parametrize(("method", "value", "report", "attempt"), CHECKED_SETTINGS)
+async def test_checked_setting_never_applied_raises(
+    desk: DeskBLEDevice,
+    clock: FakeClock,
+    mock_bleak_client: MagicMock,
+    method: str,
+    value: Any,
+    report: dict[Any, bytearray],
+    attempt: Frames,
+) -> None:
+    """A setting the desk still reports unchanged after the retry fails."""
+    old = next(report[other] for other in report if other != value)
+    frames = _answer_status(desk, mock_bleak_client, clock, [old, old])
+
+    with pytest.raises(DeskSettingNotAppliedError):
+        await getattr(desk, method)(value)
+
+    assert len(frames) == 2 * len(attempt)  # sent twice, nothing more
+    assert not any(desk._report_waiters.values())
+
+
+@pytest.mark.parametrize(("method", "value", "report", "attempt"), CHECKED_SETTINGS)
+async def test_checked_setting_without_a_report_is_sent_once(
+    desk: DeskBLEDevice,
+    frames: Frames,
+    clock: FakeClock,
+    method: str,
+    value: Any,
+    report: dict[Any, bytearray],
+    attempt: Frames,
+) -> None:
+    """A desk that does not report the setting cannot be checked; it is not resent."""
+    clock.auto = False
+    task = asyncio.create_task(getattr(desk, method)(value))
+    await clock.advance(attempt[-1][0] + 1.9)
+    assert not task.done()  # still waiting for the report
+
+    await clock.advance(0.1)
+    await task
+
+    assert frames == attempt

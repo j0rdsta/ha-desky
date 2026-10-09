@@ -64,7 +64,12 @@ from .const import (
     WRITE_CHARACTERISTIC_UUID,
     HeightLimit,
 )
-from .errors import DeskCommandError, DeskError, DeskNotConnectedError
+from .errors import (
+    DeskCommandError,
+    DeskError,
+    DeskNotConnectedError,
+    DeskSettingNotAppliedError,
+)
 from .limits import HeightLimits, LimitValue
 from .sequencer import Clock, Sequencer, Step
 
@@ -120,9 +125,11 @@ SET_LIMITS_SPACING = 0.05  # clear, upper and lower limit, each twice
 STOP_TIMES = (0.0, 0.05)
 MOVE_TO_HEIGHT_TIMES = (0.2, 0.3)  # after one stop at 0
 CONNECT_QUERY_SPACING = 0.2
-# The app asks for the settings 500 ms after setting the sensitivity, which
-# the desk needs to apply it
-SENSITIVITY_READ_BACK_AT = 1.0
+# The desk applies a setting only after a moment, so its settings are asked
+# for this long after the last set; the app does so for the sensitivity
+READ_BACK_DELAY = 0.5
+# How long the settings block asked for is waited for, after the request
+READ_BACK_TIMEOUT_SECONDS = 2.0
 # The desk sends its settings block for a status request after a handshake
 SETTINGS_REQUEST = (COMMAND_HANDSHAKE, COMMAND_GET_STATUS)
 
@@ -220,6 +227,8 @@ class DeskBLEDevice:
         self._client: BleakClient | None = None
         # Writes go out one at a time; timed sequences pause without blocking them
         self._sequencer = Sequencer(self._write_frame, clock)
+        # Callers waiting for the next report with a given header
+        self._report_waiters: dict[bytes, set[asyncio.Future[None]]] = {}
         self._height_cm: float = 0.0
         self._collision_detected: bool = False
         self._collision_time: float | None = None  # When collision was detected
@@ -794,7 +803,9 @@ class DeskBLEDevice:
         await self._send_setting(
             command,
             MODE_SETTING_TIMES,
-            read_back=_steps_at(SENSITIVITY_READ_BACK_AT, SETTINGS_REQUEST),
+            read_back=_steps_at(
+                MODE_SETTING_TIMES[-1] + READ_BACK_DELAY, SETTINGS_REQUEST
+            ),
         )
 
     async def set_touch_mode(self, mode: int) -> None:
@@ -802,10 +813,11 @@ class DeskBLEDevice:
         if mode not in [0, 1]:
             raise ValueError(f"Invalid touch mode: {mode} (must be 0 or 1)")
         command = self._create_command_with_byte_param(0x19, mode)
-        await self._send_setting(
+        await self._send_checked_setting(
             command,
             MODE_SETTING_TIMES,
-            read_back=_steps_at(MODE_SETTING_TIMES[-1], SETTINGS_REQUEST),
+            TOUCH_MODE_RESPONSE_HEADER,
+            lambda: self._touch_mode == mode,
         )
 
     async def set_unit(self, unit: str) -> None:
@@ -814,11 +826,55 @@ class DeskBLEDevice:
             raise ValueError(f"Invalid unit: {unit} (must be 'cm' or 'in')")
         value = 0 if unit == "cm" else 1
         command = self._create_command_with_byte_param(0x0E, value)
-        await self._send_setting(
+        await self._send_checked_setting(
             command,
             UNIT_SETTING_TIMES,
-            read_back=_steps_at(UNIT_SETTING_TIMES[-1], SETTINGS_REQUEST),
+            UNIT_RESPONSE_HEADER,
+            lambda: self._unit_preference == unit,
         )
+
+    async def _send_checked_setting(
+        self,
+        frame: bytes,
+        times: tuple[float, ...],
+        header: bytes,
+        applied: Callable[[], bool],
+    ) -> None:
+        """Send a setting the desk does not confirm, and check that it applied.
+
+        The settings are asked for READ_BACK_DELAY after the last set. The desk
+        can ignore a set, so one it reports unchanged is sent once more and
+        checked again; still unchanged, it raises DeskSettingNotAppliedError.
+        A desk that sends no report cannot be checked, so the setting is taken
+        as sent.
+        """
+        read_back = _steps_at(times[-1] + READ_BACK_DELAY, SETTINGS_REQUEST)
+        for attempt in (1, 2):
+            report = self._expect_report(header)
+            try:
+                await self._send_setting(frame, times, read_back=read_back)
+                reported = await self._sequencer.wait_for(
+                    report, READ_BACK_TIMEOUT_SECONDS
+                )
+            finally:
+                self._stop_expecting(header, report)
+            if not reported:
+                _LOGGER.debug("The desk did not report the setting, so it is unchecked")
+                return
+            if applied():
+                return
+            _LOGGER.debug("The desk did not apply the setting (attempt %d)", attempt)
+        raise DeskSettingNotAppliedError("The desk did not apply the setting")
+
+    def _expect_report(self, header: bytes) -> asyncio.Future[None]:
+        """Return a future that completes with the next report with this header."""
+        report: asyncio.Future[None] = asyncio.get_running_loop().create_future()
+        self._report_waiters.setdefault(header, set()).add(report)
+        return report
+
+    def _stop_expecting(self, header: bytes, report: asyncio.Future[None]) -> None:
+        """Forget a report waiter, whether or not the report came."""
+        self._report_waiters.get(header, set()).discard(report)
 
     async def set_height_limit(self, limit: HeightLimit, height_cm: float) -> None:
         """Set the upper or lower height limit in cm, rounded to a whole unit."""
@@ -1161,6 +1217,8 @@ class DeskBLEDevice:
             _LOGGER.debug("Unknown notification format: %s", data.hex())
             return
 
+        for report in self._report_waiters.pop(bytes(data[:4]), ()):
+            report.set_result(None)
         self._notify_callbacks()
 
     def _decode_height(self, raw: int, data: bytearray) -> float:

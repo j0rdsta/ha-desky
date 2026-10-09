@@ -11,3 +11,7 @@ class DeskNotConnectedError(DeskError):
 
 class DeskCommandError(DeskError):
     """Writing a command to the desk failed."""
+
+
+class DeskSettingNotAppliedError(DeskError):
+    """The desk reported its old value for a setting, even after it was sent again."""

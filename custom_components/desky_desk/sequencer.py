@@ -161,6 +161,19 @@ class Sequencer:
         """
         self._start_motion(steps, response=False)
 
+    async def wait_for(self, done: asyncio.Future[None], seconds: float) -> bool:
+        """Wait on the sequencer's clock until done completes or seconds pass.
+
+        Return if it completed. The write lock is not held while waiting.
+        """
+        if not done.done():
+            timer = asyncio.ensure_future(self._clock.sleep(seconds))
+            try:
+                await asyncio.wait([done, timer], return_when=asyncio.FIRST_COMPLETED)
+            finally:
+                timer.cancel()
+        return done.done()
+
     def cancel_motion(self) -> None:
         """Cancel the movement or stop frames still due."""
         if (sequence := self._motion) is not None:
