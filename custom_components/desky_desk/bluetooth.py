@@ -179,16 +179,21 @@ def round_limit_to_unit(height_cm: float, unit: str | None) -> float:
     return float(math.floor(height_cm + 0.5))
 
 
-def _hold_steps(frame: bytes, movement: _Movement) -> Iterator[Step]:
+def _hold_steps(
+    frame: bytes, movement: _Movement, until: Callable[[], bool] | None = None
+) -> Iterator[Step]:
     """Repeat a movement frame every 100 ms, up to the 60 s cap.
 
     The repeat also ends once COMMAND_EXPIRY_SECONDS pass without the desk
-    starting to move, even if it sends no height reading to expire it.
+    starting to move, even if it sends no height reading to expire it, and
+    as soon as until() is true.
     """
     for n in range(1, round(HOLD_REPEAT_MAX_SECONDS / HOLD_REPEAT_INTERVAL) + 1):
         at = n * HOLD_REPEAT_INTERVAL
         if at > COMMAND_EXPIRY_SECONDS and not movement.started:
             _LOGGER.debug("Held command expired without the desk moving")
+            return
+        if until is not None and until():
             return
         yield at, frame
 
@@ -689,7 +694,9 @@ class DeskBLEDevice:
 
         direction = "up" if height_cm > self._height_cm else "down"
         movement = self._begin_movement("targeted", direction, height_cm)
-        # As the app: wake, stop whatever is moving, then the target twice
+        # As the app: wake, stop whatever is moving, then the target twice.
+        # In press-and-hold mode the target only nudges the desk, so it then
+        # repeats until the desk is within the jitter band of it.
         try:
             await self._sequencer.run_motion(
                 [
@@ -703,6 +710,20 @@ class DeskBLEDevice:
             if self._movement is movement:
                 self._end_movement()
             raise
+        if self._touch_mode == TOUCH_MODE_PRESS_AND_HOLD and self._movement is movement:
+            self._sequencer.start_repeat(
+                _hold_steps(command, movement, lambda: self._reached(movement))
+            )
+
+    def _reached(self, movement: _Movement) -> bool:
+        """Return if a move to height has come within the jitter band of its target.
+
+        A height past the target, in the commanded direction, counts too.
+        """
+        assert movement.target_height is not None  # a move to height has one
+        if movement.direction == "up":
+            return self._height_cm >= movement.target_height - HEIGHT_JITTER_CM
+        return self._height_cm <= movement.target_height + HEIGHT_JITTER_CM
 
     # Get device status methods
     async def get_light_color(self) -> None:

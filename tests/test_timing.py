@@ -729,13 +729,70 @@ async def test_new_command_replaces_the_repeat(
     ]
 
 
-async def test_move_to_height_is_not_held(
-    held_desk: DeskBLEDevice, frames: Frames, clock: FakeClock
+@pytest.mark.parametrize(
+    ("target", "frame", "readings"),
+    [
+        # Up from 80 to 85: within the jitter band at 84.6
+        (85.0, TO_85_CM, [81.0, 83.0, 84.6]),
+        # Down from 80 to 75; a reading past the target counts as reached
+        (75.0, "f1f11b0202ee0d7e", [79.0, 77.0, 74.8]),
+    ],
+)
+async def test_move_to_height_repeats_in_press_and_hold_mode(
+    held_desk: DeskBLEDevice,
+    clock: FakeClock,
+    mock_bleak_client: MagicMock,
+    target: float,
+    frame: str,
+    readings: list[float],
 ) -> None:
-    """A move to height is sent as in the app, even in press-and-hold mode."""
-    await _run(clock, held_desk.move_to_height(85.0), 2.0)
+    """In press-and-hold mode the target repeats, without response, until reached.
 
-    assert frames == [(0.0, H), (0.0, STOP), (0.2, TO_85_CM), (0.3, TO_85_CM)]
+    One target frame only nudges the desk in this mode.
+    """
+    writes = record_writes(mock_bleak_client, clock)
+
+    move = asyncio.create_task(held_desk.move_to_height(target))
+    await clock.advance(0.45)
+    await move
+    for height in readings:
+        held_desk._handle_notification(None, _status_frame(height))
+        await clock.advance(0.2)
+    sent = len(writes)
+    await clock.advance(2.0)
+
+    assert writes[:6] == [
+        (0.0, H, True),
+        (0.0, STOP, True),
+        (0.2, frame, True),
+        (0.3, frame, True),
+        (0.4, frame, False),
+        (0.5, frame, False),
+    ]
+    assert {(data, response) for _, data, response in writes[4:]} == {(frame, False)}
+    assert len(writes) == sent  # nothing after the target was reached
+    assert held_desk._sequencer.idle
+    assert held_desk._movement is not None  # still tracked until the desk stops
+
+
+async def test_stop_ends_a_held_move_to_height(
+    held_desk: DeskBLEDevice, clock: FakeClock, mock_bleak_client: MagicMock
+) -> None:
+    """A stop ends the repeated target at once."""
+    writes = record_writes(mock_bleak_client, clock)
+
+    move = asyncio.create_task(held_desk.move_to_height(85.0))
+    await clock.advance(0.55)
+    await move
+    await _run(clock, held_desk.stop())
+
+    assert [(at, data) for at, data, _ in writes[-4:]] == [
+        (0.4, TO_85_CM),
+        (0.5, TO_85_CM),
+        (0.55, STOP),
+        (0.6, STOP),
+    ]
+    assert held_desk._sequencer.idle
 
 
 async def test_failed_repeat_ends_quietly(
