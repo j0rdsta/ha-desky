@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from homeassistant.components.select import SelectEntity, SelectEntityDescription
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .bluetooth import DeskBLEDevice
 from .const import DISPLAY_UNITS, SENSITIVITY_LEVELS, TOUCH_MODES
@@ -72,7 +72,7 @@ SELECT_DESCRIPTIONS = [
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: DeskyConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up Desky select platform."""
     async_add_entities(
