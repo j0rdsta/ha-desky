@@ -50,4 +50,4 @@ def test_allowed_move_range(
 )
 def test_limit_range(unit: str | None, expected: tuple[float, float]) -> None:
     """Test limits are 60-124 cm, or 24-48 in rounded inside to 0.1 cm."""
-    assert limit_range(desk_data(unit_preference=unit)) == expected
+    assert limit_range(desk_data(limit_unit=unit)) == expected

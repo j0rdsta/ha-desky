@@ -157,7 +157,7 @@ async def test_limit_number_range_in_inches(
     hass: HomeAssistant, init_integration: MockConfigEntry, entity_id: str
 ) -> None:
     """Test a desk showing inches accepts 24-48 in, shown as 61.0-121.9 cm."""
-    await set_desk_state(hass, init_integration, unit_preference="in")
+    await set_desk_state(hass, init_integration, limit_unit="in")
 
     state = hass.states.get(entity_id)
     assert state.attributes[ATTR_MIN] == 61.0

@@ -296,6 +296,15 @@ class DeskBLEDevice:
         return self._unit_preference
 
     @property
+    def limit_unit(self) -> str | None:
+        """Return the unit the desk takes limits in (cm or in), if known.
+
+        That is the unit its heights arrive in, which can be known before the
+        desk reports its unit, and changes first when the unit is switched.
+        """
+        return self._effective_unit or self._unit_preference
+
+    @property
     def manufacturer_name(self) -> str | None:
         """Return manufacturer name from device information service."""
         return self._manufacturer_name
@@ -981,7 +990,7 @@ class DeskBLEDevice:
 
     def _encode_height(self, height_cm: float) -> int:
         """Turn centimetres into tenths of the unit the desk currently uses."""
-        if (self._effective_unit or self._unit_preference) == "in":
+        if self.limit_unit == "in":
             return round(height_cm / CM_PER_INCH * 10)
         return round(height_cm * 10)
 

@@ -236,7 +236,7 @@ async def test_inverted_height_limit_rejected(
         ("cm", 125, "60.0", "124.0"),
         ("cm", 127, "60.0", "124.0"),
         ("cm", 59, "60.0", "124.0"),
-        # Not reported yet: the cm range
+        # Not known yet: the cm range
         (None, 125, "60.0", "124.0"),
         # 24-48 in
         ("in", 122, "61.0", "121.9"),
@@ -256,7 +256,7 @@ async def test_height_limit_out_of_range(
     await set_desk_state(
         hass,
         init_integration,
-        unit_preference=unit,
+        limit_unit=unit,
         height_limit_upper=None,
         height_limit_lower=None,
     )
@@ -297,7 +297,7 @@ async def test_height_limit_at_the_end_of_the_range(
     await set_desk_state(
         hass,
         init_integration,
-        unit_preference=unit,
+        limit_unit=unit,
         height_limit_upper=None,
         height_limit_lower=None,
     )
@@ -434,3 +434,29 @@ async def test_upper_limit_reads_back_exactly(
     await hass.async_block_till_done()
 
     assert hass.states.get(UPPER_LIMIT).state == "124.0"
+
+
+async def test_limit_range_follows_the_unit_the_heights_arrive_in(
+    hass: HomeAssistant, desk_client: MagicMock
+) -> None:
+    """Test an inch desk that has not reported its unit gets the inch range.
+
+    A desk connected just after power-up reports its unit only at the next
+    poll, but its heights already show it uses inches, and a limit is sent in
+    inches. 124 cm would go out as 48.8 in, which the desk ignores.
+    """
+    # 27.4 in, which is 69.6 cm
+    deliver_frame(desk_client, bytearray.fromhex("f2f201030112071e7e"))
+    await hass.async_block_till_done()
+    writes_before = len(desk_client.write_gatt_char.call_args_list)
+
+    with pytest.raises(ServiceValidationError) as err:
+        await _call(hass, "set_height_limit", {"limit": "upper", "height": 124})
+
+    assert err.value.translation_key == "limit_out_of_range"
+    assert err.value.translation_placeholders == {
+        "height": "124.0",
+        "min": "61.0",
+        "max": "121.9",
+    }
+    assert len(desk_client.write_gatt_char.call_args_list) == writes_before

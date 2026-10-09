@@ -70,9 +70,9 @@ def limit_range(data: DeskData) -> tuple[float, float]:
     """Return the lowest and highest height limit the desk accepts, in cm.
 
     The desk takes limits in its display unit: 60-124 cm, or 24-48 in. A desk
-    that has not reported its unit gets the cm range.
+    whose unit is not known yet gets the cm range.
     """
-    if data.unit_preference == "in":
+    if data.limit_unit == "in":
         return INCH_LIMIT_RANGE_CM
     return LIMIT_MIN_HEIGHT, LIMIT_MAX_HEIGHT
 
