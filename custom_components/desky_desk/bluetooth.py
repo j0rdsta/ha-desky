@@ -559,11 +559,13 @@ class DeskBLEDevice:
     async def _start_movement(
         self, frame: bytes, kind: str, direction: str | None
     ) -> None:
-        """Wake the desk and send a movement frame, held in press-and-hold mode.
+        """Wake the desk and send a movement frame, repeating it while held.
 
         The desk's controller ignores commands while its display is asleep, so
-        the handshake goes first. In press-and-hold touch mode the desk moves
-        only while the frame repeats, so it repeats until the movement ends.
+        the handshake goes first. Move up and down are held buttons in every
+        touch mode, as in the official app: one frame only nudges the desk, so
+        the frame repeats until the movement ends. A preset is held only in
+        press-and-hold mode; in one-press mode one frame runs the whole way.
         A write that fails drops the movement.
         """
         movement = self._begin_movement(kind, direction)
@@ -575,7 +577,8 @@ class DeskBLEDevice:
             if self._movement is movement:
                 self._end_movement()
             raise
-        if self._touch_mode == TOUCH_MODE_PRESS_AND_HOLD and self._movement is movement:
+        held = kind == "continuous" or self._touch_mode == TOUCH_MODE_PRESS_AND_HOLD
+        if held and self._movement is movement:
             self._sequencer.start_repeat(_hold_steps(frame, movement))
 
     async def move_up(self) -> None:

@@ -423,10 +423,10 @@ async def test_new_command_cuts_into_a_move_to_height(
     await clock.advance(0.1)
 
     await desk.move_down()
-    await clock.advance(1.0)
+    await clock.advance(0.15)
 
     await move
-    assert frames == [(0.0, H), (0.0, STOP), (0.1, H), (0.1, DOWN)]
+    assert frames == [(0.0, H), (0.0, STOP), (0.1, H), (0.1, DOWN), (0.2, DOWN)]
     assert desk.movement_direction == "down"
 
 
@@ -490,25 +490,59 @@ MOVEMENTS = [
 
 
 @pytest.mark.parametrize("touch_mode", [None, ONE_PRESS])
-@pytest.mark.parametrize(("method", "args", "frame"), MOVEMENTS)
-async def test_one_frame_unless_press_and_hold(
+async def test_preset_is_one_frame_unless_press_and_hold(
     desk: DeskBLEDevice,
     frames: Frames,
     clock: FakeClock,
     touch_mode: bytearray | None,
-    method: str,
-    args: tuple[Any, ...],
-    frame: str,
 ) -> None:
-    """In one-press mode, or while the touch mode is unknown, one frame is sent."""
+    """In one-press mode, or while the touch mode is unknown, a preset is one frame.
+
+    One frame runs the desk all the way to the preset there.
+    """
     clock.auto = False
     if touch_mode is not None:
         desk._handle_notification(None, touch_mode)
 
-    await getattr(desk, method)(*args)
+    await desk.move_to_preset(2)
     await clock.advance(2.0)
 
-    assert frames == [(0.0, H), (0.0, frame)]
+    assert frames == [(0.0, H), (0.0, PRESET_2)]
+
+
+@pytest.mark.parametrize("touch_mode", [None, ONE_PRESS, PRESS_AND_HOLD])
+@pytest.mark.parametrize(("method", "frame"), [("move_up", UP), ("move_down", DOWN)])
+async def test_arrows_repeat_in_every_touch_mode(
+    desk: DeskBLEDevice,
+    clock: FakeClock,
+    mock_bleak_client: MagicMock,
+    touch_mode: bytearray | None,
+    method: str,
+    frame: str,
+) -> None:
+    """Move up and down repeat until stopped, whatever the touch mode, as the app's arrows.
+
+    One frame only nudges the desk, about 0.8 cm.
+    """
+    clock.auto = False
+    if touch_mode is not None:
+        desk._handle_notification(None, touch_mode)
+    writes = record_writes(mock_bleak_client, clock)
+
+    await getattr(desk, method)()
+    await clock.advance(0.35)
+    await _run(clock, desk.stop())
+
+    assert writes == [
+        (0.0, H, True),
+        (0.0, frame, True),
+        (0.1, frame, False),
+        (0.2, frame, False),
+        (0.3, frame, False),
+        (0.35, STOP, True),
+        (0.4, STOP, True),
+    ]
+    assert desk._sequencer.idle
 
 
 @pytest.mark.parametrize(("method", "args", "frame"), MOVEMENTS)
@@ -540,19 +574,26 @@ async def test_press_and_hold_repeats_until_stop(
 
 @patch("time.time")
 @pytest.mark.parametrize(
-    ("method", "args", "frame"),
-    [("move_up", (), UP), ("move_to_preset", (2,), PRESET_2)],
+    ("touch_mode", "method", "args", "frame"),
+    [
+        (PRESS_AND_HOLD, "move_up", (), UP),
+        (PRESS_AND_HOLD, "move_to_preset", (2,), PRESET_2),
+        # Move up repeats in one-press mode too, until the end of travel
+        (ONE_PRESS, "move_up", (), UP),
+    ],
 )
-async def test_press_and_hold_ends_when_the_desk_stops(
+async def test_repeat_ends_when_the_desk_stops(
     mock_time: MagicMock,
     held_desk: DeskBLEDevice,
     frames: Frames,
     clock: FakeClock,
+    touch_mode: bytearray,
     method: str,
     args: tuple[Any, ...],
     frame: str,
 ) -> None:
     """The repeat ends once the height is unchanged for three readings."""
+    held_desk._handle_notification(None, touch_mode)
     mock_time.return_value = 0.0
     await getattr(held_desk, method)(*args)
     readings = [(0.5, 82.0), (1.0, 90.0), (1.5, 95.0), (2.0, 95.0), (2.5, 95.0)]
