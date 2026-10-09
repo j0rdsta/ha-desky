@@ -1,7 +1,8 @@
 # How data updates
 
 The integration is a local push integration: it keeps a Bluetooth connection open to the desk,
-and the desk sends changes over it as they happen. It also polls the desk every 30 seconds.
+and the desk sends changes over it as they happen. It also polls the desk after 30 seconds
+without an update.
 
 ## On connecting
 
@@ -31,9 +32,13 @@ closing state, and collision detection are worked out from the stream of heights
 
 ## Polling
 
-Every 30 seconds the integration asks the desk for its status. This catches height changes whose
-notification was missed. It also checks the connection: if the request cannot be sent, the
-integration closes the connection and the reconnect logic takes over.
+When 30 seconds pass without an update from the desk, the integration asks the desk for its
+status. Every update restarts the 30-second timer, so a desk that is moving or answering commands
+is not polled, and a quiet desk is polled about every 30 seconds.
+
+The poll catches height changes whose notification was missed. It also checks the connection: if
+the request cannot be sent, the integration closes the connection and the reconnect logic takes
+over.
 
 The poll sends no handshake, so it does not wake the desk's display. A desk connected within about
 a second of powering up ignores the settings request sent while connecting. If the display unit,
@@ -41,8 +46,9 @@ touch mode or collision sensitivity is still unknown at the first poll after a c
 poll asks for the settings again. It asks only once per connection, because asking wakes the display.
 
 A poll while the desk is disconnected sends nothing and is not reported as an error. A poll while
-a movement command is being held (repeated) sends nothing either, so it cannot hold up the repeats;
-the moving desk reports its height anyway.
+a movement command is being held (repeated), for example before the desk starts moving, sends
+nothing either, so it cannot hold up the repeats. Once the desk moves, it reports its height
+anyway.
 
 ## Connection loss and reconnecting
 

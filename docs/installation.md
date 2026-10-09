@@ -6,6 +6,8 @@ also copy it into your configuration directory by hand.
 Before you start, check the [requirements](index.md#requirements). If an
 [Upsy Desky](supported-devices.md#upsy-desky) is fitted to the desk, disconnect it first.
 
+Home Assistant 2026.3 and later show the integration's icon, whichever way you install it.
+
 ## HACS (recommended)
 
 1. In Home Assistant, open **HACS**.

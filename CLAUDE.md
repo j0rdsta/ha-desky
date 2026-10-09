@@ -57,14 +57,14 @@ This is a Home Assistant custom integration that follows the standard component 
 - **Posture** (`posture.py`): `PostureTracker` follows sitting/standing from the height the desk settles at
 - **Bluetooth Layer** (`bluetooth.py`): Handles BLE communication using `bleak` library with retry logic via `bleak-retry-connector`
 - **Sequencer** (`sequencer.py`): writes frames one at a time and sends timed sequences (see Command Timing); `limits.py` holds the known height limits, `errors.py` the command errors
-- **Config Flow** (`config_flow.py`): Manages integration setup through UI, including Bluetooth device discovery
+- **Config Flow** (`config_flow.py`): Manages integration setup through UI, including Bluetooth device discovery (`title_placeholders` names the desk on the discovery card). The picker hides desks already configured, a typed address must be a MAC address (`invalid_address`), and the user steps set the unique ID with `raise_on_progress=False` so an open discovery card does not block them. Every path probes the desk with a real `connect()` and always disconnects it afterwards
 - **Platform Entities**: Each platform file (cover.py, number.py, etc.) implements specific Home Assistant entities
 
 ### Key Design Patterns
 
 1. **Coordinator Pattern**: All entities receive updates through a central `DeskUpdateCoordinator` that manages:
    - Bluetooth connection state
-   - Periodic status polling (30-second intervals)
+   - Status polling 30 seconds after the last update: every `async_set_updated_data()` restarts the timer, so a quiet desk is polled about every 30 seconds. The poll writes nothing while a movement frame is being repeated
    - Reconnection when the desk advertises again, with backoff (see Connection Management)
    - Data distribution to all entities
    - Movement tracking for the cover state and collision detection (see Movement Tracking below)
@@ -72,7 +72,7 @@ This is a Home Assistant custom integration that follows the standard component 
 2. **Bluetooth Communication**:
    - Uses characteristic UUIDs for write (0xfe61) and notify (0xfe62)
    - Commands are typically 6-8 byte arrays with checksum
-   - Handshake command (0xFE) must be sent after connection to enable movement
+   - Handshake command (0xFE) must be sent after connection to enable movement. This was observed on the L-BTMEB95; for the commands the official app sends without a handshake, see Command Timing
    - Height notifications can have different headers depending on firmware version
    - Height frames carry tenths of the desk's display unit (cm or inches); `_decode_height()` converts them to cm, so everything downstream works in cm (see BLE Notification Formats)
    - `_handle_notification()` notifies the entities after every recognised frame; an unrecognised or truncated frame notifies nothing. `set_lock_status()` also notifies after a successful write, because it shows the lock before the reply
@@ -152,7 +152,7 @@ The desk can send height updates in two different formats depending on firmware 
    - Typically sent during desk movement
    - Example: `98 98 00 00 52 03` = 85.0 cm (0x0352 = 850 / 10.0)
    - Value: `(byte4 | (byte5 << 8)) / 10.0`, in the display unit
-   - Not seen from the L-BTMEB95 desk (firmware Rev01), which reports movement in status frames
+   - Not seen from the L-BTMEB95 desk (firmware Rev01), which reports movement in status frames. Which controllers send it is unverified, and the official app does not read it
 
 2. **Status Response Notification** (0xF2 0xF2 0x01 0x03):
    - Header: `0xF2 0xF2 0x01 0x03` (bytes 0-3)
@@ -175,7 +175,7 @@ Additional device features send responses with specific headers:
    - 0 also means off: the official app turns the LED off by setting colour 0. `OFF_COLORS` (`const.py`) holds both, and `LED_COLORS` (`light.py`) holds only the colours the LED shows, each with its effect name and its hue and saturation (none for Party mode); the light is off and turning it on restores a colour. The integration never sends 0; it turns the light off with the lighting command (`B5 00`)
 
 2. **Brightness Response** (0xF2 0xF2 0xB6 0x01):
-   - Value: 0-100 (percentage)
+   - Value: 0-100 (percentage). The official app offers 20-100 in steps of 20; other values work too
 
 3. **Lock Status Response** (0xF2 0xF2 0xB2 0x01):
    - Value: 0=Unlocked, 1=Locked
@@ -190,12 +190,13 @@ Additional device features send responses with specific headers:
 6. **Touch Mode Response** (0xF2 0xF2 0x19 0x01):
    - Values: 0=One press (`f2 f2 19 01 00 1a 7e`), 1=Press and hold (`f2 f2 19 01 01 1b 7e`)
 
-   The desk has no query for a single setting. It sends a settings block (presets `0x25`-`0x28`, unit `0x0E`, touch mode `0x19`, `0x17`, sensitivity `0x1D`) for a status request (`0x07`) that follows a handshake, which the integration sends on connect and at the end of the unit, touch-mode and sensitivity setters (`SETTINGS_REQUEST`, also `get_settings()`). It also sends the block unprompted when the unit is changed on the hand controller. It does not confirm a unit, touch-mode or sensitivity change by itself.
+   The desk has no query for a single setting. It sends a settings block (presets `0x25`-`0x28`, unit `0x0E`, touch mode `0x19`, `0x17`, sensitivity `0x1D`) for a status request (`0x07`) that follows a handshake, which the integration sends on connect and at the end of the unit, touch-mode and sensitivity setters (`SETTINGS_REQUEST`, also `get_settings()`). It also sends the block unprompted when the unit is changed on the hand controller. It does not confirm a unit, touch-mode or sensitivity change by itself. The preset heights (`0x25`-`0x28`) in the block are in the display unit; the integration does not read them.
 
 7. **Height Limit Responses**:
    - Upper limit (0xF2 0xF2 0x21 0x02): tenths of the display unit (big-endian), one tenth low; a raw value not divisible by 5 is rounded up by one tenth before decoding
    - Lower limit (0xF2 0xF2 0x22 0x02): tenths of the display unit (big-endian), same correction
    - Limit status (0xF2 0xF2 0x20 0x01): 0x00=No limits, 0x01=Upper only, 0x10=Lower only, 0x11=Both
+   - With no limits set, the desk was seen to answer `0x0C` with `f2 f2 07 04 04 e2 02 58` (125.0 and 60.0 cm). It may be this desk's travel range; the integration doesn't read it and keeps its fixed 60-130 cm range
 
 ### Troubleshooting Height Updates
 
@@ -254,7 +255,7 @@ Commands go out with the official Desky app's repeats and spacing, read from the
 - The unit, touch-mode and sensitivity setters end their own sequence with `SETTINGS_REQUEST`, `READ_BACK_DELAY` (0.5 s) after the last set, as the app does for sensitivity. The select does not ask again. A sequence cut short by a failed write is not read back
 - Touch mode and unit are checked (`_send_checked_setting()`): the set sequence goes out, then after `READ_BACK_DELAY` the report waiter is registered and only then the settings request is written, so an older report (another read-back, the first poll's re-ask, a hand-controller change) cannot answer it. The desk can ignore a set (measured: a preset then ran the whole way from one frame, as in one-press mode). If the settings block reports the old value, the setting is sent once more; still old, it raises `DeskSettingNotAppliedError`, which `translate_desk_errors()` turns into the translated `setting_not_applied` error. A desk that sends no report within `READ_BACK_TIMEOUT_SECONDS` is not checked. `_expect_report(header)` returns a future the next frame with that header completes, and `Sequencer.wait_for()` waits on the sequencer's clock
 - Set a limit: handshake, clear ×2, upper ×2, lower ×2, 0.05 s apart, sending the other limit again. This is needed for correctness, not only timing: while a limit is set the desk only accepts a tighter one and silently ignores a looser one (measured: upper 110 set, 124 ignored, 105 applied). Limits are one `HeightLimits` value (`limits.py`); no clear is sent unless `fully_known` (the desk has reported which limits are set and the value of each set one), so no limit is wiped, and the new limit then goes out alone, twice. The other limit is re-sent as the raw tenths the desk reported, or converted from cm after a unit change. Each limit sequence, and a clear, ends with the `0x0C` limit query, inside the limit-only lock, so the reply usually arrives before the next change starts, though nothing guarantees it (callers no longer ask separately). Once the sequence succeeds, the limits sent become the known limits (a clear marks both not set) and entities are notified; the reply corrects anything the desk did differently. A reply from one change arriving during the next is overwritten when that change succeeds. The lock keeps limit changes from interleaving; stop never takes it. A disconnect forgets the limits (`HeightLimits()`), so a reconnect clears nothing until the desk reports them again
-- The app sends colour, brightness, unit and limits without a handshake. The integration keeps it, because the desk ignores commands while its display sleeps
+- The app sends movement commands (move up and down, presets, move to height), colour, brightness, unit and limits without a handshake. The integration keeps it, because the desk ignores commands while its display sleeps
 - **Hold-repeat:** move up/down and cover open/close repeat their frame every 0.1 s in every touch mode, as the app's arrows (one frame only nudges about 0.8 cm). In press-and-hold touch mode (`TOUCH_MODE_PRESS_AND_HOLD`) presets repeat too, and move to height repeats `1B` after its two target frames until `_reached()` (within `HEIGHT_JITTER_CM` of the target, or past it). One-press or unknown touch mode sends one preset frame (it runs the whole way) and move to height as the app does. The repeat is capped at 60 s and ends with the movement, because `_end_movement()` cancels it (stop, auto-stop after three unchanged readings, bounce-back, expiry, a new command, a disconnect), and by itself once `COMMAND_EXPIRY_SECONDS` pass without the desk starting to move, even with no height reading. A started, held movement also ends once no height reading has come for `READING_WATCHDOG_SECONDS` (3 s; a moving desk reports about every 200 ms, but through a proxy the reports bunch, with gaps over 1 s), since bounce and collision detection are blind without readings. `_readings_stopped()` only answers the question; `_hold()` puts a done callback on the repeat (`_hold_ended()`) that ends the movement and notifies once the repeat has stopped for that reason. A move to height first asks for the status if the desk has not reported a height (still 0.0), and fails rather than moving blind if no reading comes. A stop or newer movement command during that wait wins: `_motion_commands` counts them, and the move to height gives up if it changed
 - **Repeats go out without response** (`start_repeat`), evenly every 0.1 s. Measured: with-response writes take 70-700 ms through a proxy, the uneven stream made the desk treat a held preset as released, and without-response repeats took it smoothly 75 → 95 cm. `0xfe61` advertises `write-without-response` and `write`. The first frame, Stop, settings and limits keep `response=True`, so failures are still reported. The coordinator's status poll writes nothing while `DeskBLEDevice.is_repeating`, since a with-response write would hold up the repeats
 - Other read-backs (`get_lock_status()`, ...) run after the setter's sequence returns

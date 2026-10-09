@@ -20,8 +20,18 @@ The integration has been developed against an L-BTMEB95 desk controller. If you 
 Desky controller and something does not work, [open an issue](https://github.com/j0rdsta/ha-desky/issues)
 with a debug log (see [Troubleshooting](troubleshooting.md#debug-logging)).
 
-Desks from other brands that use the same Bluetooth controller may work, but are not tested and
-are not discovered automatically unless their name starts with `Desky`.
+## Unsupported devices
+
+These are not supported:
+
+- **Desky desks without Bluetooth.** If the desk's controller has no Bluetooth, Home Assistant
+  cannot see or reach the desk.
+- **A desk with an Upsy Desky connected.** The Upsy Desky and this integration cannot control the
+  desk at the same time. See [Upsy Desky](#upsy-desky).
+- **Desks from other brands.** They are not tested. A desk that uses the same Bluetooth controller
+  may work, but Home Assistant only discovers it if its Bluetooth name starts with `Desky`. A desk
+  that is not discovered can still be added by its Bluetooth address. If you try one,
+  [open an issue](https://github.com/j0rdsta/ha-desky/issues) with the result.
 
 ## Upsy Desky
 
