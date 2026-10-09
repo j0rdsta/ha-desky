@@ -168,7 +168,9 @@ the desk reports the new value.
 
 The hand controller's touch mode: **One press** or **Press and hold**. The states are `one_press`
 and `press_and_hold`. Use these values in automations. The desk does not confirm the change, so
-the integration asks for its settings again after changing it. In **Press and hold** mode the desk
+the integration asks for its settings again after changing it. If the desk ignored the change, it
+is sent once more, and if the desk ignores it again, the change fails with an error. In **Press
+and hold** mode the desk
 moves to a preset or a height only while the command keeps arriving, so the integration repeats
 those commands every 100 ms (see [Command timing](protocol.md#command-timing)). Move up and Move
 down repeat in both modes.
@@ -177,7 +179,8 @@ down repeat in both modes.
 
 The unit the desk's display shows: **cm** or **in**, with the states `cm` and `in`. It changes
 only the desk's own display; entities keep using centimetres. The integration asks for the desk's
-settings again after changing it, and also picks up a change made on the hand controller.
+settings again after changing it, sends the change once more if the desk ignored it, and fails
+with an error if it is ignored again. It also picks up a change made on the hand controller.
 
 ## LED strip
 

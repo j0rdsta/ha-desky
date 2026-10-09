@@ -110,9 +110,11 @@ frame of the command.
 - The app sends colour, brightness, unit and limits without a handshake. The integration keeps
   the handshake in front of them, because the desk ignores commands while its display sleeps.
 - The desk does not confirm a unit, touch mode or sensitivity change, so the integration asks
-  for its settings at the end of the change: straight after the unit or touch mode, and 500 ms
-  after the sensitivity, as the app does. Asked any sooner, the desk can still report the old
-  level.
+  for its settings 500 ms after the change, as the app does for the sensitivity. Asked any
+  sooner, the desk can still report the old value.
+- The desk can ignore a touch mode or unit change. If its settings still show the old value, the
+  integration sends the change once more and checks again; if the desk ignores it again, the
+  change fails with "The desk did not apply the setting" instead of looking done.
 - **Height limits.** While a limit is set, the desk only accepts a tighter one: with the upper
   limit at 110 cm, 105 cm is applied but 124 cm is ignored, without an error. So, as the app does,
   the integration clears both limits first and then sets both. Setting one limit sends the other
@@ -122,12 +124,15 @@ frame of the command.
   and the limits just sent count as known at once, so two changes in a row keep each other.
 - **Held commands.** Move up and Move down are held buttons in every touch mode, as in the app:
   one command only nudges the desk, about 0.8 cm. In press-and-hold touch mode, presets and move
-  to height are held too: one command only nudges the desk there. The integration holds a
-  command by repeating it every 100 ms. The repeats end when you stop the desk, when it stops
-  moving (three readings in a row at the same height), on a collision, when it has not moved
-  within 5 seconds, on a new command, on a disconnect, or after 60 seconds. A move to height
-  also stops repeating once the desk is within 0.5 cm of the target. In one-press mode, or while
-  the touch mode is unknown, a preset or a move to height is sent as in the table, and one
+  to height are held too: one command only nudges the desk there. The integration holds a command
+  by repeating it every 100 ms. The repeats end when you stop the desk, when it stops moving
+  (three readings in a row at the same height), on a collision, when it has not moved within 5
+  seconds, on a new command, on a disconnect, or after 60 seconds. A move to height also stops
+  repeating once the desk is within 0.5 cm of the target. A held command that has started also
+  ends if the desk sends no height reading for a second (a moving desk reports about every 200
+  ms), because collisions cannot be seen without readings. A move to height sent before the desk
+  has reported its height asks for it first, and fails if no reading comes. In one-press mode, or
+  while the touch mode is unknown, a preset or a move to height is sent as in the table, and one
   preset command runs the desk all the way.
 - **Repeats are not confirmed.** The desk takes a held command as released as soon as the
   repeats arrive unevenly. Waiting for each write's confirmation through a Bluetooth proxy takes
