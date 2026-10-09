@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, call, patch
 
+from bleak import BleakClient
+from bleak.exc import BleakError
 from bleak_retry_connector import BleakClientWithServiceCache
 import pytest
 
@@ -18,7 +20,10 @@ from custom_components.desky_desk.bluetooth import (
 )
 from custom_components.desky_desk.const import (
     BRIGHTNESS_RESPONSE_HEADER,
+    COMMAND_GET_LIGHTING,
+    COMMAND_GET_LIMITS,
     COMMAND_GET_STATUS,
+    COMMAND_GET_VIBRATION,
     COMMAND_HANDSHAKE,
     COMMAND_MEMORY_1,
     COMMAND_MEMORY_2,
@@ -247,6 +252,329 @@ async def test_connection_lifecycle_logs_only_at_debug(
     assert "Failed to connect to desk at AA:BB:CC:DD:EE:FF" in caplog.text
 
 
+def _bleak_client() -> MagicMock:
+    """Return another connected Bleak client mock, for a second connection."""
+    client = MagicMock(spec=BleakClient)
+    client.is_connected = True
+    client.disconnect = AsyncMock()
+    client.start_notify = AsyncMock()
+    client.stop_notify = AsyncMock()
+    client.write_gatt_char = AsyncMock()
+    client.services = []
+    return client
+
+
+async def test_connect_waits_on_no_fixed_delays(
+    mock_ble_device, mock_establish_connection, mock_bleak_client
+):
+    """Test connecting sends its queries back to back, without sleeping."""
+    device = DeskBLEDevice(mock_ble_device)
+
+    with patch(
+        "custom_components.desky_desk.bluetooth.asyncio.sleep", new_callable=AsyncMock
+    ) as mock_sleep:
+        assert await device.connect() is True
+
+    mock_sleep.assert_not_awaited()
+    # Handshake, status and the eight capability queries
+    assert mock_bleak_client.write_gatt_char.await_count == 10
+
+
+async def test_capability_query_failure_is_not_an_unsupported_feature(
+    mock_ble_device, mock_establish_connection, mock_bleak_client, caplog
+):
+    """Test a desk that stops answering during the queries fails the connect.
+
+    A failed write means the connection is gone, not that the desk lacks the
+    feature, so nothing is logged as unsupported.
+    """
+    caplog.set_level("DEBUG", logger="custom_components.desky_desk.bluetooth")
+    device = DeskBLEDevice(mock_ble_device)
+
+    async def _write(_uuid: str, command: bytes) -> None:
+        if command == COMMAND_GET_VIBRATION:
+            mock_bleak_client.is_connected = False
+            raise BleakError("not connected")
+
+    mock_bleak_client.write_gatt_char.side_effect = _write
+
+    assert await device.connect() is False
+
+    mock_bleak_client.disconnect.assert_awaited_once()
+    assert device._client is None
+    assert "not supported" not in caplog.text
+    assert "Failed to connect to desk at AA:BB:CC:DD:EE:FF" in caplog.text
+
+
+async def test_connect_releases_the_link_when_notifications_fail(
+    mock_ble_device, mock_establish_connection, mock_bleak_client
+):
+    """Test a link whose notifications cannot be started is closed again."""
+    device = DeskBLEDevice(mock_ble_device)
+    mock_bleak_client.start_notify.side_effect = BleakError("notify failed")
+
+    assert await device.connect() is False
+
+    mock_bleak_client.disconnect.assert_awaited_once()
+    assert device._client is None
+    assert device.is_connected is False
+
+
+@pytest.mark.parametrize(
+    "failing_command",
+    [COMMAND_HANDSHAKE, COMMAND_GET_STATUS, COMMAND_GET_LIGHTING, COMMAND_GET_LIMITS],
+    ids=["handshake", "status", "first capability query", "last capability query"],
+)
+async def test_connect_releases_the_link_when_a_setup_write_fails(
+    mock_ble_device, mock_establish_connection, mock_bleak_client, failing_command
+):
+    """Test a write that fails while setting up closes the new link."""
+    device = DeskBLEDevice(mock_ble_device)
+
+    async def _write(_uuid: str, command: bytes) -> None:
+        if command == failing_command:
+            raise BleakError("write failed")
+
+    mock_bleak_client.write_gatt_char.side_effect = _write
+
+    assert await device.connect() is False
+
+    mock_bleak_client.disconnect.assert_awaited_once()
+    assert device._client is None
+    assert device.is_connected is False
+
+
+async def test_failed_setup_reports_one_disconnect(
+    mock_ble_device, mock_establish_connection, mock_bleak_client
+):
+    """Test a failed setup reports the desk disconnected once and resets its state.
+
+    Closing the link fires its own disconnect callback, which must not report
+    the drop a second time.
+    """
+    device = DeskBLEDevice(mock_ble_device)
+    callback = MagicMock()
+    device.register_disconnect_callback(callback)
+
+    async def _write(_uuid: str, command: bytes) -> None:
+        if command == COMMAND_GET_STATUS:
+            # The desk reports inches, then the link fails
+            device._handle_notification(None, bytearray.fromhex("f2f20e0101107e"))
+            raise BleakError("write failed")
+
+    async def _disconnect() -> None:
+        mock_establish_connection.call_args.kwargs["disconnected_callback"](
+            mock_bleak_client
+        )
+
+    mock_bleak_client.write_gatt_char.side_effect = _write
+    mock_bleak_client.disconnect.side_effect = _disconnect
+
+    assert await device.connect() is False
+
+    callback.assert_called_once_with()
+    assert device.unit_preference is None
+    mock_bleak_client.disconnect.assert_awaited_once()
+
+
+async def test_drop_during_setup_is_reported_once(
+    mock_ble_device, mock_establish_connection, mock_bleak_client
+):
+    """Test a desk that drops while setting up is reported once and released."""
+    device = DeskBLEDevice(mock_ble_device)
+    callback = MagicMock()
+    device.register_disconnect_callback(callback)
+
+    async def _write(_uuid: str, command: bytes) -> None:
+        if command == COMMAND_GET_STATUS:
+            mock_bleak_client.is_connected = False
+            mock_establish_connection.call_args.kwargs["disconnected_callback"](
+                mock_bleak_client
+            )
+            raise BleakError("disconnected")
+
+    mock_bleak_client.write_gatt_char.side_effect = _write
+
+    assert await device.connect() is False
+
+    callback.assert_called_once_with()
+    mock_bleak_client.disconnect.assert_awaited_once()
+    assert device._client is None
+
+
+async def test_drop_after_the_last_query_fails_the_connect(
+    mock_ble_device, mock_establish_connection, mock_bleak_client
+):
+    """Test a desk that drops after the last write, during the reads, fails the connect."""
+    device = DeskBLEDevice(mock_ble_device)
+    callback = MagicMock()
+    device.register_disconnect_callback(callback)
+
+    async def _write(_uuid: str, command: bytes) -> None:
+        if command == COMMAND_GET_LIMITS:
+            # The write goes out, then the link drops
+            mock_bleak_client.is_connected = False
+            mock_establish_connection.call_args.kwargs["disconnected_callback"](
+                mock_bleak_client
+            )
+
+    mock_bleak_client.write_gatt_char.side_effect = _write
+
+    assert await device.connect() is False
+
+    callback.assert_called_once_with()
+    mock_bleak_client.disconnect.assert_awaited_once()
+    assert device._client is None
+
+
+async def test_release_survives_a_failing_disconnect(
+    mock_ble_device, mock_establish_connection, mock_bleak_client, caplog
+):
+    """Test a link that errors while closing still fails the connect quietly."""
+    caplog.set_level("DEBUG", logger="custom_components.desky_desk.bluetooth")
+    device = DeskBLEDevice(mock_ble_device)
+    mock_bleak_client.start_notify.side_effect = BleakError("notify failed")
+    mock_bleak_client.disconnect.side_effect = BleakError("already gone")
+
+    assert await device.connect() is False
+
+    assert device._client is None
+    assert "Error closing the connection to desk at AA:BB:CC:DD:EE:FF" in caplog.text
+    assert [r.getMessage() for r in caplog.records if r.levelname != "DEBUG"] == []
+
+
+async def test_disconnect_from_an_earlier_link_is_ignored(
+    mock_ble_device, mock_bleak_client
+):
+    """Test the old link of a failed attempt cannot drop a newer connection."""
+    device = DeskBLEDevice(mock_ble_device)
+    callback = MagicMock()
+    device.register_disconnect_callback(callback)
+    old_client = _bleak_client()
+    old_client.start_notify.side_effect = BleakError("notify failed")
+
+    with patch(
+        "custom_components.desky_desk.bluetooth.establish_connection",
+        side_effect=[old_client, mock_bleak_client],
+    ) as mock_establish:
+        assert await device.connect() is False
+        assert await device.connect() is True
+    callback.reset_mock()
+
+    # The old link's drop arrives late, while the new connection works
+    mock_establish.call_args.kwargs["disconnected_callback"](old_client)
+
+    assert device._client is mock_bleak_client
+    assert device.is_connected is True
+    callback.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "callback_on_close", [True, False], ids=["callback on close", "no callback"]
+)
+async def test_release_closes_then_reports_the_drop_once(
+    mock_ble_device, mock_establish_connection, mock_bleak_client, callback_on_close
+):
+    """Test a failed setup closes the link before reporting it, and reports once.
+
+    BlueZ fires the link's own disconnect callback while closing it; a proxy
+    may not fire it until later, or at all.
+    """
+    device = DeskBLEDevice(mock_ble_device)
+    callback = MagicMock()
+    device.register_disconnect_callback(callback)
+    mock_bleak_client.start_notify.side_effect = BleakError("notify failed")
+    reports_before_close: list[int] = []
+
+    async def _disconnect() -> None:
+        reports_before_close.append(callback.call_count)
+        if callback_on_close:
+            mock_establish_connection.call_args.kwargs["disconnected_callback"](
+                mock_bleak_client
+            )
+
+    mock_bleak_client.disconnect.side_effect = _disconnect
+
+    assert await device.connect() is False
+
+    assert reports_before_close == [0]
+    callback.assert_called_once_with()
+    mock_bleak_client.disconnect.assert_awaited_once()
+    assert device._client is None
+
+
+async def test_cancelled_release_is_closed_on_disconnect(
+    mock_ble_device, mock_establish_connection, mock_bleak_client
+):
+    """Test a connect cancelled while closing its failed link, as on unload.
+
+    The link stays referenced, so the disconnect() that unload runs closes it.
+    """
+    device = DeskBLEDevice(mock_ble_device)
+    mock_bleak_client.start_notify.side_effect = BleakError("notify failed")
+    closing = asyncio.Event()
+
+    async def _disconnect() -> None:
+        if mock_bleak_client.disconnect.await_count == 1:
+            closing.set()
+            await asyncio.Event().wait()  # the proxy never answers
+
+    mock_bleak_client.disconnect.side_effect = _disconnect
+
+    task = asyncio.create_task(device.connect())
+    await closing.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    await device.disconnect()
+
+    assert mock_bleak_client.disconnect.await_count == 2
+    assert device._client is None
+
+
+async def test_cancelled_connect_is_released_on_disconnect(
+    mock_ble_device, mock_establish_connection, mock_bleak_client
+):
+    """Test a connect cancelled mid-setup, as on unload, leaves its link reachable."""
+    device = DeskBLEDevice(mock_ble_device)
+    writing = asyncio.Event()
+
+    async def _write(_uuid: str, command: bytes) -> None:
+        writing.set()
+        await asyncio.Event().wait()  # the desk never answers
+
+    mock_bleak_client.write_gatt_char.side_effect = _write
+
+    task = asyncio.create_task(device.connect())
+    await writing.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    await device.disconnect()
+
+    mock_bleak_client.disconnect.assert_awaited_once()
+    assert device._client is None
+
+
+async def test_disconnect_resets_link_state_without_a_callback(
+    mock_ble_device, mock_bleak_client, mock_establish_connection
+) -> None:
+    """A proxy may report the drop only after disconnect() returns; state is reset anyway."""
+    device = DeskBLEDevice(mock_ble_device)
+    await device.connect()
+    device._unit_preference = "in"
+    device._touch_mode = 1
+    # The mocked client.disconnect() does not call the disconnect callback
+
+    await device.disconnect()
+
+    assert device._client is None
+    assert device._unit_preference is None
+    assert device._effective_unit is None
+    assert device._touch_mode is None
+    assert device.collision_detected is False
+
+
 async def test_disconnect(mock_ble_device, mock_bleak_client):
     """Test disconnection."""
     device = DeskBLEDevice(mock_ble_device)
@@ -254,8 +582,9 @@ async def test_disconnect(mock_ble_device, mock_bleak_client):
 
     await device.disconnect()
 
-    mock_bleak_client.stop_notify.assert_called_once_with(NOTIFY_CHARACTERISTIC_UUID)
-    mock_bleak_client.disconnect.assert_called_once()
+    # Closing the link ends the subscription; no extra write to a quiet desk
+    mock_bleak_client.stop_notify.assert_not_called()
+    mock_bleak_client.disconnect.assert_awaited_once()
     assert device._client is None
 
 
