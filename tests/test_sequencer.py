@@ -6,6 +6,7 @@ import asyncio
 from collections.abc import Coroutine
 import time
 from typing import Any
+from unittest.mock import patch
 
 import pytest
 
@@ -278,3 +279,97 @@ async def test_second_disconnect_keeps_the_reason(
     sequencer.cancel_all()
     with pytest.raises(DeskNotConnectedError):
         await sequence
+
+
+async def test_cancel_waits_for_the_write_on_the_air(desk: Desk) -> None:
+    """Movement cancelled mid-write finishes that write before the stop goes out.
+
+    The radio rejects a write while another is still in progress, even when
+    the caller of the first one was cancelled.
+    """
+    sent: Frames = []
+    radio_free_at = 0.0
+
+    async def _write(frame: bytes) -> None:
+        nonlocal radio_free_at
+        if desk.clock.now < radio_free_at - 1e-9:
+            raise DeskCommandError("InProgress")
+        radio_free_at = desk.clock.now + 0.05  # each write takes 50 ms
+        await desk.clock.sleep(0.05)
+        sent.append((round(desk.clock.now, 3), frame))
+
+    sequencer = Sequencer(_write, desk.clock)
+    move = asyncio.create_task(sequencer.run_motion([(0.0, A), (0.1, A), (0.2, A)]))
+    await desk.clock.advance(0.12)  # the second frame is on the air until 0.15
+
+    await _run(desk.clock, sequencer.run_motion([(0.0, C), (0.05, C)]))
+
+    await move
+    assert sent == [(0.05, A), (0.15, A), (0.2, C), (0.25, C)]
+
+
+async def test_cancelled_write_error_is_not_raised(desk: Desk) -> None:
+    """A write that fails after its caller was cancelled ends in the cancel."""
+
+    async def _write(frame: bytes) -> None:
+        await desk.clock.sleep(0.05)
+        raise DeskCommandError("busy")
+
+    sequencer = Sequencer(_write, desk.clock)
+    write = asyncio.create_task(sequencer.write(A))
+    await desk.clock.advance(0.01)
+
+    write.cancel()
+    await desk.clock.advance(0.01)
+    write.cancel()  # a second cancel still waits for the radio
+    await desk.clock.advance(1.0)
+
+    with pytest.raises(asyncio.CancelledError):
+        await write
+
+
+async def test_hung_write_is_given_up_after_a_cancel(desk: Desk) -> None:
+    """A cancelled write that never ends is waited for briefly, then given up."""
+    started = asyncio.Event()
+    finished = False
+
+    async def _write(frame: bytes) -> None:
+        nonlocal finished
+        if frame != A:
+            return
+        started.set()
+        try:
+            await asyncio.Event().wait()  # the link has hung
+        finally:
+            finished = True
+
+    sequencer = Sequencer(_write, desk.clock)
+    write = asyncio.create_task(sequencer.write(A))
+    await started.wait()
+
+    with patch("custom_components.desky_desk.sequencer.WRITE_SETTLE_SECONDS", 0.01):
+        write.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await write
+    await asyncio.sleep(0)
+
+    assert finished
+    await sequencer.write(B)  # the lock is free again
+
+
+async def test_write_cancelled_itself_after_a_cancel(desk: Desk) -> None:
+    """A write that ends cancelled itself, as at shutdown, still ends the caller."""
+
+    async def _write(frame: bytes) -> None:
+        await desk.clock.sleep(0.05)
+        raise asyncio.CancelledError
+
+    sequencer = Sequencer(_write, desk.clock)
+    write = asyncio.create_task(sequencer.write(A))
+    await desk.clock.advance(0.01)
+
+    write.cancel()
+    await desk.clock.advance(1.0)
+
+    with pytest.raises(asyncio.CancelledError):
+        await write

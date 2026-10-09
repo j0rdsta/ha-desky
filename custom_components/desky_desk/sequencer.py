@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable, Iterable
+import contextlib
 from dataclasses import dataclass
 from enum import Enum
 from itertools import groupby
@@ -17,6 +18,10 @@ _LOGGER = logging.getLogger(__name__)
 
 # A frame and when to write it, in seconds after its sequence starts
 type Step = tuple[float, bytes]
+
+# How long a cancelled write is waited for. A write with response takes about
+# 70-130 ms through a Bluetooth proxy; one still running after this has hung.
+WRITE_SETTLE_SECONDS = 2.0
 
 
 class Clock:
@@ -52,12 +57,40 @@ class _Sequence:
         self.task.cancel(reason.value)
 
 
+async def _uninterrupted(write: Awaitable[None]) -> None:
+    """Await a radio write to its end, even when cancelled, then pass a cancel on.
+
+    The desk's Bluetooth stack rejects a write while another is in progress
+    (BlueZ: InProgress), so a write is not abandoned halfway: the write lock is
+    released only once the radio is free. A write that hangs is given up after
+    WRITE_SETTLE_SECONDS, as its link is being closed. A write that fails after
+    its caller was cancelled ends in the cancel; its error no longer matters.
+    """
+    pending = asyncio.ensure_future(write)
+    try:
+        # Unlike awaiting it, waiting does not pass a cancel on to the write
+        await asyncio.wait([pending])
+    except asyncio.CancelledError:
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + WRITE_SETTLE_SECONDS
+        while not pending.done() and (remaining := deadline - loop.time()) > 0:
+            with contextlib.suppress(asyncio.CancelledError):
+                await asyncio.wait([pending], timeout=remaining)
+        if not pending.done():
+            pending.cancel()
+        elif not pending.cancelled():
+            pending.exception()  # retrieved, so it is not reported as unhandled
+        raise
+    pending.result()
+
+
 class Sequencer:
     """Write frames to the desk one at a time, and send timed sequences of them.
 
     A pause never holds the write lock, so a stop is never held up behind a
-    sequence. The movement or stop frames still due are one motion sequence,
-    which the next one replaces.
+    sequence. A radio write is never interrupted: a cancel waits for it. The
+    movement or stop frames still due are one motion sequence, which the next
+    one replaces.
     """
 
     def __init__(
@@ -82,10 +115,11 @@ class Sequencer:
         """Write frames in order, with no other write in between.
 
         The lock is held only for the writes, never during a sequence's pauses.
+        A cancel waits for the frame on the air, then skips the rest.
         """
         async with self._lock:
             for frame in frames:
-                await self._write_frame(frame)
+                await _uninterrupted(self._write_frame(frame))
 
     async def pause(self, seconds: float) -> None:
         """Wait on the sequencer's clock, without holding the write lock."""

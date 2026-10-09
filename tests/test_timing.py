@@ -748,3 +748,39 @@ async def test_connect_spaces_the_queries(
         (1.0, COMMAND_GET_LOCK_STATUS.hex()),
         (1.2, COMMAND_GET_LIMITS.hex()),
     ]
+
+
+async def test_stop_waits_for_the_target_frame_on_the_air(
+    desk: DeskBLEDevice, clock: FakeClock, mock_bleak_client: MagicMock
+) -> None:
+    """A stop pressed while a move's target frame is mid-write goes out after it.
+
+    Interrupting the write would free the write lock while the radio is still
+    busy, and the stop would fail with InProgress.
+    """
+    clock.auto = False
+    sent: Frames = []
+    radio_free_at = 0.0
+
+    async def _write(_uuid: str, data: bytes) -> None:
+        nonlocal radio_free_at
+        if clock.now < radio_free_at - 1e-9:
+            raise RuntimeError("InProgress")
+        radio_free_at = clock.now + 0.05  # each write takes 50 ms
+        await clock.sleep(0.05)
+        sent.append((round(clock.now, 3), bytes(data).hex()))
+
+    mock_bleak_client.write_gatt_char.side_effect = _write
+    move = asyncio.create_task(desk.move_to_height(85.0))
+    await clock.advance(0.22)  # the first target frame is on the air until 0.25
+
+    await _run(clock, desk.stop())
+
+    await move  # cut short quietly; the second target frame never goes out
+    assert sent == [
+        (0.05, H),
+        (0.1, STOP),
+        (0.25, TO_85_CM),
+        (0.3, STOP),
+        (0.35, STOP),
+    ]
