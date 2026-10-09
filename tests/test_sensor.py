@@ -9,7 +9,6 @@ from freezegun.api import FrozenDateTimeFactory
 from homeassistant.components.sensor import ATTR_OPTIONS, SensorEntityDescription
 from homeassistant.const import (
     ATTR_UNIT_OF_MEASUREMENT,
-    PERCENTAGE,
     STATE_UNAVAILABLE,
     STATE_UNKNOWN,
     UnitOfLength,
@@ -21,21 +20,19 @@ from pytest_homeassistant_custom_component.common import (
     async_fire_time_changed,
 )
 
-from custom_components.desky_desk.const import LIGHT_COLORS, POSTURE_SETTLE_SECONDS
+from custom_components.desky_desk.const import POSTURE_SETTLE_SECONDS
 from custom_components.desky_desk.sensor import DeskSensor
 
 from . import disconnect_desk, notify_desk, set_desk_state
 
 HEIGHT_DISPLAY = "sensor.desky_desk_height_display"
-LED_COLOR = "sensor.desky_desk_led_color"
-VIBRATION_INTENSITY = "sensor.desky_desk_vibration_intensity_display"
 POSTURE = "sensor.desky_desk_posture"
 
 
 async def test_sensor_states(
     hass: HomeAssistant, init_integration: MockConfigEntry
 ) -> None:
-    """Test the sensors report the desk's state with their units and attributes."""
+    """Test the height display reports the desk's height with its unit and attributes."""
     height = hass.states.get(HEIGHT_DISPLAY)
     assert height is not None
     assert height.state == "80.0"
@@ -43,19 +40,6 @@ async def test_sensor_states(
     assert height.attributes["height_cm"] == 80.0
     assert height.attributes["upper_limit_cm"] == 120.0
     assert height.attributes["lower_limit_cm"] == 65.0
-
-    led_color = hass.states.get(LED_COLOR)
-    assert led_color is not None
-    assert led_color.state == "White"
-    assert led_color.attributes["color_value"] == 1
-    assert led_color.attributes["brightness"] == 50
-    assert led_color.attributes["lighting_enabled"] is True
-
-    vibration = hass.states.get(VIBRATION_INTENSITY)
-    assert vibration is not None
-    assert vibration.state == "75"
-    assert vibration.attributes[ATTR_UNIT_OF_MEASUREMENT] == PERCENTAGE
-    assert vibration.attributes["vibration_enabled"] is True
 
 
 async def test_height_display_in_inches(
@@ -114,55 +98,6 @@ async def test_height_display_without_limits(
     assert "lower_limit_cm" not in state.attributes
 
 
-@pytest.mark.parametrize(("light_color", "name"), LIGHT_COLORS.items())
-async def test_led_color(
-    hass: HomeAssistant,
-    init_integration: MockConfigEntry,
-    light_color: int,
-    name: str,
-) -> None:
-    """Test the LED colour sensor names every known colour."""
-    await set_desk_state(hass, init_integration, light_color=light_color)
-
-    state = hass.states.get(LED_COLOR)
-    assert state is not None
-    assert state.state == name
-    assert state.attributes["color_value"] == light_color
-
-
-@pytest.mark.parametrize("light_color", [99, 0, None])
-async def test_led_color_unknown(
-    hass: HomeAssistant,
-    init_integration: MockConfigEntry,
-    light_color: int | None,
-) -> None:
-    """Test the LED colour sensor reports Unknown for an unrecognised colour."""
-    await set_desk_state(hass, init_integration, light_color=light_color)
-
-    state = hass.states.get(LED_COLOR)
-    assert state is not None
-    assert state.state == "Unknown"
-
-
-@pytest.mark.parametrize(
-    ("intensity", "expected"),
-    [(0, "0"), (25, "25"), (100, "100"), (None, "0")],
-)
-async def test_vibration_intensity(
-    hass: HomeAssistant,
-    init_integration: MockConfigEntry,
-    intensity: int | None,
-    expected: str,
-) -> None:
-    """Test the vibration intensity sensor, which reads 0 before the desk reports."""
-    await set_desk_state(hass, init_integration, vibration_intensity=intensity)
-
-    state = hass.states.get(VIBRATION_INTENSITY)
-    assert state is not None
-    assert state.state == expected
-    assert state.attributes[ATTR_UNIT_OF_MEASUREMENT] == PERCENTAGE
-
-
 async def test_sensors_unavailable_when_disconnected(
     hass: HomeAssistant, init_integration: MockConfigEntry, mock_desk: MagicMock
 ) -> None:
@@ -170,7 +105,7 @@ async def test_sensors_unavailable_when_disconnected(
     disconnect_desk(mock_desk)
     await hass.async_block_till_done()
 
-    for entity_id in (HEIGHT_DISPLAY, LED_COLOR, VIBRATION_INTENSITY):
+    for entity_id in (HEIGHT_DISPLAY, POSTURE):
         state = hass.states.get(entity_id)
         assert state is not None
         assert state.state == STATE_UNAVAILABLE

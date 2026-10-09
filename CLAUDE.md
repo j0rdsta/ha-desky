@@ -84,7 +84,7 @@ This is a Home Assistant custom integration that follows the standard component 
    - Light entity: LED strip control with color, brightness, and effects
    - Switch entities: Vibration on/off, desk lock
    - Select entities: Collision sensitivity, touch mode, unit preference
-   - Sensor entities: Height display with units, light color name, sensitivity level, posture, standing/sitting time today
+   - Sensor entities: Height display (cm, device class distance), posture, standing/sitting time today
 
 ### BLE Protocol Commands
 ```python

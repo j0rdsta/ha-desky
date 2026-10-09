@@ -112,9 +112,6 @@
       "height_display": {
         "name": "Height display"
       },
-      "led_color": {
-        "name": "LED color"
-      },
       "posture": {
         "name": "Posture",
         "state": {
@@ -127,9 +124,6 @@
       },
       "standing_time_today": {
         "name": "Standing time today"
-      },
-      "vibration_intensity_display": {
-        "name": "Vibration intensity display"
       }
     },
     "switch": {

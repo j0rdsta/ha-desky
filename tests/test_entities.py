@@ -114,6 +114,12 @@ NEW_ENTITIES = {
     ("sensor", "standing_time_today"),
 }
 
+# Entities removed since v1.0.x; setup deletes their registry entries
+REMOVED_ENTITIES = {
+    ("sensor", "led_color"),
+    ("sensor", "vibration_intensity_display"),
+}
+
 INTEGRATION_DIR = Path(__file__).parent.parent / "custom_components" / DOMAIN
 
 
@@ -123,7 +129,10 @@ async def test_entity_ids_survive_upgrade(
     mock_config_entry: MockConfigEntry,
     mock_desk: MagicMock,
 ) -> None:
-    """Test entities registered by v1.0.x keep their entity IDs after upgrading."""
+    """Test entities registered by v1.0.x keep their entity IDs after upgrading.
+
+    The entities removed since then are deleted from the registry.
+    """
     mock_config_entry.add_to_hass(hass)
     unique_id_prefix = mock_config_entry.unique_id
     # Object IDs no fresh install would generate, as if the desk had been renamed
@@ -148,26 +157,30 @@ async def test_entity_ids_survive_upgrade(
     entries = er.async_entries_for_config_entry(
         entity_registry, mock_config_entry.entry_id
     )
+    kept = {
+        f"{unique_id_prefix}_{key}": registered[f"{unique_id_prefix}_{key}"]
+        for platform, key in V1_ENTITIES - REMOVED_ENTITIES
+    }
     assert {
         entry.unique_id: entry.entity_id
         for entry in entries
         if entry.unique_id in registered
-    } == registered
-    assert len(entries) == len(V1_ENTITIES) + len(NEW_ENTITIES)
-    for entity_id in registered.values():
+    } == kept
+    assert len(entries) == len(V1_ENTITIES - REMOVED_ENTITIES) + len(NEW_ENTITIES)
+    for entity_id in kept.values():
         assert hass.states.get(entity_id) is not None
 
 
 async def test_unique_ids_unchanged(
     entity_registry: er.EntityRegistry, init_integration: MockConfigEntry
 ) -> None:
-    """Test a fresh install registers the v1.0.x unique IDs and the new ones."""
+    """Test a fresh install registers the remaining v1.0.x unique IDs and the new ones."""
     entries = er.async_entries_for_config_entry(
         entity_registry, init_integration.entry_id
     )
     assert {(entry.domain, entry.unique_id) for entry in entries} == {
         (platform, f"{init_integration.unique_id}_{key}")
-        for platform, key in V1_ENTITIES | NEW_ENTITIES
+        for platform, key in (V1_ENTITIES - REMOVED_ENTITIES) | NEW_ENTITIES
     }
 
 

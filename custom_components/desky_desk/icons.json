@@ -53,9 +53,6 @@
       "height_display": {
         "default": "mdi:arrow-expand-vertical"
       },
-      "led_color": {
-        "default": "mdi:palette"
-      },
       "posture": {
         "default": "mdi:human-male",
         "state": {
@@ -68,9 +65,6 @@
       },
       "standing_time_today": {
         "default": "mdi:human-handsdown"
-      },
-      "vibration_intensity_display": {
-        "default": "mdi:vibrate"
       }
     },
     "switch": {

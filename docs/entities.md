@@ -4,6 +4,8 @@ Every desk is one device in Home Assistant, and all its entities belong to that 
 names are translated and prefixed with the device name, which is the desk's Bluetooth name. The
 entity IDs on this page are for a desk named "Desky Desk"; yours follow your desk's name.
 Entities created by earlier versions of the integration keep their existing entity IDs.
+Version 2.0.0 removed the LED color and Vibration intensity display sensors, which repeated other
+entities. Setting up the desk deletes them.
 
 All entities are enabled by default, and unavailable while the desk is not connected.
 
@@ -40,8 +42,6 @@ Category is the section of the device page that lists the entity: **Controls**, 
 | Touch mode | `select.desky_desk_touch_mode` | Select | | Configuration |
 | Display unit | `select.desky_desk_display_unit` | Select | | Configuration |
 | Collision detected | `binary_sensor.desky_desk_collision_detected` | Binary sensor | | Diagnostic |
-| LED color | `sensor.desky_desk_led_color` | Sensor | | Diagnostic |
-| Vibration intensity display | `sensor.desky_desk_vibration_intensity_display` | Sensor | % | Diagnostic |
 
 ## Movement
 
@@ -185,19 +185,3 @@ a light that is on is never sent as 0 %.
 If the desk reports its colour as off and you turn the light on without an effect, it goes back to
 the last colour you chose other than party mode. That colour is kept across restarts. Attribute
 `color_name`: the current colour.
-
-### LED color
-
-The LED strip's current colour as text: White, Red, Green, Blue, Yellow, Party mode or Off, and
-Unknown until the desk has reported it. Attributes:
-
-| Attribute | Meaning |
-| --- | --- |
-| `color_value` | The colour code the desk reports, 1-7 |
-| `brightness` | The brightness in %, as the desk reports it |
-| `lighting_enabled` | Whether the LED strip is on |
-
-### Vibration intensity display
-
-The vibration intensity in %, as a sensor, or 0 until the desk has reported it. Attribute
-`vibration_enabled`: whether vibration is on.

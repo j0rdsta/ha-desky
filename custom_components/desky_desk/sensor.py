@@ -15,7 +15,7 @@ from homeassistant.components.sensor import (
     SensorEntityDescription,
     SensorStateClass,
 )
-from homeassistant.const import PERCENTAGE, EntityCategory, UnitOfLength, UnitOfTime
+from homeassistant.const import UnitOfLength, UnitOfTime
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import (
@@ -24,7 +24,7 @@ from homeassistant.helpers.event import (
 )
 from homeassistant.util import dt as dt_util
 
-from .const import CM_PER_INCH, LIGHT_COLORS, Posture
+from .const import CM_PER_INCH, Posture
 from .coordinator import DeskUpdateCoordinator, DeskyConfigEntry
 from .entity import DeskEntity
 
@@ -37,17 +37,6 @@ SENSOR_DESCRIPTIONS = [
     SensorEntityDescription(
         key="height_display",
         translation_key="height_display",
-    ),
-    SensorEntityDescription(
-        key="led_color",
-        translation_key="led_color",
-        entity_category=EntityCategory.DIAGNOSTIC,
-    ),
-    SensorEntityDescription(
-        key="vibration_intensity_display",
-        translation_key="vibration_intensity_display",
-        native_unit_of_measurement=PERCENTAGE,
-        entity_category=EntityCategory.DIAGNOSTIC,
     ),
     SensorEntityDescription(
         key="posture",
@@ -111,16 +100,6 @@ class DeskSensor(DeskEntity, SensorEntity):
                 return round(data.height_cm / CM_PER_INCH, 1)
             return round(data.height_cm, 1)
 
-        if self.entity_description.key == "led_color":
-            color = data.light_color
-            if color and color in LIGHT_COLORS:
-                return LIGHT_COLORS[color]
-            return "Unknown"
-
-        if self.entity_description.key == "vibration_intensity_display":
-            intensity = data.vibration_intensity
-            return intensity if intensity is not None else 0
-
         if self.entity_description.key == "posture":
             return data.posture
 
@@ -147,16 +126,6 @@ class DeskSensor(DeskEntity, SensorEntity):
                 attrs["upper_limit_cm"] = data.height_limit_upper
                 attrs["lower_limit_cm"] = data.height_limit_lower
             return attrs
-
-        if self.entity_description.key == "led_color":
-            return {
-                "color_value": data.light_color,
-                "brightness": data.brightness,
-                "lighting_enabled": data.lighting_enabled,
-            }
-
-        if self.entity_description.key == "vibration_intensity_display":
-            return {"vibration_enabled": data.vibration_enabled}
 
         return None
 

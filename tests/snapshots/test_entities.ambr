@@ -280,22 +280,6 @@
       'translation_key': 'height_display',
       'unique_id': 'AA:BB:CC:DD:EE:FF_height_display',
     }),
-    'sensor.desky_desk_led_color': dict({
-      'attributes': dict({
-        'brightness': 50,
-        'color_value': 1,
-        'friendly_name': 'Desky Desk LED color',
-        'lighting_enabled': True,
-      }),
-      'disabled_by': None,
-      'entity_category': 'diagnostic',
-      'original_device_class': None,
-      'original_name': 'LED color',
-      'platform': 'desky_desk',
-      'state': 'White',
-      'translation_key': 'led_color',
-      'unique_id': 'AA:BB:CC:DD:EE:FF_led_color',
-    }),
     'sensor.desky_desk_posture': dict({
       'attributes': dict({
         'device_class': 'enum',
@@ -347,21 +331,6 @@
       'state': '0.0',
       'translation_key': 'standing_time_today',
       'unique_id': 'AA:BB:CC:DD:EE:FF_standing_time_today',
-    }),
-    'sensor.desky_desk_vibration_intensity_display': dict({
-      'attributes': dict({
-        'friendly_name': 'Desky Desk Vibration intensity display',
-        'unit_of_measurement': '%',
-        'vibration_enabled': True,
-      }),
-      'disabled_by': None,
-      'entity_category': 'diagnostic',
-      'original_device_class': None,
-      'original_name': 'Vibration intensity display',
-      'platform': 'desky_desk',
-      'state': '75',
-      'translation_key': 'vibration_intensity_display',
-      'unique_id': 'AA:BB:CC:DD:EE:FF_vibration_intensity_display',
     }),
     'switch.desky_desk_lock': dict({
       'attributes': dict({
