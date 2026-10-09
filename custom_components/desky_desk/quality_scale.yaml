@@ -4,9 +4,9 @@ rules:
   appropriate-polling:
     status: done
     comment: |
-      Heights and settings arrive as notifications. The 30-second status
-      request keeps a quiet desk's state fresh and finds a connection that
-      dropped without a disconnect event.
+      Heights and settings arrive as notifications. A status request 30
+      seconds after the last update keeps a quiet desk's state fresh and
+      finds a connection that dropped without a disconnect event.
   brands:
     status: done
     comment: The integration ships its own icons in brand/ (Home Assistant 2026.3+).
@@ -47,9 +47,9 @@ rules:
   test-coverage: done
 
   # Gold
-  devices: todo
+  devices: done
   diagnostics: done
-  discovery: todo
+  discovery: done
   discovery-update-info:
     status: exempt
     comment: The desk's Bluetooth address is stable, so there is nothing to update.
