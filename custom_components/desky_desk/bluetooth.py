@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import deque
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass, field
 from itertools import groupby
 import logging
@@ -116,6 +116,17 @@ STOP_TIMES = (0.0, 0.05)
 MOVE_TO_HEIGHT_TIMES = (0.2, 0.3)  # after one stop at 0
 # The app asks for the settings this long after setting the sensitivity
 SENSITIVITY_READ_BACK_DELAY = 0.5
+# In press-and-hold touch mode the desk moves only while frames keep coming,
+# and the app repeats a held button's frame this often
+HOLD_REPEAT_INTERVAL = 0.1
+HOLD_REPEAT_MAX_SECONDS = 60.0
+TOUCH_MODE_PRESS_AND_HOLD = 1
+
+
+def _hold_steps(frame: bytes) -> Iterator[Step]:
+    """Repeat a movement frame every 100 ms, up to the 60 s cap."""
+    repeats = round(HOLD_REPEAT_MAX_SECONDS / HOLD_REPEAT_INTERVAL)
+    return ((n * HOLD_REPEAT_INTERVAL, frame) for n in range(1, repeats + 1))
 
 
 class Clock:
@@ -612,30 +623,33 @@ class DeskBLEDevice:
         self._movement = None
         self._cancel_motion()
 
-    async def _send_awake_command(self, command: bytes) -> None:
-        """Wake the desk with the handshake, then send a command.
+    async def _start_movement(
+        self, frame: bytes, kind: str, direction: str | None
+    ) -> None:
+        """Wake the desk and send a movement frame, held in press-and-hold mode.
 
-        The desk's controller ignores commands while its display is asleep.
+        The desk's controller ignores commands while its display is asleep, so
+        the handshake goes first. In press-and-hold touch mode the desk moves
+        only while the frame repeats, so it repeats until the movement ends.
+        A write that fails drops the movement.
         """
-        await self._write(COMMAND_HANDSHAKE, command)
-
-    async def _send_movement_command(self, command: bytes) -> None:
-        """Send a movement command, dropping the movement if the write fails."""
+        self._begin_movement(kind, direction)
+        movement = self._movement
         try:
-            await self._send_awake_command(command)
+            await self._write(COMMAND_HANDSHAKE, frame)
         except DeskError:
             self._end_movement()
             raise
+        if self._touch_mode == TOUCH_MODE_PRESS_AND_HOLD and self._movement is movement:
+            self._start_sequence(_hold_steps(frame), motion=True)
 
     async def move_up(self) -> None:
         """Start moving the desk up."""
-        self._begin_movement("continuous", "up")
-        await self._send_movement_command(COMMAND_MOVE_UP)
+        await self._start_movement(COMMAND_MOVE_UP, "continuous", "up")
 
     async def move_down(self) -> None:
         """Start moving the desk down."""
-        self._begin_movement("continuous", "down")
-        await self._send_movement_command(COMMAND_MOVE_DOWN)
+        await self._start_movement(COMMAND_MOVE_DOWN, "continuous", "down")
 
     async def stop(self) -> None:
         """Stop desk movement."""
@@ -653,7 +667,7 @@ class DeskBLEDevice:
         The desk sends its settings block for a status request that follows a
         handshake; it has no query for a single setting.
         """
-        await self._send_awake_command(COMMAND_GET_STATUS)
+        await self._write(COMMAND_HANDSHAKE, COMMAND_GET_STATUS)
 
     async def move_to_preset(self, preset: int) -> None:
         """Move desk to a preset position (1-4)."""
@@ -669,8 +683,7 @@ class DeskBLEDevice:
             raise ValueError(f"Invalid preset number: {preset}")
 
         # The preset height is unknown, so the direction is too
-        self._begin_movement("preset", None)
-        await self._send_movement_command(command)
+        await self._start_movement(command, "preset", None)
 
     async def _send_setting(self, frame: bytes, times: tuple[float, ...]) -> None:
         """Wake the desk with the handshake, then send a setting at the app's times."""

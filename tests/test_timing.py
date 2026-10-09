@@ -6,9 +6,14 @@ import asyncio
 from collections.abc import Coroutine
 import time
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
+from homeassistant.components.button import DOMAIN as BUTTON_DOMAIN, SERVICE_PRESS
+from homeassistant.components.cover import DOMAIN as COVER_DOMAIN
+from homeassistant.const import ATTR_ENTITY_ID, SERVICE_STOP_COVER
+from homeassistant.core import HomeAssistant
 import pytest
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.desky_desk.bluetooth import (
     Clock,
@@ -31,7 +36,7 @@ from custom_components.desky_desk.const import (
     HeightLimit,
 )
 
-from . import FakeClock, desk_response, record_frames
+from . import FakeClock, deliver_frame, desk_response, record_frames
 
 H = COMMAND_HANDSHAKE.hex()
 STATUS = COMMAND_GET_STATUS.hex()
@@ -557,3 +562,308 @@ async def test_disconnect_during_a_move_to_height(
 
     assert frames == [(0.0, H), (0.0, STOP)]
     assert desk._movement is None
+
+
+# Hold-repeat in press-and-hold touch mode
+
+
+@pytest.fixture
+def held_desk(desk: DeskBLEDevice, clock: FakeClock) -> DeskBLEDevice:
+    """Return the desk in press-and-hold touch mode, with pauses held."""
+    clock.auto = False
+    desk._handle_notification(None, PRESS_AND_HOLD)
+    return desk
+
+
+MOVEMENTS = [
+    ("move_up", (), UP),
+    ("move_down", (), DOWN),
+    ("move_to_preset", (2,), PRESET_2),
+]
+
+
+@pytest.mark.parametrize("touch_mode", [None, ONE_PRESS])
+@pytest.mark.parametrize(("method", "args", "frame"), MOVEMENTS)
+async def test_one_frame_unless_press_and_hold(
+    desk: DeskBLEDevice,
+    frames: Frames,
+    clock: FakeClock,
+    touch_mode: bytearray | None,
+    method: str,
+    args: tuple[Any, ...],
+    frame: str,
+) -> None:
+    """In one-press mode, or while the touch mode is unknown, one frame is sent."""
+    clock.auto = False
+    if touch_mode is not None:
+        desk._handle_notification(None, touch_mode)
+
+    await getattr(desk, method)(*args)
+    await clock.advance(2.0)
+
+    assert frames == [(0.0, H), (0.0, frame)]
+
+
+@pytest.mark.parametrize(("method", "args", "frame"), MOVEMENTS)
+async def test_press_and_hold_repeats_until_stop(
+    held_desk: DeskBLEDevice,
+    frames: Frames,
+    clock: FakeClock,
+    method: str,
+    args: tuple[Any, ...],
+    frame: str,
+) -> None:
+    """In press-and-hold mode the frame repeats every 100 ms until a stop."""
+    await getattr(held_desk, method)(*args)
+    await clock.advance(0.35)
+
+    await _run(clock, held_desk.stop())
+
+    assert frames == [
+        (0.0, H),
+        (0.0, frame),
+        (0.1, frame),
+        (0.2, frame),
+        (0.3, frame),
+        (0.35, STOP),
+        (0.4, STOP),
+    ]
+    assert not held_desk._sequences
+
+
+@patch("time.time")
+@pytest.mark.parametrize(
+    ("method", "args", "frame"),
+    [("move_up", (), UP), ("move_to_preset", (2,), PRESET_2)],
+)
+async def test_press_and_hold_ends_when_the_desk_stops(
+    mock_time: MagicMock,
+    held_desk: DeskBLEDevice,
+    frames: Frames,
+    clock: FakeClock,
+    method: str,
+    args: tuple[Any, ...],
+    frame: str,
+) -> None:
+    """The repeat ends once the height is unchanged for three readings."""
+    mock_time.return_value = 0.0
+    await getattr(held_desk, method)(*args)
+    readings = [(0.5, 82.0), (1.0, 90.0), (1.5, 95.0), (2.0, 95.0), (2.5, 95.0)]
+    for when, height in readings:
+        await clock.advance(0.5)
+        mock_time.return_value = when
+        held_desk._handle_notification(None, _status_frame(height))
+    assert held_desk._movement is not None  # two unchanged readings so far
+
+    await clock.advance(0.5)
+    mock_time.return_value = 3.0
+    held_desk._handle_notification(None, _status_frame(95.0))  # the third
+    sent = len(frames)
+    await clock.advance(2.0)
+
+    assert held_desk._movement is None
+    assert len(frames) == sent
+    assert frames[-1] == (3.0, frame)
+    assert not held_desk._sequences
+
+
+@patch("time.time")
+async def test_press_and_hold_ends_on_a_bounce(
+    mock_time: MagicMock,
+    held_desk: DeskBLEDevice,
+    frames: Frames,
+    clock: FakeClock,
+) -> None:
+    """A collision bounce ends the movement, so the frame stops repeating."""
+    mock_time.return_value = 0.0
+    await held_desk.move_down()
+    for when, height in [(0.5, 78.0), (1.0, 76.0), (1.2, 77.0)]:  # back up 1 cm
+        await clock.advance(0.2)
+        mock_time.return_value = when
+        held_desk._handle_notification(None, _status_frame(height))
+    sent = len(frames)
+    await clock.advance(2.0)
+
+    assert held_desk.collision_detected is True
+    assert len(frames) == sent
+    held_desk._set_collision_detected(False)  # cancel the auto-clear
+
+
+@patch("time.time")
+async def test_press_and_hold_ends_when_the_desk_never_moves(
+    mock_time: MagicMock,
+    held_desk: DeskBLEDevice,
+    frames: Frames,
+    clock: FakeClock,
+) -> None:
+    """A desk that does not move within the expiry time stops getting the frame."""
+    mock_time.return_value = 0.0
+    await held_desk.move_up()
+    await clock.advance(1.0)
+    mock_time.return_value = 6.0  # past the five-second expiry
+    held_desk._handle_notification(None, _status_frame(80.0))
+    sent = len(frames)
+    await clock.advance(2.0)
+
+    assert held_desk._movement is None
+    assert len(frames) == sent
+
+
+async def test_press_and_hold_stops_at_sixty_seconds(
+    held_desk: DeskBLEDevice, frames: Frames, clock: FakeClock
+) -> None:
+    """The repeat never runs longer than 60 seconds."""
+    await held_desk.move_up()
+    await clock.advance(70.0)
+
+    repeats = [at for at, frame in frames if frame == UP]
+    assert len(repeats) == 601  # the first frame, then 600 repeats
+    assert repeats[-1] == 60.0
+    assert not held_desk._sequences
+
+
+async def test_press_and_hold_ends_on_disconnect(
+    held_desk: DeskBLEDevice,
+    clock: FakeClock,
+    mock_bleak_client: MagicMock,
+) -> None:
+    """A disconnect cancels the repeat before its next write."""
+    await held_desk.move_up()
+    await clock.advance(0.25)
+    sent = mock_bleak_client.write_gatt_char.await_count
+
+    await held_desk.disconnect()
+    await clock.advance(2.0)
+
+    assert mock_bleak_client.write_gatt_char.await_count == sent
+    assert not held_desk._sequences
+
+
+async def test_new_command_replaces_the_repeat(
+    held_desk: DeskBLEDevice, frames: Frames, clock: FakeClock
+) -> None:
+    """A new movement command repeats its own frame instead."""
+    await held_desk.move_up()
+    await clock.advance(0.15)
+
+    await held_desk.move_down()
+    await clock.advance(0.25)
+    await _run(clock, held_desk.stop())
+
+    assert frames == [
+        (0.0, H),
+        (0.0, UP),
+        (0.1, UP),
+        (0.15, H),
+        (0.15, DOWN),
+        (0.25, DOWN),
+        (0.35, DOWN),
+        (0.4, STOP),
+        (0.45, STOP),
+    ]
+
+
+async def test_move_to_height_is_not_held(
+    held_desk: DeskBLEDevice, frames: Frames, clock: FakeClock
+) -> None:
+    """A move to height is sent as in the app, even in press-and-hold mode."""
+    await _run(clock, held_desk.move_to_height(85.0), 2.0)
+
+    assert frames == [(0.0, H), (0.0, STOP), (0.2, TO_85_CM), (0.3, TO_85_CM)]
+
+
+async def test_failed_repeat_ends_quietly(
+    held_desk: DeskBLEDevice,
+    clock: FakeClock,
+    mock_bleak_client: MagicMock,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A repeat whose write fails ends, and the failure is only logged at debug."""
+    caplog.set_level("DEBUG", logger="custom_components.desky_desk.bluetooth")
+    # The handshake and the first frame go out; the first repeat fails
+    mock_bleak_client.write_gatt_char.side_effect = [None, None, Exception("busy")]
+
+    await held_desk.move_up()
+    await clock.advance(0.5)
+
+    assert mock_bleak_client.write_gatt_char.await_count == 3
+    assert "Timed command sequence ended: busy" in caplog.text
+    assert not held_desk._sequences
+
+
+async def test_movement_ended_during_its_first_frame_is_not_held(
+    held_desk: DeskBLEDevice, clock: FakeClock, mock_bleak_client: MagicMock
+) -> None:
+    """A movement that ends while its first frame goes out does not repeat."""
+
+    async def _write(_uuid: str, data: bytes) -> None:
+        held_desk._end_movement()  # as a bounce reported meanwhile would
+
+    mock_bleak_client.write_gatt_char.side_effect = _write
+
+    await held_desk.move_up()
+    await clock.advance(1.0)
+
+    assert mock_bleak_client.write_gatt_char.await_count == 2  # handshake, frame
+    assert not held_desk._sequences
+
+
+async def test_preset_button_repeats_in_press_and_hold_mode(
+    hass: HomeAssistant, desk_client: MagicMock, clock: FakeClock
+) -> None:
+    """Pressing Preset 2 in press-and-hold mode repeats it until the cover stops."""
+    clock.auto = False
+    deliver_frame(desk_client, PRESS_AND_HOLD)
+    frames = record_frames(desk_client, clock)
+
+    await hass.services.async_call(
+        BUTTON_DOMAIN,
+        SERVICE_PRESS,
+        {ATTR_ENTITY_ID: "button.desky_desk_preset_2"},
+        blocking=True,
+    )
+    await clock.advance(0.25)
+    stop = hass.async_create_task(
+        hass.services.async_call(
+            COVER_DOMAIN,
+            SERVICE_STOP_COVER,
+            {ATTR_ENTITY_ID: "cover.desky_desk"},
+            blocking=True,
+        )
+    )
+    await clock.advance(1.0)
+    await stop
+
+    start = frames[0][0]
+    assert [(round(at - start, 3), frame) for at, frame in frames] == [
+        (0.0, H),
+        (0.0, PRESET_2),
+        (0.1, PRESET_2),
+        (0.2, PRESET_2),
+        (0.25, STOP),
+        (0.3, STOP),
+    ]
+
+
+async def test_unload_ends_a_held_movement(
+    hass: HomeAssistant,
+    desk_client: MagicMock,
+    mock_config_entry: MockConfigEntry,
+    clock: FakeClock,
+) -> None:
+    """Unloading the entry cancels a hold-repeat; nothing is written afterwards."""
+    clock.auto = False
+    deliver_frame(desk_client, PRESS_AND_HOLD)
+    await hass.services.async_call(
+        BUTTON_DOMAIN,
+        SERVICE_PRESS,
+        {ATTR_ENTITY_ID: "button.desky_desk_move_up"},
+        blocking=True,
+    )
+    await clock.advance(0.25)
+
+    assert await hass.config_entries.async_unload(mock_config_entry.entry_id)
+    sent = desk_client.write_gatt_char.await_count
+    await clock.advance(2.0)
+
+    assert desk_client.write_gatt_char.await_count == sent
