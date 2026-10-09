@@ -143,10 +143,11 @@ def _steps_at(at: float, frames: tuple[bytes, ...]) -> tuple[Step, ...]:
 # and the app repeats a held button's frame this often
 HOLD_REPEAT_INTERVAL = 0.1
 HOLD_REPEAT_MAX_SECONDS = 60.0
-# A moving desk reports its height about every 200 ms. Without readings the
-# bounce and collision checks are blind, so a held movement that has started
-# ends once no reading has come for this long.
-READING_WATCHDOG_SECONDS = 1.0
+# A moving desk reports its height about every 200 ms, but through a proxy the
+# reports bunch up, with gaps of over a second. Without readings the bounce
+# and collision checks are blind, so a held movement that has started ends
+# once no reading has come for this long.
+READING_WATCHDOG_SECONDS = 3.0
 
 
 @dataclass(slots=True)

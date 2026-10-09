@@ -708,10 +708,27 @@ async def test_held_movement_ends_when_readings_stop(
     await clock.advance(5.0)
 
     repeats = [at for at, frame in frames if frame == UP]
-    assert 1.6 <= repeats[-1] <= 1.7  # about a second after the last reading
+    assert 3.6 <= repeats[-1] <= 3.7  # about three seconds after the last reading
     assert held_desk._movement is None
     assert held_desk._sequencer.idle
     assert notified.call_args.args[2] is False  # not moving
+
+
+async def test_held_movement_rides_out_bunched_readings(
+    held_desk: DeskBLEDevice, frames: Frames, clock: FakeClock
+) -> None:
+    """Gaps of 1.1 s and 2 s between readings, as through a proxy, do not release it."""
+    await held_desk.move_up()
+    for gap, height in [(0.2, 81.0), (1.1, 83.0), (2.0, 87.0), (0.2, 87.5)]:
+        await clock.advance(gap)
+        held_desk._handle_notification(None, _status_frame(height))
+    await clock.advance(0.5)
+
+    assert held_desk._movement is not None
+    assert held_desk._sequencer.repeating
+    assert frames[-1] == (4.0, UP)  # still repeating every 100 ms
+
+    await _run(clock, held_desk.stop())
 
 
 async def test_press_and_hold_ends_on_disconnect(
