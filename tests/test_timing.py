@@ -59,6 +59,7 @@ DOWN = COMMAND_MOVE_DOWN.hex()
 PRESET_2 = COMMAND_MEMORY_2.hex()
 CLEAR = COMMAND_CLEAR_LIMITS.hex()
 GET_LIMITS = COMMAND_GET_LIMITS.hex()
+TO_75_CM = "f1f11b0202ee0d7e"  # 750 mm
 TO_85_CM = "f1f11b020352727e"  # 850 mm
 UPPER_120 = "f1f1210204b0d77e"
 LOWER_65 = "f1f12202028ab07e"
@@ -1474,9 +1475,15 @@ async def test_checked_setting_ignores_a_report_from_before_the_read_back(
     assert frames == attempt  # sent once: the read-back showed the new value
 
 
-@pytest.mark.parametrize("command", ["stop", "move_up"])
+@pytest.mark.parametrize(
+    ("command", "args"), [("stop", ()), ("move_up", ()), ("move_to_height", (85.0,))]
+)
 async def test_command_while_waiting_for_the_height_cancels_the_move(
-    desk: DeskBLEDevice, frames: Frames, clock: FakeClock, command: str
+    desk: DeskBLEDevice,
+    frames: Frames,
+    clock: FakeClock,
+    command: str,
+    args: tuple[Any, ...],
 ) -> None:
     """A stop or a newer command, while a move to height waits for a height, wins."""
     clock.auto = False
@@ -1484,7 +1491,7 @@ async def test_command_while_waiting_for_the_height_cancels_the_move(
     move = asyncio.create_task(desk.move_to_height(75.0))
     await clock.advance(0.1)  # the status request is out, unanswered
 
-    newer = asyncio.create_task(getattr(desk, command)())
+    newer = asyncio.create_task(getattr(desk, command)(*args))
     await clock.advance(0.1)
     desk._handle_notification(None, _status_frame(80.0))  # the height arrives
     await clock.advance(0.5)
@@ -1493,4 +1500,40 @@ async def test_command_while_waiting_for_the_height_cancels_the_move(
     if command != "stop":
         await _run(clock, desk.stop())
 
-    assert all(not frame.startswith("f1f11b") for _, frame in frames)  # no target
+    assert TO_75_CM not in {frame for _, frame in frames}  # not the older target
+
+
+async def test_newer_move_to_height_wins_while_waiting_for_the_height(
+    desk: DeskBLEDevice, frames: Frames, clock: FakeClock
+) -> None:
+    """Of two moves to height waiting for the first reading, the newer one moves.
+
+    The older one is answered first, so it would move if it went by when
+    the newer one began moving.
+    """
+    clock.auto = False
+    desk._height_cm = 0.0
+    waiters: list[asyncio.Future[None]] = []
+    expect_report = desk._expect_report
+
+    def spy(header: bytes) -> asyncio.Future[None]:
+        waiters.append(report := expect_report(header))
+        return report
+
+    with patch.object(desk, "_expect_report", spy):
+        older = asyncio.create_task(desk.move_to_height(75.0))
+        await clock.advance(0.05)
+        newer = asyncio.create_task(desk.move_to_height(85.0))
+        await clock.advance(0.05)  # both are waiting for the height
+
+    desk._report_waiters.clear()  # answered below, the older one first
+    desk._handle_notification(None, _status_frame(80.0))
+    for report in waiters:
+        report.set_result(None)
+    await clock.advance(0.5)
+    await older
+    await newer
+
+    assert frames[2:] == [(0.1, H), (0.1, STOP), (0.3, TO_85_CM), (0.4, TO_85_CM)]
+    assert desk._movement is not None
+    assert desk._movement.target_height == 85.0

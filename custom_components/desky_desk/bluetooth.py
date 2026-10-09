@@ -694,6 +694,9 @@ class DeskBLEDevice:
                 f"({MIN_HEIGHT:.1f}-{MAX_HEIGHT:.1f} cm)"
             )
 
+        # Counted now, so an older move to height still waiting for the height
+        # gives way to this one
+        self._motion_commands += 1
         issued = self._motion_commands
         await self._await_height()
         if self._motion_commands != issued:
