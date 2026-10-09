@@ -16,6 +16,7 @@ from homeassistant.components.light import (
     ATTR_HS_COLOR,
     ATTR_RGB_COLOR,
     ATTR_SUPPORTED_COLOR_MODES,
+    ATTR_XY_COLOR,
     DOMAIN as LIGHT_DOMAIN,
     SERVICE_TURN_OFF,
     SERVICE_TURN_ON,
@@ -388,6 +389,8 @@ async def test_light_turn_on_effect(
         ({ATTR_HS_COLOR: (300, 100)}, 4),
         ({ATTR_RGB_COLOR: (255, 200, 0)}, 5),
         ({ATTR_RGB_COLOR: (255, 255, 255)}, 1),
+        # About hue 241.2, saturation 79.2
+        ({ATTR_XY_COLOR: (0.15, 0.06)}, 4),
         ({ATTR_COLOR_NAME: "red"}, 2),
         ({ATTR_COLOR_NAME: "purple"}, 4),
         # The desk has one white, so every colour temperature is White
