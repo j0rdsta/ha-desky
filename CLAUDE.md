@@ -57,14 +57,14 @@ This is a Home Assistant custom integration that follows the standard component 
 - **Posture** (`posture.py`): `PostureTracker` follows sitting/standing from the height the desk settles at
 - **Bluetooth Layer** (`bluetooth.py`): Handles BLE communication using `bleak` library with retry logic via `bleak-retry-connector`
 - **Sequencer** (`sequencer.py`): writes frames one at a time and sends timed sequences (see Command Timing); `limits.py` holds the known height limits, `errors.py` the command errors
-- **Config Flow** (`config_flow.py`): Manages integration setup through UI, including Bluetooth device discovery
+- **Config Flow** (`config_flow.py`): Manages integration setup through UI, including Bluetooth device discovery (`title_placeholders` names the desk on the discovery card). The picker hides desks already configured, a typed address must be a MAC address (`invalid_address`), and the user steps set the unique ID with `raise_on_progress=False` so an open discovery card does not block them. Every path probes the desk with a real `connect()` and always disconnects it afterwards
 - **Platform Entities**: Each platform file (cover.py, number.py, etc.) implements specific Home Assistant entities
 
 ### Key Design Patterns
 
 1. **Coordinator Pattern**: All entities receive updates through a central `DeskUpdateCoordinator` that manages:
    - Bluetooth connection state
-   - Periodic status polling (30-second intervals)
+   - Status polling 30 seconds after the last update: every `async_set_updated_data()` restarts the timer, so a quiet desk is polled about every 30 seconds. The poll writes nothing while a movement frame is being repeated
    - Reconnection when the desk advertises again, with backoff (see Connection Management)
    - Data distribution to all entities
    - Movement tracking for the cover state and collision detection (see Movement Tracking below)
@@ -72,7 +72,7 @@ This is a Home Assistant custom integration that follows the standard component 
 2. **Bluetooth Communication**:
    - Uses characteristic UUIDs for write (0xfe61) and notify (0xfe62)
    - Commands are typically 6-8 byte arrays with checksum
-   - Handshake command (0xFE) must be sent after connection to enable movement
+   - Handshake command (0xFE) must be sent after connection to enable movement. This was observed on the L-BTMEB95; the official app sends no handshake before movement commands, only before some settings
    - Height notifications can have different headers depending on firmware version
    - Height frames carry tenths of the desk's display unit (cm or inches); `_decode_height()` converts them to cm, so everything downstream works in cm (see BLE Notification Formats)
    - `_handle_notification()` notifies the entities after every recognised frame; an unrecognised or truncated frame notifies nothing. `set_lock_status()` also notifies after a successful write, because it shows the lock before the reply
@@ -152,7 +152,7 @@ The desk can send height updates in two different formats depending on firmware 
    - Typically sent during desk movement
    - Example: `98 98 00 00 52 03` = 85.0 cm (0x0352 = 850 / 10.0)
    - Value: `(byte4 | (byte5 << 8)) / 10.0`, in the display unit
-   - Not seen from the L-BTMEB95 desk (firmware Rev01), which reports movement in status frames
+   - Not seen from the L-BTMEB95 desk (firmware Rev01), which reports movement in status frames. Which controllers send it is unverified, and the official app does not read it
 
 2. **Status Response Notification** (0xF2 0xF2 0x01 0x03):
    - Header: `0xF2 0xF2 0x01 0x03` (bytes 0-3)
@@ -175,7 +175,7 @@ Additional device features send responses with specific headers:
    - 0 also means off: the official app turns the LED off by setting colour 0. `OFF_COLORS` (`const.py`) holds both, and `LED_COLORS` (`light.py`) holds only the colours the LED shows, each with its effect name and its hue and saturation (none for Party mode); the light is off and turning it on restores a colour. The integration never sends 0; it turns the light off with the lighting command (`B5 00`)
 
 2. **Brightness Response** (0xF2 0xF2 0xB6 0x01):
-   - Value: 0-100 (percentage)
+   - Value: 0-100 (percentage). The official app offers 20-100 in steps of 20; other values work too
 
 3. **Lock Status Response** (0xF2 0xF2 0xB2 0x01):
    - Value: 0=Unlocked, 1=Locked
@@ -190,12 +190,13 @@ Additional device features send responses with specific headers:
 6. **Touch Mode Response** (0xF2 0xF2 0x19 0x01):
    - Values: 0=One press (`f2 f2 19 01 00 1a 7e`), 1=Press and hold (`f2 f2 19 01 01 1b 7e`)
 
-   The desk has no query for a single setting. It sends a settings block (presets `0x25`-`0x28`, unit `0x0E`, touch mode `0x19`, `0x17`, sensitivity `0x1D`) for a status request (`0x07`) that follows a handshake, which the integration sends on connect and at the end of the unit, touch-mode and sensitivity setters (`SETTINGS_REQUEST`, also `get_settings()`). It also sends the block unprompted when the unit is changed on the hand controller. It does not confirm a unit, touch-mode or sensitivity change by itself.
+   The desk has no query for a single setting. It sends a settings block (presets `0x25`-`0x28`, unit `0x0E`, touch mode `0x19`, `0x17`, sensitivity `0x1D`) for a status request (`0x07`) that follows a handshake, which the integration sends on connect and at the end of the unit, touch-mode and sensitivity setters (`SETTINGS_REQUEST`, also `get_settings()`). It also sends the block unprompted when the unit is changed on the hand controller. It does not confirm a unit, touch-mode or sensitivity change by itself. The preset heights (`0x25`-`0x28`) in the block are in the display unit; the integration does not read them.
 
 7. **Height Limit Responses**:
    - Upper limit (0xF2 0xF2 0x21 0x02): tenths of the display unit (big-endian), one tenth low; a raw value not divisible by 5 is rounded up by one tenth before decoding
    - Lower limit (0xF2 0xF2 0x22 0x02): tenths of the display unit (big-endian), same correction
    - Limit status (0xF2 0xF2 0x20 0x01): 0x00=No limits, 0x01=Upper only, 0x10=Lower only, 0x11=Both
+   - With no limits set, the desk was seen to answer `0x0C` with `f2 f2 07 04 04 e2 02 58` (125.0 and 60.0 cm), probably its physical range. The integration does not read this frame
 
 ### Troubleshooting Height Updates
 
