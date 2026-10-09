@@ -217,7 +217,8 @@ async def test_set_desk_number(
     await _set_value(hass, entity_id, value)
 
     getattr(mock_desk, setter).assert_awaited_once_with(*sent)
-    getattr(mock_desk, getter).assert_awaited_once_with()
+    # The desk code reads the limits back itself
+    getattr(mock_desk, getter).assert_not_awaited()
 
 
 @pytest.mark.parametrize(

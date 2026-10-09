@@ -119,9 +119,8 @@ class DeskHeightLimitNumber(DeskEntity, NumberEntity):
 
     @desk_command
     async def async_set_native_value(self, value: float) -> None:
-        """Set the limit, then show the limits the desk reports."""
+        """Set the limit; the desk code then asks for the limits the desk reports."""
         value = checked_height_limit(
             self.coordinator.data, self._device, self._limit, value
         )
         await self._device.set_height_limit(self._limit, value)
-        await self._device.get_limits()

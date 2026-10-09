@@ -99,9 +99,8 @@ async def _async_set_height_limit(call: ServiceCall) -> None:
     for coordinator, rounded in limits:
         device = coordinator.device
         with translate_desk_errors():
+            # This also asks for the limits, so the entities show what the desk reports
             await device.set_height_limit(limit, rounded)
-            # The desk may adjust the limit, so show what it reports
-            await device.get_limits()
 
 
 async def _async_clear_height_limits(call: ServiceCall) -> None:
@@ -110,7 +109,6 @@ async def _async_clear_height_limits(call: ServiceCall) -> None:
         device = coordinator.device
         with translate_desk_errors():
             await device.clear_height_limits()
-            await device.get_limits()
 
 
 @callback

@@ -610,16 +610,17 @@ class DeskBLEDevice:
         times: tuple[float, ...],
         *,
         read_back_at: float | None = None,
+        read_back: tuple[bytes, ...] = SETTINGS_REQUEST,
     ) -> None:
         """Wake the desk with the handshake, then send a setting at the app's times.
 
         The desk does not confirm the unit, touch mode or sensitivity, so those
-        ask for the settings block at read_back_at. A sequence cut short by a
-        failed write is not read back.
+        ask for the settings block at read_back_at; other settings send their
+        own read_back. A sequence cut short by a failed write is not read back.
         """
         steps = [(0.0, COMMAND_HANDSHAKE), *((at, frame) for at in times)]
         if read_back_at is not None:
-            steps += [(read_back_at, request) for request in SETTINGS_REQUEST]
+            steps += [(read_back_at, request) for request in read_back]
         await self._sequencer.run_setting(steps)
 
     def _create_command_with_byte_param(self, command_byte: int, param: int) -> bytes:
@@ -792,8 +793,9 @@ class DeskBLEDevice:
         set, each frame twice; the other limit is sent again so it is kept.
         Nothing is cleared until the desk has reported which limits are set
         and the value of each, so no limit is lost; the new limit then goes
-        out alone. The read-back that callers ask for corrects anything the
-        desk did differently.
+        out alone. The sequence ends by asking for the limits, so the desk's
+        reply corrects anything it did differently. Asked inside the limit
+        lock, that reply comes before the next change is sent.
         """
         known = self._limits
         unit = self._limit_unit or "cm"
@@ -809,11 +811,9 @@ class DeskBLEDevice:
         else:
             frames = [self._limit_frame(limit, new)] * 2
             sent = known.with_limit(limit, new)
+        steps = [(n * SET_LIMITS_SPACING, frame) for n, frame in enumerate(frames)]
         await self._sequencer.run_setting(
-            [
-                (0.0, COMMAND_HANDSHAKE),
-                *((n * SET_LIMITS_SPACING, frame) for n, frame in enumerate(frames)),
-            ]
+            [(0.0, COMMAND_HANDSHAKE), *steps, (steps[-1][0], COMMAND_GET_LIMITS)]
         )
         self._limits = sent
         self._notify_callbacks()
@@ -831,9 +831,14 @@ class DeskBLEDevice:
         return self._create_command_with_word_param(LIMIT_COMMANDS[limit], raw)
 
     async def clear_height_limits(self) -> None:
-        """Clear all height limits."""
+        """Clear all height limits, then ask the desk for its limits."""
         async with self._limit_lock:
-            await self._send_setting(COMMAND_CLEAR_LIMITS, CLEAR_LIMITS_TIMES)
+            await self._send_setting(
+                COMMAND_CLEAR_LIMITS,
+                CLEAR_LIMITS_TIMES,
+                read_back_at=CLEAR_LIMITS_TIMES[-1],
+                read_back=(COMMAND_GET_LIMITS,),
+            )
             self._limits = HeightLimits(upper_set=False, lower_set=False)
             self._notify_callbacks()
 

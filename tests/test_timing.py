@@ -49,6 +49,7 @@ UP = COMMAND_MOVE_UP.hex()
 DOWN = COMMAND_MOVE_DOWN.hex()
 PRESET_2 = COMMAND_MEMORY_2.hex()
 CLEAR = COMMAND_CLEAR_LIMITS.hex()
+GET_LIMITS = COMMAND_GET_LIMITS.hex()
 TO_85_CM = "f1f11b020352727e"  # 850 mm
 UPPER_120 = "f1f1210204b0d77e"
 LOWER_65 = "f1f12202028ab07e"
@@ -150,7 +151,12 @@ VIBRATION_OFF = "f1f1b30100b47e"
             ],
         ),
         # Clearing the limits: twice, 200 ms apart
-        ("clear_height_limits", (), [(0.0, H), (0.0, CLEAR), (0.2, CLEAR)]),
+        # Clearing the limits: twice, 200 ms apart, then they are read back
+        (
+            "clear_height_limits",
+            (),
+            [(0.0, H), (0.0, CLEAR), (0.2, CLEAR), (0.2, GET_LIMITS)],
+        ),
     ],
 )
 async def test_settings_follow_the_app_timing(
@@ -212,7 +218,8 @@ async def test_setting_that_fails_is_not_read_back(
 @pytest.mark.parametrize(
     ("limit_status", "limit", "height", "expected"),
     [
-        # Both set: clear twice, then upper and lower twice each, 50 ms apart
+        # Both set: clear twice, then upper and lower twice each, 50 ms apart;
+        # the limits are read back with the last frame
         (
             0x11,
             HeightLimit.UPPER,
@@ -225,6 +232,7 @@ async def test_setting_that_fails_is_not_read_back(
                 (0.15, UPPER_120),
                 (0.2, LOWER_65),
                 (0.25, LOWER_65),
+                (0.25, GET_LIMITS),
             ],
         ),
         # None set: clear twice, then the new limit twice
@@ -232,14 +240,21 @@ async def test_setting_that_fails_is_not_read_back(
             0x00,
             HeightLimit.LOWER,
             65.0,
-            [(0.0, H), (0.0, CLEAR), (0.05, CLEAR), (0.1, LOWER_65), (0.15, LOWER_65)],
+            [
+                (0.0, H),
+                (0.0, CLEAR),
+                (0.05, CLEAR),
+                (0.1, LOWER_65),
+                (0.15, LOWER_65),
+                (0.15, GET_LIMITS),
+            ],
         ),
         # Limits not reported yet: nothing is cleared that might be set
         (
             None,
             HeightLimit.UPPER,
             120.0,
-            [(0.0, H), (0.0, UPPER_120), (0.05, UPPER_120)],
+            [(0.0, H), (0.0, UPPER_120), (0.05, UPPER_120), (0.05, GET_LIMITS)],
         ),
     ],
 )
@@ -284,7 +299,13 @@ async def test_limit_sent_again_uses_the_display_unit(
 
     upper = desk._create_command_with_word_param(0x21, 470).hex()  # a whole 47 in
     lower = desk._create_command_with_word_param(0x22, 280).hex()  # 28.0 in
-    assert [frame for _, frame in frames[3:]] == [upper, upper, lower, lower]
+    assert [frame for _, frame in frames[3:]] == [
+        upper,
+        upper,
+        lower,
+        lower,
+        GET_LIMITS,
+    ]
 
 
 def _report_limits(desk: DeskBLEDevice, upper: int | None, lower: int | None) -> None:
@@ -333,6 +354,7 @@ async def test_loosening_a_limit_clears_it_first(
         (0.15, upper),
         (0.2, lower),
         (0.25, lower),
+        (0.25, GET_LIMITS),
     ]
 
 
@@ -346,7 +368,12 @@ async def test_limit_not_cleared_while_the_other_is_unread(
 
     await desk.set_height_limit(HeightLimit.UPPER, 120.0)
 
-    assert frames == [(0.0, H), (0.0, UPPER_120), (0.05, UPPER_120)]
+    assert frames == [
+        (0.0, H),
+        (0.0, UPPER_120),
+        (0.05, UPPER_120),
+        (0.05, GET_LIMITS),
+    ]
 
 
 # Stop and move to height
@@ -832,6 +859,7 @@ SET_BOTH_120_70 = [
     UPPER_120,
     "f1f1220202bce27e",  # lower 70
     "f1f1220202bce27e",
+    GET_LIMITS,
 ]
 
 
@@ -870,6 +898,7 @@ async def test_limits_set_at_the_same_time_do_not_interleave(
         UPPER_120,
         LOWER_65,
         LOWER_65,
+        GET_LIMITS,
         *SET_BOTH_120_70,
     ]
 
@@ -889,7 +918,14 @@ async def test_limit_set_after_a_clear_does_not_bring_back_the_other(
     frames.clear()
     await desk.set_height_limit(HeightLimit.LOWER, 65.0)
 
-    assert [frame for _, frame in frames] == [H, CLEAR, CLEAR, LOWER_65, LOWER_65]
+    assert [frame for _, frame in frames] == [
+        H,
+        CLEAR,
+        CLEAR,
+        LOWER_65,
+        LOWER_65,
+        GET_LIMITS,
+    ]
     assert (desk.height_limit_upper, desk.height_limit_lower) == (None, 65.0)
     assert desk.limits_enabled is True
 
@@ -919,6 +955,7 @@ async def test_limit_from_before_a_unit_change_is_sent_in_the_new_unit(
         UPPER_120,
         lower,
         lower,
+        GET_LIMITS,
     ]
 
 
@@ -933,3 +970,39 @@ async def test_failed_limit_write_keeps_the_known_limits(
         await desk.set_height_limit(HeightLimit.UPPER, 120.0)
 
     assert (desk.height_limit_upper, desk.height_limit_lower) == (110.0, 65.0)
+
+
+async def test_late_limit_reply_does_not_undo_a_newer_change(
+    desk: DeskBLEDevice, frames: Frames, clock: FakeClock
+) -> None:
+    """A limit change reads the limits back itself, and a late reply is overwritten.
+
+    The read-back of one change can arrive while the next change is being
+    sent; the next change still keeps both of its limits.
+    """
+    _report_limits(desk, upper=1100, lower=650)
+    await desk.set_height_limit(HeightLimit.UPPER, 120.0)
+    assert frames[-1] == (frames[-2][0], GET_LIMITS)  # with the last limit frame
+
+    clock.auto = False
+    second = asyncio.create_task(desk.set_height_limit(HeightLimit.LOWER, 70.0))
+    await clock.advance(0.05)
+    _report_limits(desk, upper=1200, lower=650)  # the first change's reply, late
+    await clock.advance(1.0)
+    await second
+    assert (desk.height_limit_upper, desk.height_limit_lower) == (120.0, 70.0)
+
+    clock.auto = True
+    frames.clear()
+    await desk.set_height_limit(HeightLimit.UPPER, 115.0)
+    upper_115 = "f1f12102047ea57e"
+    assert [frame for _, frame in frames] == [
+        H,
+        CLEAR,
+        CLEAR,
+        upper_115,
+        upper_115,
+        "f1f1220202bce27e",  # lower 70
+        "f1f1220202bce27e",
+        GET_LIMITS,
+    ]

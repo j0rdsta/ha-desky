@@ -190,7 +190,8 @@ async def test_set_height_limit(
     await _call(hass, "set_height_limit", {"limit": limit, "height": height})
 
     getattr(mock_desk, command).assert_awaited_once_with(limit, float(height))
-    mock_desk.get_limits.assert_awaited_once()
+    # The desk code reads the limits back itself
+    mock_desk.get_limits.assert_not_awaited()
 
     # The desk answers the limit query
     notify_desk(mock_desk, **{f"height_limit_{limit}": float(height)})
@@ -325,7 +326,7 @@ async def test_clear_height_limits(
     await _call(hass, "clear_height_limits", {})
 
     mock_desk.clear_height_limits.assert_awaited_once()
-    mock_desk.get_limits.assert_awaited_once()
+    mock_desk.get_limits.assert_not_awaited()
 
     notify_desk(
         mock_desk,
