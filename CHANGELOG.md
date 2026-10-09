@@ -1,5 +1,41 @@
 # Changelog
 
+## [2.0.0](https://github.com/j0rdsta/ha-desky/compare/v1.1.0...v2.0.0) (2026-10-09)
+
+
+### ⚠ BREAKING CHANGES
+
+* Entities changed. Update automations that use them.
+    - The Collision sensitivity and Touch mode selects now use the states `high`/`medium`/`low` and `one_press`/`press_and_hold`. Update automations that compare or set them: setting an old label such as "High" now fails with an error. The labels shown are unchanged.
+    - The LED color and Vibration intensity display sensors are removed. Use the LED strip light's effect instead of the LED color sensor.
+    - The Vibration intensity number is removed: the desk does not support setting or reporting vibration intensity. The Vibration switch still turns vibration on and off.
+    - Entity attributes are removed. Read the matching entities instead: the Height display sensor and Height number, the Upper and Lower height limit numbers, the LED strip light and the Vibration switch.
+    - The Height display sensor has a fixed unit and long-term statistics, and no longer follows the desk's display unit. If it showed inches before the upgrade, Home Assistant keeps showing inches, converted from centimetres with full precision (for example 31.496… instead of 31.5), so templates that compare the state as text may need updating; otherwise it shows centimetres. To change the unit, open the entity's settings. New installs on US customary units show inches automatically.
+
+### Features
+
+* colour wheel for the LED strip ([#47](https://github.com/j0rdsta/ha-desky/issues/47)) ([77f8e19](https://github.com/j0rdsta/ha-desky/commit/77f8e19223abf1d4664e662ad1616591c11dbb2e))
+* translated select states and a distance height sensor ([#43](https://github.com/j0rdsta/ha-desky/issues/43)) ([352dd05](https://github.com/j0rdsta/ha-desky/commit/352dd050501627a3870e3fb6f8292a40e0363255))
+
+
+### Bug Fixes
+
+* config flow picks discovered desks ([#38](https://github.com/j0rdsta/ha-desky/issues/38)) ([9576b26](https://github.com/j0rdsta/ha-desky/commit/9576b262dbb8dc15389704ca5733c4e90595e287))
+* keep height limits within the desk's range ([#46](https://github.com/j0rdsta/ha-desky/issues/46)) ([44e8ffa](https://github.com/j0rdsta/ha-desky/commit/44e8ffaf6a954c2514be683062e2694ecef1f976))
+* keep the close task guard for overlapping drops ([#53](https://github.com/j0rdsta/ha-desky/issues/53)) ([235c1cb](https://github.com/j0rdsta/ha-desky/commit/235c1cb781a5eac38b981bfdc19fbaf94da3d808))
+* log at the levels Home Assistant expects and remove dead code ([#52](https://github.com/j0rdsta/ha-desky/issues/52)) ([bfd25ee](https://github.com/j0rdsta/ha-desky/commit/bfd25ee17f78c8d4b5cd716252ad5d44d275cc83))
+* read collision sensitivity from the settings block ([#45](https://github.com/j0rdsta/ha-desky/issues/45)) ([27f83a7](https://github.com/j0rdsta/ha-desky/commit/27f83a79344c1997374868b086cb4e8108539c41))
+* release the Bluetooth connection when connecting fails ([#39](https://github.com/j0rdsta/ha-desky/issues/39)) ([e60ca38](https://github.com/j0rdsta/ha-desky/commit/e60ca380bcde78e5a24f7f67db55853228850904))
+* send commands with the official app's timing ([#50](https://github.com/j0rdsta/ha-desky/issues/50)) ([2cee908](https://github.com/j0rdsta/ha-desky/commit/2cee908141accc098efed8b881acc538fd5eb1f6))
+* treat LED colour 0 as off ([#44](https://github.com/j0rdsta/ha-desky/issues/44)) ([a8622e4](https://github.com/j0rdsta/ha-desky/commit/a8622e47f6893e7d8fd8d55fca39c91849cf188d))
+* update entities when the desk confirms a setting ([#42](https://github.com/j0rdsta/ha-desky/issues/42)) ([57957db](https://github.com/j0rdsta/ha-desky/commit/57957db18a4a382853760958fb01060782a4aa98))
+* validate light effects and height limits ([#40](https://github.com/j0rdsta/ha-desky/issues/40)) ([4cc5069](https://github.com/j0rdsta/ha-desky/commit/4cc50690946732b3c724f0b5f5739fe7a01ac498))
+
+
+### Documentation
+
+* make the quality scale claims and docs hold ([#51](https://github.com/j0rdsta/ha-desky/issues/51)) ([0196f5a](https://github.com/j0rdsta/ha-desky/commit/0196f5a8517434841d2e132ebe0974d60f556af3))
+
 ## [1.1.0](https://github.com/j0rdsta/ha-desky/compare/v1.0.1...v1.1.0) (2026-10-08)
 
 
