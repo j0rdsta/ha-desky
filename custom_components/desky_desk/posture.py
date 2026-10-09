@@ -10,7 +10,7 @@ from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
 from homeassistant.helpers.event import async_call_later
 
 from .bluetooth import DeskBLEDevice
-from .const import POSTURE_SETTLE_SECONDS, Posture
+from .const import POSTURE_SETTLE_SECONDS, Posture, height_known
 
 
 class PostureTracker:
@@ -48,7 +48,7 @@ class PostureTracker:
         """Wait for the desk to stand still before the posture follows its height."""
         now = time.monotonic()
         self._device = device
-        if not device.is_connected or device.height_cm <= 0:
+        if not device.is_connected or not height_known(device.height_cm):
             self.cancel()
             self._last_height = None
             if self.posture is not None:

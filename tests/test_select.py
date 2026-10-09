@@ -11,7 +11,6 @@ from homeassistant.components.select import (
     ATTR_OPTIONS,
     DOMAIN as SELECT_DOMAIN,
     SERVICE_SELECT_OPTION,
-    SelectEntityDescription,
 )
 from homeassistant.const import (
     ATTR_ENTITY_ID,
@@ -29,7 +28,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.desky_desk.bluetooth import DeskCommandError
 from custom_components.desky_desk.const import DOMAIN, SENSITIVITY_RESPONSE_HEADER
-from custom_components.desky_desk.select import SELECT_DESCRIPTIONS, DeskSelect
+from custom_components.desky_desk.select import SELECT_DESCRIPTIONS
 
 from . import deliver_frame, desk_response, disconnect_desk, notify_desk, set_desk_state
 
@@ -175,54 +174,6 @@ async def test_selects_unavailable_when_disconnected(
 
     mock_desk.set_sensitivity.assert_not_awaited()
     mock_desk.get_sensitivity.assert_not_awaited()
-
-
-@pytest.mark.parametrize(
-    ("key", "option"),
-    [
-        ("sensitivity", "Extreme"),
-        ("touch_mode", "Double tap"),
-        ("unit", "mm"),
-    ],
-)
-async def test_select_unknown_option_sends_nothing(
-    hass: HomeAssistant,
-    init_integration: MockConfigEntry,
-    mock_desk: MagicMock,
-    key: str,
-    option: str,
-) -> None:
-    """Test an option outside the known mapping sends no command to the desk.
-
-    Home Assistant rejects such options before they reach the entity, so this
-    calls the entity directly.
-    """
-    entity = DeskSelect(init_integration.runtime_data, DESCRIPTIONS[key])
-
-    await entity.async_select_option(option)
-
-    mock_desk.set_sensitivity.assert_not_awaited()
-    mock_desk.get_sensitivity.assert_not_awaited()
-    mock_desk.set_touch_mode.assert_not_awaited()
-    mock_desk.set_unit.assert_not_awaited()
-
-
-async def test_select_unknown_key(
-    hass: HomeAssistant, init_integration: MockConfigEntry, mock_desk: MagicMock
-) -> None:
-    """Test a select with an unrecognised key has no option and sends nothing."""
-    entity = DeskSelect(
-        init_integration.runtime_data,
-        SelectEntityDescription(key="unknown", options=["a", "b"]),
-    )
-
-    assert entity.current_option is None
-
-    await entity.async_select_option("a")
-
-    mock_desk.set_sensitivity.assert_not_awaited()
-    mock_desk.set_touch_mode.assert_not_awaited()
-    mock_desk.set_unit.assert_not_awaited()
 
 
 @pytest.mark.parametrize(

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 import logging
@@ -21,10 +23,11 @@ from homeassistant.helpers.event import (
     async_track_time_change,
     async_track_time_interval,
 )
+from homeassistant.helpers.typing import StateType
 from homeassistant.util import dt as dt_util
 
-from .const import Posture
-from .coordinator import DeskUpdateCoordinator, DeskyConfigEntry
+from .const import Posture, height_known
+from .coordinator import DeskData, DeskUpdateCoordinator, DeskyConfigEntry
 from .entity import DeskEntity
 
 _LOGGER = logging.getLogger(__name__)
@@ -32,21 +35,34 @@ _LOGGER = logging.getLogger(__name__)
 # State comes from the coordinator, so there are no updates to limit
 PARALLEL_UPDATES = 0
 
+
+@dataclass(frozen=True, kw_only=True)
+class DeskSensorEntityDescription(SensorEntityDescription):
+    """A desk sensor and how to read its value from the desk data."""
+
+    value_fn: Callable[[DeskData], StateType]
+
+
 SENSOR_DESCRIPTIONS = [
-    # Always cm; Home Assistant converts it to the unit the user picks
-    SensorEntityDescription(
+    # Always cm; Home Assistant converts it to the unit the user picks. Unknown
+    # until the desk reports a height, so the placeholder is not recorded
+    DeskSensorEntityDescription(
         key="height_display",
         translation_key="height_display",
         device_class=SensorDeviceClass.DISTANCE,
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=UnitOfLength.CENTIMETERS,
         suggested_display_precision=1,
+        value_fn=lambda data: (
+            round(data.height_cm, 1) if height_known(data.height_cm) else None
+        ),
     ),
-    SensorEntityDescription(
+    DeskSensorEntityDescription(
         key="posture",
         translation_key="posture",
         device_class=SensorDeviceClass.ENUM,
         options=[posture.value for posture in Posture],
+        value_fn=lambda data: data.posture,
     ),
 ]
 
@@ -87,29 +103,21 @@ async def async_setup_entry(
 class DeskSensor(DeskEntity, SensorEntity):
     """Representation of a Desky desk sensor."""
 
+    entity_description: DeskSensorEntityDescription
+
     def __init__(
-        self, coordinator: DeskUpdateCoordinator, description: SensorEntityDescription
+        self,
+        coordinator: DeskUpdateCoordinator,
+        description: DeskSensorEntityDescription,
     ) -> None:
         """Initialize the sensor."""
         super().__init__(coordinator, description.key)
         self.entity_description = description
 
     @property
-    def native_value(self) -> str | float | None:
+    def native_value(self) -> StateType:
         """Return the state of the sensor."""
-        data = self.coordinator.data
-
-        if self.entity_description.key == "height_display":
-            # 0 is the placeholder before the desk reports a height; keep it
-            # out of the statistics
-            if data.height_cm <= 0:
-                return None
-            return round(data.height_cm, 1)
-
-        if self.entity_description.key == "posture":
-            return data.posture
-
-        return None
+        return self.entity_description.value_fn(self.coordinator.data)
 
 
 class PostureTimeSensor(DeskEntity, RestoreSensor):

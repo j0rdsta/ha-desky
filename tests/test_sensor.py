@@ -11,7 +11,6 @@ from homeassistant.components.sensor import (
     ATTR_STATE_CLASS,
     DOMAIN as SENSOR_DOMAIN,
     SensorDeviceClass,
-    SensorEntityDescription,
     SensorStateClass,
 )
 from homeassistant.const import (
@@ -31,7 +30,6 @@ from pytest_homeassistant_custom_component.common import (
 )
 
 from custom_components.desky_desk.const import POSTURE_SETTLE_SECONDS
-from custom_components.desky_desk.sensor import DeskSensor
 
 from . import disconnect_desk, notify_desk, set_desk_state
 
@@ -127,16 +125,6 @@ async def test_sensors_unavailable_when_disconnected(
         state = hass.states.get(entity_id)
         assert state is not None
         assert state.state == STATE_UNAVAILABLE
-
-
-async def test_sensor_unknown_key(init_integration: MockConfigEntry) -> None:
-    """Test a sensor with an unrecognised key has no value or unit."""
-    entity = DeskSensor(
-        init_integration.runtime_data, SensorEntityDescription(key="unknown")
-    )
-
-    assert entity.native_value is None
-    assert entity.native_unit_of_measurement is None
 
 
 async def test_height_display_while_unit_unreported(
