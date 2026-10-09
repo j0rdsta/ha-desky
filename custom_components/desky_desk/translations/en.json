@@ -163,6 +163,9 @@
     "not_connected": {
       "message": "The desk is not connected"
     },
+    "setting_not_applied": {
+      "message": "The desk did not apply the setting"
+    },
     "unknown_effect": {
       "message": "The LED strip has no effect called {effect}. Use one of: {effects}"
     }

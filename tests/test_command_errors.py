@@ -36,11 +36,12 @@ from homeassistant.exceptions import HomeAssistantError
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.desky_desk.bluetooth import (
+from custom_components.desky_desk.const import DOMAIN
+from custom_components.desky_desk.errors import (
     DeskCommandError,
     DeskNotConnectedError,
+    DeskSettingNotAppliedError,
 )
-from custom_components.desky_desk.const import DOMAIN
 
 # (domain, service, entity ID, service data, desk method the command calls)
 COMMANDS = [
@@ -195,3 +196,33 @@ async def test_command_write_failure(
     if domain != BUTTON_DOMAIN:
         after = hass.states.get(entity_id)
         assert (after.state, after.attributes) == (before.state, before.attributes)
+
+
+@pytest.mark.parametrize(
+    ("entity_id", "option", "method"),
+    [
+        ("select.desky_desk_touch_mode", "press_and_hold", "set_touch_mode"),
+        ("select.desky_desk_display_unit", "in", "set_unit"),
+    ],
+)
+async def test_setting_the_desk_did_not_apply(
+    hass: HomeAssistant,
+    init_integration: MockConfigEntry,
+    mock_desk: MagicMock,
+    entity_id: str,
+    option: str,
+    method: str,
+) -> None:
+    """Test a setting the desk ignored, even when sent again, is not shown as done."""
+    getattr(mock_desk, method).side_effect = DeskSettingNotAppliedError("ignored")
+    before = hass.states.get(entity_id).state
+
+    with pytest.raises(HomeAssistantError) as err:
+        await _call(
+            hass, SELECT_DOMAIN, SERVICE_SELECT_OPTION, entity_id, {ATTR_OPTION: option}
+        )
+
+    assert err.value.translation_domain == DOMAIN
+    assert err.value.translation_key == "setting_not_applied"
+    assert str(err.value) == "The desk did not apply the setting"
+    assert hass.states.get(entity_id).state == before

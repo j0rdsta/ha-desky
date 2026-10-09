@@ -105,11 +105,11 @@ class DeskSelect(DeskEntity, SelectEntity):
 
     @desk_command
     async def async_select_option(self, option: str) -> None:
-        """Set an option, then ask the desk for its settings.
+        """Set an option on the desk.
 
-        The desk confirms none of these settings, so the option changes only
-        when its settings block reports the new value. Home Assistant only
-        passes one of the options.
+        The desk confirms none of these settings, so setting one also asks for
+        the desk's settings, and the option changes only when its settings
+        block reports the new value. Home Assistant only passes one of the
+        options.
         """
         await self.entity_description.set_fn(self._device, option)
-        await self._device.get_settings()

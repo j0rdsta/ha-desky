@@ -87,6 +87,71 @@ commands once its display sleeps, about a minute after the last touch. The hands
 the integration writes a handshake in front of every command that moves the desk or changes a
 setting. Stop is sent on its own: a moving desk is awake, and a sleeping one has nothing to stop.
 
+## Command timing
+
+The integration sends each command with the repeats and spacing of the official Desky app
+(Android app 4.5.4). The timings were read from the decompiled app. Times count from the first
+frame of the command.
+
+| Command | Frames |
+| --- | --- |
+| Lock, vibration, lighting on or off | Handshake, then the setting at 200 ms and 400 ms |
+| Collision sensitivity, touch mode | Handshake, then the setting once at 500 ms |
+| LED colour, brightness | Handshake, then the setting at 0 and 100 ms |
+| Display unit | Handshake, then the setting at 0, 100 and 200 ms |
+| Clear height limits | Handshake, then clear at 0 and 200 ms, then the limit query |
+| Set a height limit | Handshake, then clear, upper limit and lower limit, each twice, 50 ms apart, then the limit query |
+| Stop | Stop at 0 and 50 ms |
+| Move to height | Handshake and stop, then the target at 200 ms and 300 ms. In press-and-hold touch mode, the target again every 100 ms until the desk is there |
+| Move up, move down | Handshake and the command, then the command again every 100 ms |
+| Presets | Handshake and the command. In press-and-hold touch mode, the command again every 100 ms |
+| Connecting | Handshake and status, then each settings query 200 ms apart |
+
+- The app sends colour, brightness, unit and limits without a handshake. The integration keeps
+  the handshake in front of them, because the desk ignores commands while its display sleeps.
+- The desk does not confirm a unit, touch mode or sensitivity change, so the integration asks
+  for its settings 500 ms after the change, as the app does for the sensitivity. Asked any
+  sooner, the desk can still report the old value.
+- The desk can ignore a touch mode or unit change. If its settings still show the old value, the
+  integration sends the change once more and checks again; if the desk ignores it again, the
+  change fails with "The desk did not apply the setting" instead of looking done.
+- **Height limits.** While a limit is set, the desk only accepts a tighter one: with the upper
+  limit at 110 cm, 105 cm is applied but 124 cm is ignored, without an error. So, as the app does,
+  the integration clears both limits first and then sets both. Setting one limit sends the other
+  one again, exactly as the desk reported it, so it is kept. If the desk has not yet reported
+  which limits are set and their values, nothing is cleared, so no limit is lost; a looser limit
+  then needs another try once the desk has reported them. Limit changes go out one at a time,
+  and the limits just sent count as known at once, so two changes in a row keep each other.
+- **Held commands.** Move up and Move down are held buttons in every touch mode, as in the app:
+  one command only nudges the desk, about 0.8 cm. In press-and-hold touch mode, presets and move
+  to height are held too: one command only nudges the desk there. The integration holds a command
+  by repeating it every 100 ms. The repeats end when you stop the desk, when it stops moving
+  (three readings in a row at the same height), on a collision, when it has not moved within 5
+  seconds, on a new command, on a disconnect, or after 60 seconds. A move to height also stops
+  repeating once the desk is within 0.5 cm of the target. A held command that has started also
+  ends if the desk sends no height reading for three seconds (a moving desk reports about every
+  200 ms, but through a proxy the reports can bunch up), because collisions cannot be seen without
+  readings. A move to height sent before the desk has reported its height asks for it first, gives
+  way to a stop or a newer command meanwhile, and fails if no reading comes. In one-press mode, or
+  while the touch mode is unknown, a preset or a move to height is sent as in the table, and one
+  preset command runs the desk all the way.
+- **Repeats are not confirmed.** The desk takes a held command as released as soon as the
+  repeats arrive unevenly. Waiting for each write's confirmation through a Bluetooth proxy takes
+  70-700 ms, which made a held preset stop part way. So the repeats go out without waiting for
+  confirmation, evenly 100 ms apart, as the app writes them. The first command, the stops and
+  every setting still wait for it. While a command is held, the 30-second status poll sends
+  nothing, so it cannot hold up the repeats.
+- A pause never holds up a stop. A stop, a new movement command or a disconnect cancels the
+  movement frames still due. A disconnect also cancels any setting still being sent.
+- Every other write waits for the desk to confirm it, so a write that fails shows as an error.
+  If a write is slow, the frames after it move later and keep their spacing. Through a Bluetooth proxy
+  a write takes about 70-130 ms, so frames 50 ms apart come out about 90 ms apart.
+- A write already on its way to the desk is never cut off: a stop waits for it to finish, since
+  the Bluetooth stack rejects a write while another is in progress. A write the desk has not
+  confirmed within 5 seconds fails, so a stop never waits longer than that behind it.
+- Limits are forgotten when the desk disconnects, as they can change on the hand controller
+  meanwhile. Until the desk reports them again, setting a limit sends only the new one.
+
 ## Notifications
 
 Responses arrive on `0xfe62`.

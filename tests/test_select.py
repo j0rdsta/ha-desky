@@ -20,13 +20,12 @@ from homeassistant.const import (
     EntityCategory,
 )
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
+from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.translation import async_get_translations
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.desky_desk.bluetooth import DeskCommandError
 from custom_components.desky_desk.const import (
     COMMAND_GET_STATUS,
     COMMAND_HANDSHAKE,
@@ -128,9 +127,11 @@ async def test_select_option(
     command: str,
     argument: Any,
 ) -> None:
-    """Test selecting an option sends it, then asks the desk for its settings.
+    """Test selecting an option sends it; the desk code asks for the settings.
 
-    The desk confirms none of these settings, and has no query for one setting.
+    The desk confirms none of these settings, and has no query for one setting,
+    so the setter itself asks for the settings block. The select does not ask
+    again.
     """
     await hass.services.async_call(
         SELECT_DOMAIN,
@@ -140,7 +141,7 @@ async def test_select_option(
     )
 
     getattr(mock_desk, command).assert_awaited_once_with(argument)
-    mock_desk.get_settings.assert_awaited_once_with()
+    mock_desk.get_settings.assert_not_awaited()
 
 
 async def test_select_state_follows_desk(
@@ -205,43 +206,12 @@ async def test_select_shows_the_desk_report_after_selecting(
         {ATTR_ENTITY_ID: entity_id, ATTR_OPTION: option},
         blocking=True,
     )
-    mock_desk.get_settings.assert_awaited_once_with()
     # Nothing changes until the desk reports the setting
     assert hass.states.get(entity_id).state != option
 
     notify_desk(mock_desk, **{field: reported})
     await hass.async_block_till_done()
     assert hass.states.get(entity_id).state == option
-
-
-@pytest.mark.parametrize(
-    ("entity_id", "option", "command"),
-    [
-        (UNIT, "in", "set_unit"),
-        (TOUCH_MODE, "press_and_hold", "set_touch_mode"),
-        (SENSITIVITY, "low", "set_sensitivity"),
-    ],
-)
-async def test_select_skips_read_back_when_the_write_fails(
-    hass: HomeAssistant,
-    init_integration: MockConfigEntry,
-    mock_desk: MagicMock,
-    entity_id: str,
-    option: str,
-    command: str,
-) -> None:
-    """A setting that could not be sent is not read back."""
-    getattr(mock_desk, command).side_effect = DeskCommandError("write failed")
-
-    with pytest.raises(HomeAssistantError):
-        await hass.services.async_call(
-            SELECT_DOMAIN,
-            SERVICE_SELECT_OPTION,
-            {ATTR_ENTITY_ID: entity_id, ATTR_OPTION: option},
-            blocking=True,
-        )
-
-    mock_desk.get_settings.assert_not_awaited()
 
 
 async def test_unreported_settings_show_no_option(
@@ -339,9 +309,10 @@ async def test_sensitivity_is_forgotten_on_disconnect(
     await hass.async_block_till_done()
     assert hass.states.get(SENSITIVITY).state == "medium"
 
-    # The coordinator reconnects at once; the desk has not reported anything yet
+    # The coordinator reconnects at once, in the background, with its queries
+    # spaced out; the desk has not reported anything yet
     mock_establish_connection.call_args.kwargs["disconnected_callback"](desk_client)
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
     assert mock_establish_connection.call_count == 2
     assert hass.states.get(SENSITIVITY).state == STATE_UNKNOWN
 

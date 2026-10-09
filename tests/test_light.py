@@ -32,7 +32,6 @@ from pytest_homeassistant_custom_component.common import (
     mock_restore_cache_with_extra_data,
 )
 
-from custom_components.desky_desk.bluetooth import DeskCommandError
 from custom_components.desky_desk.const import (
     BRIGHTNESS_RESPONSE_HEADER,
     DOMAIN,
@@ -40,6 +39,7 @@ from custom_components.desky_desk.const import (
     LIGHTING_RESPONSE_HEADER,
     WRITE_CHARACTERISTIC_UUID,
 )
+from custom_components.desky_desk.errors import DeskCommandError
 from custom_components.desky_desk.light import DeskLight, _nearest_color
 
 from . import deliver_frame, desk_response, set_desk_state
@@ -756,9 +756,11 @@ async def test_light_off_by_colour_0_turns_on_white(
         for uuid, frame in (c.args for c in desk_client.write_gatt_char.call_args_list)
         if uuid == WRITE_CHARACTERISTIC_UUID
     ]
-    # One colour frame, colour 1 (White): checksum 0xB4 + 0x01 + 0x01 = 0xB6
+    # Colour 1 (White), sent twice as the app sends it: checksum 0xB4 + 0x01 + 0x01
+    white = bytes.fromhex("f1f1b40101b67e")
     assert [f for f in frames if f.startswith(bytes.fromhex("f1f1b401"))] == [
-        bytes.fromhex("f1f1b40101b67e")
+        white,
+        white,
     ]
     # Lighting is already enabled, so it is not turned on again
     assert not [f for f in frames if f.startswith(bytes.fromhex("f1f1b501"))]

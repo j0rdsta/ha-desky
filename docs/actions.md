@@ -64,6 +64,11 @@ If the other limit is set, the upper limit must be above the lower one. The
 the same errors. After setting the limit, the integration reads the limits back from the desk, so
 the limit entities show what the desk reports.
 
+While a limit is set, the desk only accepts a tighter one and ignores a looser one without an
+error. So, as the official Desky app does, the integration clears both limits and then sets both:
+the new limit, and the other limit again. Setting one limit keeps the other, and a limit can be
+loosened as well as tightened.
+
 ```yaml
 action: desky_desk.set_height_limit
 target:

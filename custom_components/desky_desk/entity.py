@@ -10,9 +10,10 @@ from typing import Any, Concatenate
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .bluetooth import DeskBLEDevice, DeskCommandError, DeskNotConnectedError
+from .bluetooth import DeskBLEDevice
 from .const import DOMAIN
 from .coordinator import DeskUpdateCoordinator
+from .errors import DeskCommandError, DeskNotConnectedError, DeskSettingNotAppliedError
 
 
 class DeskEntity(CoordinatorEntity[DeskUpdateCoordinator]):
@@ -48,6 +49,10 @@ def translate_desk_errors() -> Iterator[None]:
     except DeskNotConnectedError as err:
         raise HomeAssistantError(
             translation_domain=DOMAIN, translation_key="not_connected"
+        ) from err
+    except DeskSettingNotAppliedError as err:
+        raise HomeAssistantError(
+            translation_domain=DOMAIN, translation_key="setting_not_applied"
         ) from err
     except DeskCommandError as err:
         raise HomeAssistantError(

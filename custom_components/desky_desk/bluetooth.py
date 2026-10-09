@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import deque
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 import logging
 import math
@@ -56,6 +56,7 @@ from .const import (
     SERIAL_NUMBER_CHAR_UUID,
     SOFTWARE_REVISION_CHAR_UUID,
     STATUS_NOTIFICATION_HEADER,
+    TOUCH_MODE_PRESS_AND_HOLD,
     TOUCH_MODE_RESPONSE_HEADER,
     TOUCH_MODES,
     UNIT_RESPONSE_HEADER,
@@ -63,11 +64,25 @@ from .const import (
     WRITE_CHARACTERISTIC_UUID,
     HeightLimit,
 )
+from .errors import (
+    DeskCommandError,
+    DeskError,
+    DeskNotConnectedError,
+    DeskSettingNotAppliedError,
+)
+from .limits import HeightLimits, LimitValue
+from .sequencer import Clock, Sequencer, Step
 
 _LOGGER = logging.getLogger(__name__)
 
 # Connection attempts bleak-retry-connector makes before giving up
 CONNECT_MAX_ATTEMPTS = 3
+
+# A write the desk has not confirmed in this time fails. Writes take about
+# 70-130 ms through a proxy; without a bound, a hung write would hold up the
+# writes behind it, a stop included, for as long as the Bluetooth stack waits.
+# A cancelled write is waited for less (WRITE_SETTLE_SECONDS in sequencer.py).
+WRITE_TIMEOUT_SECONDS = 5.0
 
 # Headers of this many recent runs of notifications are kept for diagnostics. A
 # run is consecutive frames with the same header: an idle desk streams status
@@ -99,17 +114,40 @@ PLAUSIBLE_HEIGHT_CM = (MIN_HEIGHT - 5.0, MAX_HEIGHT + 5.0)
 # The command byte that sets each height limit
 LIMIT_COMMANDS = {HeightLimit.UPPER: 0x21, HeightLimit.LOWER: 0x22}
 
+# Frame timing, copied from the official Desky app. Times are seconds after a
+# sequence starts, as the app schedules its writes.
+SWITCH_SETTING_TIMES = (0.2, 0.4)  # lock, vibration, lighting
+MODE_SETTING_TIMES = (0.5,)  # collision sensitivity, touch mode
+LIGHT_SETTING_TIMES = (0.0, 0.1)  # LED colour, brightness
+UNIT_SETTING_TIMES = (0.0, 0.1, 0.2)
+CLEAR_LIMITS_TIMES = (0.0, 0.2)
+SET_LIMITS_SPACING = 0.05  # clear, upper and lower limit, each twice
+STOP_TIMES = (0.0, 0.05)
+MOVE_TO_HEIGHT_TIMES = (0.2, 0.3)  # after one stop at 0
+CONNECT_QUERY_SPACING = 0.2
+# The desk applies a setting only after a moment, so its settings are asked
+# for this long after the last set; the app does so for the sensitivity
+READ_BACK_DELAY = 0.5
+# How long the settings block asked for is waited for, after the request
+READ_BACK_TIMEOUT_SECONDS = 2.0
+# The desk sends its settings block for a status request after a handshake
+SETTINGS_REQUEST = (COMMAND_HANDSHAKE, COMMAND_GET_STATUS)
 
-class DeskError(Exception):
-    """A command could not be sent to the desk."""
+
+def _steps_at(at: float, frames: tuple[bytes, ...]) -> tuple[Step, ...]:
+    """Return frames to be sent together, at one time in a sequence."""
+    return tuple((at, frame) for frame in frames)
 
 
-class DeskNotConnectedError(DeskError):
-    """The desk is not connected."""
-
-
-class DeskCommandError(DeskError):
-    """Writing a command to the desk failed."""
+# In press-and-hold touch mode the desk moves only while frames keep coming,
+# and the app repeats a held button's frame this often
+HOLD_REPEAT_INTERVAL = 0.1
+HOLD_REPEAT_MAX_SECONDS = 60.0
+# A moving desk reports its height about every 200 ms, but through a proxy the
+# reports bunch up, with gaps of over a second. Without readings the bounce
+# and collision checks are blind, so a held movement that has started ends
+# once no reading has come for this long.
+READING_WATCHDOG_SECONDS = 3.0
 
 
 @dataclass(slots=True)
@@ -153,6 +191,25 @@ def round_limit_to_unit(height_cm: float, unit: str | None) -> float:
     return float(math.floor(height_cm + 0.5))
 
 
+def _hold_steps(
+    frame: bytes, movement: _Movement, until: Callable[[], bool] | None = None
+) -> Iterator[Step]:
+    """Repeat a movement frame every 100 ms, up to the 60 s cap.
+
+    The repeat also ends once COMMAND_EXPIRY_SECONDS pass without the desk
+    starting to move, even if it sends no height reading to expire it, and
+    as soon as until() is true.
+    """
+    for n in range(1, round(HOLD_REPEAT_MAX_SECONDS / HOLD_REPEAT_INTERVAL) + 1):
+        at = n * HOLD_REPEAT_INTERVAL
+        if at > COMMAND_EXPIRY_SECONDS and not movement.started:
+            _LOGGER.debug("Held command expired without the desk moving")
+            return
+        if until is not None and until():
+            return
+        yield at, frame
+
+
 def _plausible(height_cm: float) -> bool:
     """Return if a height is one the desk can physically report."""
     low, high = PLAUSIBLE_HEIGHT_CM
@@ -163,14 +220,25 @@ class DeskBLEDevice:
     """Handle BLE communication with Desky desk."""
 
     def __init__(
-        self, ble_device: BLEDevice, advertisement_data: dict[str, Any] | None = None
+        self,
+        ble_device: BLEDevice,
+        advertisement_data: dict[str, Any] | None = None,
+        *,
+        clock: Clock | None = None,
     ) -> None:
         """Initialize the desk device."""
         self._ble_device = ble_device
         self._advertisement_data = advertisement_data
         self._client: BleakClient | None = None
-        # Commands go out one at a time, so concurrent callers never interleave
-        self._write_lock = asyncio.Lock()
+        # Writes go out one at a time; timed sequences pause without blocking them
+        self._sequencer = Sequencer(self._write_frame, clock)
+        # Counts movement commands and stops, so a command that waited can tell
+        # whether a newer one came meanwhile
+        self._motion_commands = 0
+        # When the last height reading came, on the sequencer's clock
+        self._last_reading_at = 0.0
+        # Callers waiting for the next report with a given header
+        self._report_waiters: dict[bytes, set[asyncio.Future[None]]] = {}
         self._height_cm: float = 0.0
         self._collision_detected: bool = False
         self._collision_time: float | None = None  # When collision was detected
@@ -195,11 +263,10 @@ class DeskBLEDevice:
         self._vibration_enabled: bool | None = None
         self._lock_status: bool = False
         self._sensitivity_level: int | None = None
-        self._height_limit_upper: float | None = None
-        self._height_limit_lower: float | None = None
-        # Whether each limit is set, as the limit status reports; None until reported
-        self._height_limit_upper_set: bool | None = None
-        self._height_limit_lower_set: bool | None = None
+        self._limits = HeightLimits()
+        # A limit is set as a sequence that clears both and sends both again,
+        # so limit changes go out one at a time
+        self._limit_lock = asyncio.Lock()
         self._touch_mode: int | None = None
         self._unit_preference: str | None = None  # "cm" or "in", as the desk reports
         # The unit the last height was actually in, for heights sent to the desk
@@ -232,6 +299,11 @@ class DeskBLEDevice:
     def collision_detected(self) -> bool:
         """Return if collision was detected."""
         return self._collision_detected
+
+    @property
+    def is_repeating(self) -> bool:
+        """Return if a movement frame is being repeated to keep the desk moving."""
+        return self._sequencer.repeating
 
     @property
     def is_moving(self) -> bool:
@@ -281,21 +353,19 @@ class DeskBLEDevice:
     @property
     def height_limit_upper(self) -> float | None:
         """Return upper height limit in cm, or None when it is not set."""
-        if self._height_limit_upper_set is False:
-            return None
-        return self._height_limit_upper
+        value = self._limits.value(HeightLimit.UPPER)
+        return value.cm if value else None
 
     @property
     def height_limit_lower(self) -> float | None:
         """Return lower height limit in cm, or None when it is not set."""
-        if self._height_limit_lower_set is False:
-            return None
-        return self._height_limit_lower
+        value = self._limits.value(HeightLimit.LOWER)
+        return value.cm if value else None
 
     @property
     def limits_enabled(self) -> bool:
         """Return if any height limit is set."""
-        return bool(self._height_limit_upper_set or self._height_limit_lower_set)
+        return self._limits.any_set
 
     @property
     def touch_mode(self) -> int | None:
@@ -419,10 +489,8 @@ class DeskBLEDevice:
         """Subscribe to the desk's notifications and ask for its state."""
         await client.start_notify(NOTIFY_CHARACTERISTIC_UUID, self._handle_notification)
 
-        # The handshake enables movement controls
-        _LOGGER.debug("Sending handshake command...")
-        await self._send_command(COMMAND_HANDSHAKE)
-        await self.get_status()
+        # The handshake enables movement controls, and the status request after
+        # it asks for the settings block
         await self._query_device_capabilities()
 
         # Device Information Service (0x180A)
@@ -470,75 +538,88 @@ class DeskBLEDevice:
         if client := self._client:
             await self._close(client)
         self._reset_link_state()
+        # Let cancelled sequences finish, so none outlives the connection
+        await self._sequencer.wait_cancelled()
 
-    async def _write(self, *commands: bytes) -> None:
-        """Write commands to the desk in order, with no other write in between.
-
-        The lock is held only for the writes, never while waiting on
-        notifications, so a stop is never held up behind a running move.
-        """
-        async with self._write_lock:
-            if not self.is_connected:
-                raise DeskNotConnectedError("The desk is not connected")
-            assert self._client is not None  # guaranteed by is_connected
-            for command in commands:
-                try:
-                    await self._client.write_gatt_char(
-                        WRITE_CHARACTERISTIC_UUID, command
-                    )
-                except Exception as err:
-                    raise DeskCommandError(str(err) or type(err).__name__) from err
+    async def _write_frame(self, frame: bytes, response: bool = True) -> None:
+        """Write one frame to the desk, waiting for its acknowledgement if asked."""
+        if not self.is_connected:
+            raise DeskNotConnectedError("The desk is not connected")
+        assert self._client is not None  # guaranteed by is_connected
+        try:
+            async with asyncio.timeout(WRITE_TIMEOUT_SECONDS):
+                await self._client.write_gatt_char(
+                    WRITE_CHARACTERISTIC_UUID, frame, response=response
+                )
+        except Exception as err:
+            raise DeskCommandError(str(err) or type(err).__name__) from err
 
     async def _send_command(self, command: bytes) -> None:
         """Send a command to the desk."""
-        await self._write(command)
+        await self._sequencer.write(command)
 
     def _begin_movement(
         self, kind: str, direction: str | None, target_height: float | None = None
-    ) -> None:
+    ) -> _Movement:
         """Record a movement command; the movement starts once the desk responds."""
-        self._movement = _Movement(
+        self._motion_commands += 1
+        self._sequencer.cancel_motion()
+        movement = self._movement = _Movement(
             kind=kind,
             direction=direction,
             target_height=target_height,
             command_time=time.time(),
             command_height=self._height_cm,
         )
+        return movement
 
     def _end_movement(self) -> None:
-        """Forget the current movement, so no later reading is attributed to it."""
-        self._movement = None
+        """Forget the current movement and stop sending its frames.
 
-    async def _send_awake_command(self, command: bytes) -> None:
-        """Wake the desk with the handshake, then send a command.
-
-        The desk's controller ignores commands while its display is asleep.
+        No later reading is attributed to it.
         """
-        await self._write(COMMAND_HANDSHAKE, command)
+        self._movement = None
+        self._sequencer.cancel_motion()
 
-    async def _send_movement_command(self, command: bytes) -> None:
-        """Send a movement command, dropping the movement if the write fails."""
+    async def _start_movement(
+        self, frame: bytes, kind: str, direction: str | None
+    ) -> None:
+        """Wake the desk and send a movement frame, repeating it while held.
+
+        The desk's controller ignores commands while its display is asleep, so
+        the handshake goes first. Move up and down are held buttons in every
+        touch mode, as in the official app: one frame only nudges the desk, so
+        the frame repeats until the movement ends. A preset is held only in
+        press-and-hold mode; in one-press mode one frame runs the whole way.
+        A write that fails drops the movement.
+        """
+        movement = self._begin_movement(kind, direction)
         try:
-            await self._send_awake_command(command)
+            await self._sequencer.write(COMMAND_HANDSHAKE, frame)
         except DeskError:
-            self._end_movement()
+            # Unless a stop or a newer command has taken over already: ending
+            # the movement would cancel the frames that replaced it
+            if self._movement is movement:
+                self._end_movement()
             raise
+        held = kind == "continuous" or self._touch_mode == TOUCH_MODE_PRESS_AND_HOLD
+        if held and self._movement is movement:
+            self._hold(frame, movement)
 
     async def move_up(self) -> None:
         """Start moving the desk up."""
-        self._begin_movement("continuous", "up")
-        await self._send_movement_command(COMMAND_MOVE_UP)
+        await self._start_movement(COMMAND_MOVE_UP, "continuous", "up")
 
     async def move_down(self) -> None:
         """Start moving the desk down."""
-        self._begin_movement("continuous", "down")
-        await self._send_movement_command(COMMAND_MOVE_DOWN)
+        await self._start_movement(COMMAND_MOVE_DOWN, "continuous", "down")
 
     async def stop(self) -> None:
         """Stop desk movement."""
+        self._motion_commands += 1
         self._end_movement()
         # Sent at once: a moving desk is awake, and a sleeping one has nothing to stop
-        await self._send_command(COMMAND_STOP)
+        await self._sequencer.run_motion([(at, COMMAND_STOP) for at in STOP_TIMES])
 
     async def get_status(self) -> None:
         """Request current desk status."""
@@ -550,7 +631,7 @@ class DeskBLEDevice:
         The desk sends its settings block for a status request that follows a
         handshake; it has no query for a single setting.
         """
-        await self._send_awake_command(COMMAND_GET_STATUS)
+        await self._sequencer.write(*SETTINGS_REQUEST)
 
     async def move_to_preset(self, preset: int) -> None:
         """Move desk to a preset position (1-4)."""
@@ -566,8 +647,24 @@ class DeskBLEDevice:
             raise ValueError(f"Invalid preset number: {preset}")
 
         # The preset height is unknown, so the direction is too
-        self._begin_movement("preset", None)
-        await self._send_movement_command(command)
+        await self._start_movement(command, "preset", None)
+
+    async def _send_setting(
+        self,
+        frame: bytes,
+        times: tuple[float, ...],
+        *,
+        read_back: tuple[Step, ...] = (),
+    ) -> None:
+        """Wake the desk with the handshake, then send a setting at the app's times.
+
+        The sequence ends with the read_back steps: the settings block for
+        sensitivity, which the desk does not confirm, and the limits after a
+        clear. A sequence cut short by a failed write is not read back.
+        """
+        await self._sequencer.run_setting(
+            [(0.0, COMMAND_HANDSHAKE), *((at, frame) for at in times), *read_back]
+        )
 
     def _create_command_with_byte_param(self, command_byte: int, param: int) -> bytes:
         """Create a command with a single byte parameter."""
@@ -596,6 +693,14 @@ class DeskBLEDevice:
                 f"({MIN_HEIGHT:.1f}-{MAX_HEIGHT:.1f} cm)"
             )
 
+        # Counted now, so an older move to height still waiting for the height
+        # gives way to this one
+        self._motion_commands += 1
+        issued = self._motion_commands
+        await self._await_height()
+        if self._motion_commands != issued:
+            _LOGGER.debug("A stop or a newer command came first; not moving to height")
+            return
         if height_cm == self._height_cm:
             # Already at target height
             self._end_movement()
@@ -616,8 +721,96 @@ class DeskBLEDevice:
         )
 
         direction = "up" if height_cm > self._height_cm else "down"
-        self._begin_movement("targeted", direction, height_cm)
-        await self._send_movement_command(command)
+        movement = self._begin_movement("targeted", direction, height_cm)
+        # As the app: wake, stop whatever is moving, then the target twice.
+        # In press-and-hold mode the target only nudges the desk, so it then
+        # repeats until the desk is within the jitter band of it.
+        try:
+            await self._sequencer.run_motion(
+                [
+                    (0.0, COMMAND_HANDSHAKE),
+                    (0.0, COMMAND_STOP),
+                    *((at, command) for at in MOVE_TO_HEIGHT_TIMES),
+                ]
+            )
+        except DeskError:
+            # As in _start_movement: never cancel a stop that has taken over
+            if self._movement is movement:
+                self._end_movement()
+            raise
+        if self._touch_mode == TOUCH_MODE_PRESS_AND_HOLD and self._movement is movement:
+            self._hold(command, movement, lambda: self._reached(movement))
+
+    async def _await_height(self) -> None:
+        """Make sure the desk has reported a height, asking for one if not.
+
+        The direction of a move to height, and when a held one has arrived,
+        come from the current height. Before the first reading it is 0.0, so
+        the desk is asked for its status and the reply waited for. A desk
+        that does not answer fails the move rather than moving it blind.
+        """
+        if self._height_cm > 0:
+            return
+        report = self._expect_report(STATUS_NOTIFICATION_HEADER)
+        try:
+            await self._sequencer.write(COMMAND_GET_STATUS)
+            await self._sequencer.wait_for(report, READ_BACK_TIMEOUT_SECONDS)
+        finally:
+            self._stop_expecting(STATUS_NOTIFICATION_HEADER, report)
+        if self._height_cm <= 0:
+            raise DeskCommandError("The desk has not reported its height yet")
+
+    def _hold(
+        self,
+        frame: bytes,
+        movement: _Movement,
+        reached: Callable[[], bool] | None = None,
+    ) -> None:
+        """Repeat a movement frame while held, until the movement ends or reached().
+
+        The repeat also stops once the movement's height readings stop, and
+        the movement is then released when the repeat ends. That is recorded
+        when the repeat stops: a reading can arrive before the repeat's done
+        callback runs.
+        """
+        stalled = False
+
+        def done() -> bool:
+            nonlocal stalled
+            stalled = self._readings_stopped(movement)
+            return stalled or (reached is not None and reached())
+
+        task = self._sequencer.start_repeat(_hold_steps(frame, movement, done))
+        task.add_done_callback(lambda task: self._hold_ended(task, movement, stalled))
+
+    def _hold_ended(
+        self, task: asyncio.Task[None], movement: _Movement, stalled: bool
+    ) -> None:
+        """Release a held movement whose repeat ended as its readings stopped."""
+        if task.cancelled() or self._movement is not movement or not stalled:
+            return
+        _LOGGER.info(
+            "No height reading from the desk for %.1f seconds; releasing the held "
+            "command",
+            self._sequencer.now() - self._last_reading_at,
+        )
+        self._end_movement()
+        self._notify_callbacks()
+
+    def _readings_stopped(self, movement: _Movement) -> bool:
+        """Return if a started movement's height readings have stopped coming."""
+        quiet = self._sequencer.now() - self._last_reading_at
+        return movement.started and quiet > READING_WATCHDOG_SECONDS
+
+    def _reached(self, movement: _Movement) -> bool:
+        """Return if a move to height has come within the jitter band of its target.
+
+        A height past the target, in the commanded direction, counts too.
+        """
+        assert movement.target_height is not None  # a move to height has one
+        if movement.direction == "up":
+            return self._height_cm >= movement.target_height - HEIGHT_JITTER_CM
+        return self._height_cm <= movement.target_height + HEIGHT_JITTER_CM
 
     # Get device status methods
     async def get_light_color(self) -> None:
@@ -650,32 +843,32 @@ class DeskBLEDevice:
         if color < 1 or color > 7:
             raise ValueError(f"Invalid light color: {color} (must be 1-7)")
         command = self._create_command_with_byte_param(0xB4, color)
-        await self._send_awake_command(command)
+        await self._send_setting(command, LIGHT_SETTING_TIMES)
 
     async def set_brightness(self, level: int) -> None:
         """Set brightness level (0-100)."""
         if level < 0 or level > 100:
             raise ValueError(f"Invalid brightness level: {level} (must be 0-100)")
         command = self._create_command_with_byte_param(0xB6, level)
-        await self._send_awake_command(command)
+        await self._send_setting(command, LIGHT_SETTING_TIMES)
 
     async def set_lighting(self, enabled: bool) -> None:
         """Enable or disable lighting."""
         value = 1 if enabled else 0
         command = self._create_command_with_byte_param(0xB5, value)
-        await self._send_awake_command(command)
+        await self._send_setting(command, SWITCH_SETTING_TIMES)
 
     async def set_vibration(self, enabled: bool) -> None:
         """Enable or disable vibration."""
         value = 1 if enabled else 0
         command = self._create_command_with_byte_param(0xB3, value)
-        await self._send_awake_command(command)
+        await self._send_setting(command, SWITCH_SETTING_TIMES)
 
     async def set_lock_status(self, locked: bool) -> None:
         """Lock or unlock desk controls."""
         value = 1 if locked else 0
         command = self._create_command_with_byte_param(0xB2, value)
-        await self._send_awake_command(command)
+        await self._send_setting(command, SWITCH_SETTING_TIMES)
         # Shown at once; the desk confirms it in its next lock status report
         self._lock_status = locked
         self._notify_callbacks()
@@ -685,14 +878,25 @@ class DeskBLEDevice:
         if level < 1 or level > 3:
             raise ValueError(f"Invalid sensitivity level: {level} (must be 1-3)")
         command = self._create_command_with_byte_param(0x1D, level)
-        await self._send_awake_command(command)
+        await self._send_setting(
+            command,
+            MODE_SETTING_TIMES,
+            read_back=_steps_at(
+                MODE_SETTING_TIMES[-1] + READ_BACK_DELAY, SETTINGS_REQUEST
+            ),
+        )
 
     async def set_touch_mode(self, mode: int) -> None:
         """Set touch mode (0=One press, 1=Press and hold)."""
         if mode not in [0, 1]:
             raise ValueError(f"Invalid touch mode: {mode} (must be 0 or 1)")
         command = self._create_command_with_byte_param(0x19, mode)
-        await self._send_awake_command(command)
+        await self._send_checked_setting(
+            command,
+            MODE_SETTING_TIMES,
+            TOUCH_MODE_RESPONSE_HEADER,
+            lambda: self._touch_mode == mode,
+        )
 
     async def set_unit(self, unit: str) -> None:
         """Set display unit preference."""
@@ -700,7 +904,58 @@ class DeskBLEDevice:
             raise ValueError(f"Invalid unit: {unit} (must be 'cm' or 'in')")
         value = 0 if unit == "cm" else 1
         command = self._create_command_with_byte_param(0x0E, value)
-        await self._send_awake_command(command)
+        await self._send_checked_setting(
+            command,
+            UNIT_SETTING_TIMES,
+            UNIT_RESPONSE_HEADER,
+            lambda: self._unit_preference == unit,
+        )
+
+    async def _send_checked_setting(
+        self,
+        frame: bytes,
+        times: tuple[float, ...],
+        header: bytes,
+        applied: Callable[[], bool],
+    ) -> None:
+        """Send a setting the desk does not confirm, and check that it applied.
+
+        The settings are asked for READ_BACK_DELAY after the last set. Only a
+        report that arrives after that request counts: an older one, such as
+        another setting's read-back or a change on the hand controller, can
+        still show the old value. The desk can ignore a set, so one it reports
+        unchanged is sent once more and checked again; still unchanged, it
+        raises DeskSettingNotAppliedError. A desk that sends no report cannot
+        be checked, so the setting is taken as sent.
+        """
+        for attempt in (1, 2):
+            await self._send_setting(frame, times)
+            await self._sequencer.sleep(READ_BACK_DELAY)
+            report = self._expect_report(header)
+            try:
+                await self._sequencer.write(*SETTINGS_REQUEST)
+                reported = await self._sequencer.wait_for(
+                    report, READ_BACK_TIMEOUT_SECONDS
+                )
+            finally:
+                self._stop_expecting(header, report)
+            if not reported:
+                _LOGGER.debug("The desk did not report the setting, so it is unchecked")
+                return
+            if applied():
+                return
+            _LOGGER.debug("The desk did not apply the setting (attempt %d)", attempt)
+        raise DeskSettingNotAppliedError("The desk did not apply the setting")
+
+    def _expect_report(self, header: bytes) -> asyncio.Future[None]:
+        """Return a future that completes with the next report with this header."""
+        report: asyncio.Future[None] = asyncio.get_running_loop().create_future()
+        self._report_waiters.setdefault(header, set()).add(report)
+        return report
+
+    def _stop_expecting(self, header: bytes, report: asyncio.Future[None]) -> None:
+        """Forget a report waiter, whether or not the report came."""
+        self._report_waiters.get(header, set()).discard(report)
 
     async def set_height_limit(self, limit: HeightLimit, height_cm: float) -> None:
         """Set the upper or lower height limit in cm, rounded to a whole unit."""
@@ -711,31 +966,94 @@ class DeskBLEDevice:
                 f"Invalid {limit} height limit: {height_cm:.1f} "
                 f"(must be {low:.1f}-{high:.1f})"
             )
-        # Limits are in the desk's display unit, unlike move-to-height targets
-        command = self._create_command_with_word_param(
-            LIMIT_COMMANDS[limit], self._encode_height(height_cm)
+        async with self._limit_lock:
+            await self._send_height_limit(limit, height_cm)
+
+    async def _send_height_limit(self, limit: HeightLimit, height_cm: float) -> None:
+        """Send a height limit, keeping the other, and remember what was sent.
+
+        The desk only tightens a limit that is set and silently ignores a
+        looser one. So, as the app does, both limits are cleared, then both
+        set, each frame twice; the other limit is sent again so it is kept.
+        Nothing is cleared until the desk has reported which limits are set
+        and the value of each, so no limit is lost; the new limit then goes
+        out alone. The sequence ends by asking for the limits, so the desk's
+        reply corrects anything it did differently. The query goes out inside
+        the limit lock, so the reply usually arrives before the next change
+        starts. Nothing guarantees that: a reply that arrives during the next
+        change is overwritten once that change succeeds.
+        """
+        known = self._limits
+        unit = self._limit_unit or "cm"
+        new = LimitValue(self._encode_height(height_cm), unit, height_cm)
+        if known.fully_known:
+            # Clear both, then set both, upper first: the new one and the other
+            frames = [COMMAND_CLEAR_LIMITS] * 2
+            sent = HeightLimits(upper_set=False, lower_set=False)
+            for each in HeightLimit:
+                if (value := new if each is limit else known.value(each)) is not None:
+                    frames += [self._limit_frame(each, value)] * 2
+                    sent = sent.with_limit(each, value)
+        else:
+            frames = [self._limit_frame(limit, new)] * 2
+            sent = known.with_limit(limit, new)
+        steps = [(n * SET_LIMITS_SPACING, frame) for n, frame in enumerate(frames)]
+        await self._sequencer.run_setting(
+            [(0.0, COMMAND_HANDSHAKE), *steps, (steps[-1][0], COMMAND_GET_LIMITS)]
         )
-        await self._send_awake_command(command)
+        self._limits = sent
+        self._notify_callbacks()
+
+    def _limit_frame(self, limit: HeightLimit, value: LimitValue) -> bytes:
+        """Build the frame that sets a limit, in the desk's display unit.
+
+        A limit is sent as the desk reported it while the unit is the same, so
+        it is exact; after a unit change it is converted from centimetres.
+        """
+        raw = value.raw
+        if value.unit != (self._limit_unit or "cm"):
+            raw = self._encode_height(value.cm)
+        # Limits are in the desk's display unit, unlike move-to-height targets
+        return self._create_command_with_word_param(LIMIT_COMMANDS[limit], raw)
 
     async def clear_height_limits(self) -> None:
-        """Clear all height limits."""
-        await self._send_awake_command(COMMAND_CLEAR_LIMITS)
+        """Clear all height limits, then ask the desk for its limits."""
+        async with self._limit_lock:
+            await self._send_setting(
+                COMMAND_CLEAR_LIMITS,
+                CLEAR_LIMITS_TIMES,
+                read_back=_steps_at(CLEAR_LIMITS_TIMES[-1], (COMMAND_GET_LIMITS,)),
+            )
+            self._limits = HeightLimits(upper_set=False, lower_set=False)
+            self._notify_callbacks()
 
     async def _query_device_capabilities(self) -> None:
-        """Ask the desk for its settings; the answers arrive as notifications.
+        """Wake the desk, ask for its status, then query its settings 200 ms apart.
 
-        A desk without a feature does not answer its query. A write that fails
-        means the connection is gone, so the error fails the connect. The
-        collision sensitivity is not queried: it comes from the settings block,
-        and the desk's reply to the sensitivity query can disagree with it.
+        The answers arrive as notifications. A desk without a feature does not
+        answer its query. A write that fails means the connection is gone, so
+        the error fails the connect. The collision sensitivity is not queried:
+        it comes from the settings block, and the desk's reply to the
+        sensitivity query can disagree with it.
         """
         _LOGGER.debug("Querying device capabilities...")
-        await self.get_lighting_status()
-        await self.get_light_color()
-        await self.get_brightness()
-        await self.get_vibration_status()
-        await self.get_lock_status()
-        await self.get_limits()
+        queries = [
+            COMMAND_GET_LIGHTING,
+            COMMAND_GET_LIGHT_COLOR,
+            COMMAND_GET_BRIGHTNESS,
+            COMMAND_GET_VIBRATION,
+            COMMAND_GET_LOCK_STATUS,
+            COMMAND_GET_LIMITS,
+        ]
+        await self._sequencer.run_setting(
+            [
+                *_steps_at(0.0, SETTINGS_REQUEST),
+                *(
+                    (n * CONNECT_QUERY_SPACING, query)
+                    for n, query in enumerate(queries, start=1)
+                ),
+            ]
+        )
         _LOGGER.debug("Device capability query complete")
 
     async def _read_device_information(self) -> None:
@@ -949,13 +1267,15 @@ class DeskBLEDevice:
 
         # Check for upper limit response (in display units, like heights)
         elif len(data) >= 7 and bytes(data[:4]) == LIMIT_UPPER_RESPONSE_HEADER:
-            self._height_limit_upper = self._decode_limit(data)
-            _LOGGER.debug("Upper limit response: %.1f cm", self._height_limit_upper)
+            value = self._decode_limit(data)
+            self._limits = self._limits.with_value(HeightLimit.UPPER, value)
+            _LOGGER.debug("Upper limit response: %.1f cm", value.cm)
 
         # Check for lower limit response (in display units, like heights)
         elif len(data) >= 7 and bytes(data[:4]) == LIMIT_LOWER_RESPONSE_HEADER:
-            self._height_limit_lower = self._decode_limit(data)
-            _LOGGER.debug("Lower limit response: %.1f cm", self._height_limit_lower)
+            value = self._decode_limit(data)
+            self._limits = self._limits.with_value(HeightLimit.LOWER, value)
+            _LOGGER.debug("Lower limit response: %.1f cm", value.cm)
 
         # Check for limit status response (0xF2 0xF2 0x20 0x01):
         # 0x00 no limits, 0x01 upper only, 0x10 lower only, 0x11 both
@@ -964,18 +1284,22 @@ class DeskBLEDevice:
             and bytes(data[:4]) == LIMIT_STATUS_RESPONSE_HEADER
             and data[4] in (0x00, 0x01, 0x10, 0x11)
         ):
-            self._height_limit_upper_set = bool(data[4] & 0x01)
-            self._height_limit_lower_set = bool(data[4] & 0x10)
+            upper_set, lower_set = bool(data[4] & 0x01), bool(data[4] & 0x10)
+            self._limits = self._limits.with_status(
+                upper_set=upper_set, lower_set=lower_set
+            )
             _LOGGER.debug(
                 "Limit status response: upper %s, lower %s",
-                "set" if self._height_limit_upper_set else "not set",
-                "set" if self._height_limit_lower_set else "not set",
+                "set" if upper_set else "not set",
+                "set" if lower_set else "not set",
             )
 
         else:
             _LOGGER.debug("Unknown notification format: %s", data.hex())
             return
 
+        for report in self._report_waiters.pop(bytes(data[:4]), ()):
+            report.set_result(None)
         self._notify_callbacks()
 
     def _decode_height(self, raw: int, data: bytearray) -> float:
@@ -1003,8 +1327,8 @@ class DeskBLEDevice:
         self._effective_unit = unit
         return height_cm
 
-    def _decode_limit(self, data: bytearray) -> float:
-        """Turn a height limit reply into centimetres.
+    def _decode_limit(self, data: bytearray) -> LimitValue:
+        """Turn a height limit reply into the limit as the desk takes it, and cm.
 
         The desk reports a limit one tenth low: 124.0 cm as 1239. As the
         official app does, a raw value that is not a multiple of 5 is rounded
@@ -1013,7 +1337,8 @@ class DeskBLEDevice:
         raw = (data[4] << 8) | data[5]
         if raw % 5:
             raw += 1
-        return self._decode_height(raw, data)
+        height_cm = self._decode_height(raw, data)
+        return LimitValue(raw, self._effective_unit or "cm", height_cm)
 
     def _encode_height(self, height_cm: float) -> int:
         """Turn centimetres into tenths of the unit the desk currently uses."""
@@ -1028,6 +1353,7 @@ class DeskBLEDevice:
         previous_time = self._last_notification_time
         self._height_cm = height_cm
         self._last_notification_time = now
+        self._last_reading_at = self._sequencer.now()
 
         movement = self._movement
         if movement is not None and not movement.started:
@@ -1363,14 +1689,16 @@ class DeskBLEDevice:
         # The movement ends with the connection, and a collision from before the
         # drop is not shown again after reconnecting
         self._end_movement()
+        self._sequencer.cancel_all()
         self._set_collision_detected(False)
 
-        # Settings can change on the hand controller while disconnected, so they
-        # are read from the desk again on reconnecting
+        # Settings and limits can change on the hand controller while
+        # disconnected, so they are read from the desk again on reconnecting
         self._unit_preference = None
         self._effective_unit = None
         self._touch_mode = None
         self._sensitivity_level = None
+        self._limits = HeightLimits()
 
     def _handle_disconnect(self, client: BleakClient) -> None:
         """Handle disconnection from the desk."""

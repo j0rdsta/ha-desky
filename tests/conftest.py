@@ -21,7 +21,20 @@ from custom_components.desky_desk.bluetooth import round_limit_to_unit
 from custom_components.desky_desk.const import DOMAIN
 from custom_components.desky_desk.coordinator import DeskData
 
-from . import BluetoothCallbacks, desk_data
+from . import BluetoothCallbacks, FakeClock, desk_data
+
+
+@pytest.fixture(autouse=True)
+def clock() -> Generator[FakeClock]:
+    """Run the desk's frame timing on a virtual clock that passes pauses at once.
+
+    A desk built by a test can take it as `clock=`; the patch covers the desks
+    the integration builds itself. Set `clock.auto = False` to hold each pause
+    until `clock.advance()`.
+    """
+    fake = FakeClock()
+    with patch("custom_components.desky_desk.sequencer.Clock", return_value=fake):
+        yield fake
 
 
 @pytest.fixture
@@ -200,6 +213,7 @@ def mock_desk(mock_bluetooth_callbacks: BluetoothCallbacks) -> Generator[MagicMo
         for key, value in asdict(desk_data()).items():
             setattr(desk, key, value)
         desk.settings_known = True
+        desk.is_repeating = False
         # A desk showing cm; set round_limit_to_unit(..., "in") for inches
         desk.round_limit.side_effect = partial(round_limit_to_unit, unit="cm")
         yield desk

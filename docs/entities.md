@@ -66,17 +66,22 @@ The main control, named after the desk.
 The desk's current height in centimetres, to 0.1 cm, from 60 to 130 cm. Setting a value moves
 the desk to that height. A height outside the desk's limits fails with an error, and the desk
 does not move. To move to a height in an automation, you can also use the
-[`move_to_height` action](actions.md#move-to-height).
+[`move_to_height` action](actions.md#move-to-height). In press-and-hold touch mode the target
+repeats until the desk gets there.
 
 ### Presets 1 to 4
 
 Moves the desk to the height saved in that preset. Presets are saved on the hand controller; the
-integration can only recall them.
+integration can only recall them. In one-press touch mode one command takes the desk all the
+way. In press-and-hold touch mode the integration holds the button: the command repeats until the
+desk arrives or you press stop.
 
 ### Move up and Move down
 
 Starts the desk moving up or down, the same as opening or closing the cover. Stop it with the
-cover's stop. The buttons stay available whatever the cover's state.
+cover's stop. The buttons stay available whatever the cover's state. In every touch mode the
+integration holds the button, as the official app does: the command repeats until you press stop,
+the desk reaches the end of its travel, or 60 seconds pass.
 
 ### Collision detected
 
@@ -135,7 +140,9 @@ to 124 cm in steps of 1 cm, the range the desk accepts. On a desk whose display 
 range is 24 to 48 in, shown as 61.0 to 121.9 cm. The desk stores whole centimetres, or whole
 inches, so a value is rounded to the nearest whole unit before it is sent: on a desk that shows
 inches, 74 cm is sent as 29 in and shows as 73.7 cm. Setting a value writes the limit to the desk
-and reads the limits back. A limit that is not set shows as unknown.
+and reads the limits back. A limit that is not set shows as unknown. The desk only tightens a
+limit that is already set, so, as the official app does, the integration clears both limits and
+sets both again; setting one limit keeps the other.
 
 If the other limit is set, the upper limit must be above it and the lower limit below it.
 Otherwise setting the value fails with an error, and nothing is sent to the desk. To set or clear
@@ -161,13 +168,19 @@ the desk reports the new value.
 
 The hand controller's touch mode: **One press** or **Press and hold**. The states are `one_press`
 and `press_and_hold`. Use these values in automations. The desk does not confirm the change, so
-the integration asks for its settings again after changing it.
+the integration asks for its settings again after changing it. If the desk ignored the change, it
+is sent once more, and if the desk ignores it again, the change fails with an error. In **Press
+and hold** mode the desk
+moves to a preset or a height only while the command keeps arriving, so the integration repeats
+those commands every 100 ms (see [Command timing](protocol.md#command-timing)). Move up and Move
+down repeat in both modes.
 
 ### Display unit
 
 The unit the desk's display shows: **cm** or **in**, with the states `cm` and `in`. It changes
 only the desk's own display; entities keep using centimetres. The integration asks for the desk's
-settings again after changing it, and also picks up a change made on the hand controller.
+settings again after changing it, sends the change once more if the desk ignored it, and fails
+with an error if it is ignored again. It also picks up a change made on the hand controller.
 
 ## LED strip
 

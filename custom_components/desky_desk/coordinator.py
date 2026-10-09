@@ -26,7 +26,7 @@ from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.typing import UNDEFINED
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
-from .bluetooth import DeskBLEDevice, DeskError
+from .bluetooth import DeskBLEDevice
 from .const import (
     CONF_STANDING_THRESHOLD,
     DEFAULT_STANDING_THRESHOLD,
@@ -36,6 +36,7 @@ from .const import (
     UPDATE_INTERVAL_SECONDS,
     Posture,
 )
+from .errors import DeskError
 from .posture import PostureTracker
 
 _LOGGER = logging.getLogger(__name__)
@@ -332,7 +333,15 @@ class DeskUpdateCoordinator(DataUpdateCoordinator[DeskData]):
         catches that; asking at every poll would wake the display of a desk
         that never reports one of its settings. The refresh straight after
         setup is not a scheduled poll, so it is skipped.
+
+        Nothing is written while a movement frame is being repeated: a write
+        that waits for its acknowledgement would hold up the repeats, and the
+        desk takes a gap as the button being released. A moving desk reports
+        its height anyway.
         """
+        if device.is_repeating:
+            _LOGGER.debug("Skipping the status request while the desk is held")
+            return
         if self._recheck_settings and self.data is not None:
             self._recheck_settings = False
             if not device.settings_known:

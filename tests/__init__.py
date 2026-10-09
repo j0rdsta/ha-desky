@@ -1,6 +1,8 @@
 """Tests for the Desky Desk integration."""
 
+import asyncio
 from dataclasses import dataclass, replace
+import heapq
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -132,3 +134,81 @@ class BluetoothCallbacks:
     def lose_sight(self) -> None:
         """Report that the Bluetooth stack no longer sees the desk."""
         self.track_unavailable.call_args.args[1](make_service_info())
+
+
+async def settle() -> None:
+    """Let every task that is ready run until it waits again."""
+    for _ in range(20):
+        await asyncio.sleep(0)
+
+
+class FakeClock:
+    """A virtual clock for the desk's frame timing.
+
+    With auto set, every pause passes at once and the clock jumps past it, so
+    tests that do not look at timing never wait. With auto off, a pause lasts
+    until advance() moves the clock past it, so a test decides exactly when
+    each timed frame goes out.
+
+    With auto set, the sequencer's settle cap (WRITE_SETTLE_SECONDS) passes at
+    once too, so a write cancelled mid-flight is given up straight away. A
+    test that cancels during a write and expects it to finish must turn auto
+    off.
+    """
+
+    def __init__(self) -> None:
+        """Start the clock at zero, passing pauses at once."""
+        self.now = 0.0
+        self.auto = True
+        self._pauses: list[tuple[float, int, asyncio.Future[None]]] = []
+        self._count = 0
+
+    def time(self) -> float:
+        """Return the virtual time in seconds."""
+        return self.now
+
+    async def sleep(self, seconds: float) -> None:
+        """Pause until the virtual clock reaches the end of the pause."""
+        if self.auto:
+            self.now += seconds
+            await asyncio.sleep(0)
+            return
+        future: asyncio.Future[None] = asyncio.get_running_loop().create_future()
+        self._count += 1
+        heapq.heappush(self._pauses, (self.now + seconds, self._count, future))
+        await future
+
+    async def advance(self, seconds: float) -> None:
+        """Move the clock on, ending each pause in turn at its own time."""
+        target = self.now + seconds
+        await settle()
+        while self._pauses and self._pauses[0][0] <= target + 1e-9:
+            wake, _, future = heapq.heappop(self._pauses)
+            self.now = max(self.now, wake)
+            if not future.done():
+                future.set_result(None)
+            await settle()
+        self.now = target
+        await settle()
+
+
+def record_frames(client: MagicMock, clock: FakeClock) -> list[tuple[float, str]]:
+    """Record each frame written to the client, with its virtual time in seconds."""
+    frames: list[tuple[float, str]] = []
+
+    async def _write(_uuid: str, data: bytes, *args: Any, **kwargs: Any) -> None:
+        frames.append((round(clock.now, 3), bytes(data).hex()))
+
+    client.write_gatt_char.side_effect = _write
+    return frames
+
+
+def record_writes(client: MagicMock, clock: FakeClock) -> list[tuple[float, str, bool]]:
+    """Record each frame written, its virtual time, and if it waited for a response."""
+    writes: list[tuple[float, str, bool]] = []
+
+    async def _write(_uuid: str, data: bytes, *, response: bool) -> None:
+        writes.append((round(clock.now, 3), bytes(data).hex(), response))
+
+    client.write_gatt_char.side_effect = _write
+    return writes

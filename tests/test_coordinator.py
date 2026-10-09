@@ -21,7 +21,6 @@ from pytest_homeassistant_custom_component.common import (
     async_fire_time_changed,
 )
 
-from custom_components.desky_desk.bluetooth import DeskCommandError
 from custom_components.desky_desk.const import (
     DOMAIN,
     RECONNECT_BACKOFF_MAX_SECONDS,
@@ -29,6 +28,7 @@ from custom_components.desky_desk.const import (
     UPDATE_INTERVAL_SECONDS,
 )
 from custom_components.desky_desk.coordinator import DeskData, DeskUpdateCoordinator
+from custom_components.desky_desk.errors import DeskCommandError
 
 from . import BluetoothCallbacks, desk_data, disconnect_desk, notify_desk
 
@@ -938,3 +938,41 @@ async def test_update_device_registry_before_connecting(
         await coordinator.async_update_device_registry()
 
     get_or_create.assert_not_called()
+
+
+async def test_reconnect_without_a_reported_outage_logs_nothing(
+    hass: HomeAssistant,
+    init_integration: MockConfigEntry,
+    mock_desk: MagicMock,
+    mock_bluetooth_callbacks: BluetoothCallbacks,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A link found down without a disconnect report reconnects quietly."""
+    mock_desk.is_connected = False
+    mock_desk.connect.reset_mock()
+    caplog.clear()
+
+    mock_bluetooth_callbacks.advertise()
+    await hass.async_block_till_done(wait_background_tasks=True)
+
+    mock_desk.connect.assert_awaited_once_with()
+    assert "available again" not in caplog.text
+
+
+async def test_poll_writes_nothing_while_the_desk_is_held(
+    hass: HomeAssistant,
+    init_integration: MockConfigEntry,
+    mock_desk: MagicMock,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """A poll during a held movement leaves the repeats alone."""
+    mock_desk.get_status.reset_mock()
+    mock_desk.is_repeating = True
+
+    await _poll(hass, freezer)
+    mock_desk.get_status.assert_not_awaited()
+    mock_desk.get_settings.assert_not_awaited()
+
+    mock_desk.is_repeating = False
+    await _poll(hass, freezer)
+    assert mock_desk.get_status.await_count + mock_desk.get_settings.await_count == 1

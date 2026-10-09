@@ -20,8 +20,13 @@ reach.
 
 ## What the integration does and does not do
 
-- When you stop the desk from Home Assistant, it sends **stop** on its own, without the wake-up
-  handshake that precedes other commands.
+- When you stop the desk from Home Assistant, it sends **stop** twice, 50 ms apart, without the
+  wake-up handshake that precedes other commands. A stop is never held up by another command's
+  pauses.
+- Move up, Move down and opening or closing the cover repeat their command every 100 ms, in
+  every touch mode, until you stop the desk, it reaches the end of its travel, or 60 seconds
+  pass. In press-and-hold touch mode the presets and move to height repeat too, until the desk
+  arrives. Opening the cover therefore raises the desk all the way unless you stop it.
 - A command that cannot reach the desk fails with an error, so an automation records the failure
   instead of carrying on as if the desk moved.
 - The collision sensor is inferred from how a commanded movement ends (see
