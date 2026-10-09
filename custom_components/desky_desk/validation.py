@@ -4,8 +4,24 @@ from __future__ import annotations
 
 from homeassistant.exceptions import ServiceValidationError
 
-from .const import DOMAIN, MAX_HEIGHT, MIN_HEIGHT, HeightLimit
+from .const import (
+    CM_PER_INCH,
+    DOMAIN,
+    LIMIT_MAX_HEIGHT,
+    LIMIT_MAX_HEIGHT_IN,
+    LIMIT_MIN_HEIGHT,
+    LIMIT_MIN_HEIGHT_IN,
+    MAX_HEIGHT,
+    MIN_HEIGHT,
+    HeightLimit,
+)
 from .coordinator import DeskData
+
+# The inch limit range in cm, rounded to 0.1 cm like decoded heights: 61.0-121.9
+INCH_LIMIT_RANGE_CM = (
+    round(LIMIT_MIN_HEIGHT_IN * CM_PER_INCH, 1),
+    round(LIMIT_MAX_HEIGHT_IN * CM_PER_INCH, 1),
+)
 
 # The error for a limit on the wrong side of the other limit
 INVERTED_LIMIT_KEYS = {
@@ -50,13 +66,25 @@ def validate_move_to_height(data: DeskData, height: float) -> None:
     _check_height_in_range(height, low, high, "height_out_of_range")
 
 
+def limit_range(data: DeskData) -> tuple[float, float]:
+    """Return the lowest and highest height limit the desk accepts, in cm.
+
+    The desk takes limits in its display unit: 60-124 cm, or 24-48 in. A desk
+    that has not reported its unit gets the cm range.
+    """
+    if data.unit_preference == "in":
+        return INCH_LIMIT_RANGE_CM
+    return LIMIT_MIN_HEIGHT, LIMIT_MAX_HEIGHT
+
+
 def validate_height_limit(data: DeskData, limit: HeightLimit, height: float) -> None:
     """Raise a translated validation error for a height limit the desk must not get.
 
-    The limit must be within 60-130 cm. If the other limit is set, an upper
-    limit must be above it and a lower limit below it.
+    The limit must be within limit_range(). If the other limit is set, an
+    upper limit must be above it and a lower limit below it.
     """
-    _check_height_in_range(height, MIN_HEIGHT, MAX_HEIGHT, "limit_out_of_range")
+    low, high = limit_range(data)
+    _check_height_in_range(height, low, high, "limit_out_of_range")
     upper = limit == HeightLimit.UPPER
     other = data.height_limit_lower if upper else data.height_limit_upper
     if other is None:

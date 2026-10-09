@@ -2173,11 +2173,11 @@ async def test_command_parameter_validation(
 
 
 @pytest.mark.parametrize("limit", list(HeightLimit))
-@pytest.mark.parametrize("height", [59.0, 131.0])
+@pytest.mark.parametrize("height", [59.0, 125.0])
 async def test_set_height_limit_out_of_range(
     mock_ble_device, mock_bleak_client, limit, height
 ):
-    """Test a limit outside 60-130 cm raises and sends nothing."""
+    """Test a limit outside 60-124 cm raises and sends nothing."""
     device = DeskBLEDevice(mock_ble_device)
     device._client = mock_bleak_client
 
@@ -3297,3 +3297,19 @@ async def test_height_limits_round_trip_in_cm(
     # The desk truncates the stored limit, so in inches it reads back a step low
     device._handle_notification(None, bytearray.fromhex(response))
     assert device.height_limit_upper == read_back
+
+
+@pytest.mark.parametrize(("height", "sent"), [(61.0, 240), (121.9, 480)])
+async def test_inch_limit_range_ends_are_sent_within_24_48_in(
+    mock_ble_device, mock_bleak_client, height, sent
+):
+    """The ends of the inch limit range, 61.0 and 121.9 cm, are 24.0 and 48.0 in."""
+    device = DeskBLEDevice(mock_ble_device)
+    device._client = mock_bleak_client
+    device._handle_notification(None, INCH_REPORT)
+
+    await device.set_height_limit(HeightLimit.UPPER, height)
+
+    assert mock_bleak_client.write_gatt_char.call_args_list[-1] == call(
+        WRITE_CHARACTERISTIC_UUID, device._create_command_with_word_param(0x21, sent)
+    )

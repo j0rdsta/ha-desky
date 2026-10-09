@@ -72,6 +72,13 @@ MIN_HEIGHT: Final = 60.0
 MAX_HEIGHT: Final = 130.0
 DEFAULT_HEIGHT: Final = 75.0
 
+# Height limits the desk accepts; it ignores a limit outside them without an
+# error. The official app allows the same: 60-124 cm, or 24-48 in.
+LIMIT_MIN_HEIGHT: Final = 60.0
+LIMIT_MAX_HEIGHT: Final = 124.0
+LIMIT_MIN_HEIGHT_IN: Final = 24.0
+LIMIT_MAX_HEIGHT_IN: Final = 48.0
+
 # Posture: a desk stopped at or above the standing threshold counts as standing
 CONF_STANDING_THRESHOLD: Final = "standing_threshold"
 DEFAULT_STANDING_THRESHOLD: Final = 95

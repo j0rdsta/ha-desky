@@ -7,6 +7,7 @@ import pytest
 
 from custom_components.desky_desk.validation import (
     allowed_move_range,
+    limit_range,
     validate_height_limit,
 )
 
@@ -41,3 +42,12 @@ def test_allowed_move_range(
     data = desk_data(height_limit_upper=upper, height_limit_lower=lower)
 
     assert allowed_move_range(data) == allowed
+
+
+@pytest.mark.parametrize(
+    ("unit", "expected"),
+    [("cm", (60.0, 124.0)), (None, (60.0, 124.0)), ("in", (61.0, 121.9))],
+)
+def test_limit_range(unit: str | None, expected: tuple[float, float]) -> None:
+    """Test limits are 60-124 cm, or 24-48 in rounded inside to 0.1 cm."""
+    assert limit_range(desk_data(unit_preference=unit)) == expected

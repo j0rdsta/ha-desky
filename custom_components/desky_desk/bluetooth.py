@@ -42,6 +42,8 @@ from .const import (
     LIGHT_COLOR_RESPONSE_HEADER,
     LIGHTING_RESPONSE_HEADER,
     LIMIT_LOWER_RESPONSE_HEADER,
+    LIMIT_MAX_HEIGHT,
+    LIMIT_MIN_HEIGHT,
     LIMIT_STATUS_RESPONSE_HEADER,
     LIMIT_UPPER_RESPONSE_HEADER,
     LOCK_STATUS_RESPONSE_HEADER,
@@ -668,10 +670,10 @@ class DeskBLEDevice:
 
     async def set_height_limit(self, limit: HeightLimit, height_cm: float) -> None:
         """Set the upper or lower height limit in cm."""
-        if not MIN_HEIGHT <= height_cm <= MAX_HEIGHT:
+        if not LIMIT_MIN_HEIGHT <= height_cm <= LIMIT_MAX_HEIGHT:
             raise ValueError(
                 f"Invalid {limit} height limit: {height_cm:.1f} "
-                f"(must be {MIN_HEIGHT:.1f}-{MAX_HEIGHT:.1f})"
+                f"(must be {LIMIT_MIN_HEIGHT:.1f}-{LIMIT_MAX_HEIGHT:.1f})"
             )
         # Limits are in the desk's display unit, unlike move-to-height targets
         command = self._create_command_with_word_param(

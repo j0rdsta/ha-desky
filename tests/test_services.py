@@ -27,7 +27,7 @@ LOWER_LIMIT = "number.desky_desk_lower_height_limit"
 # (action, data, desk method the action calls)
 ACTIONS = [
     ("move_to_height", {"height": 100}, "move_to_height"),
-    ("set_height_limit", {"limit": "upper", "height": 125}, "set_height_limit"),
+    ("set_height_limit", {"limit": "upper", "height": 124}, "set_height_limit"),
     ("clear_height_limits", {}, "clear_height_limits"),
 ]
 COMMANDS = (
@@ -223,15 +223,81 @@ async def test_inverted_height_limit_rejected(
     _assert_nothing_sent(mock_desk)
 
 
+@pytest.mark.parametrize(
+    ("unit", "height", "low", "high"),
+    [
+        ("cm", 125, "60.0", "124.0"),
+        ("cm", 127, "60.0", "124.0"),
+        ("cm", 59, "60.0", "124.0"),
+        # Not reported yet: the cm range
+        (None, 125, "60.0", "124.0"),
+        # 24-48 in
+        ("in", 122, "61.0", "121.9"),
+        ("in", 60.5, "61.0", "121.9"),
+    ],
+)
 async def test_height_limit_out_of_range(
-    hass: HomeAssistant, init_integration: MockConfigEntry, mock_desk: MagicMock
+    hass: HomeAssistant,
+    init_integration: MockConfigEntry,
+    mock_desk: MagicMock,
+    unit: str | None,
+    height: float,
+    low: str,
+    high: str,
 ) -> None:
-    """Test a limit outside 60-130 cm is rejected."""
+    """Test a limit outside 60-124 cm, or 24-48 in on an inch desk, is rejected."""
+    await set_desk_state(
+        hass,
+        init_integration,
+        unit_preference=unit,
+        height_limit_upper=None,
+        height_limit_lower=None,
+    )
+
     with pytest.raises(ServiceValidationError) as err:
-        await _call(hass, "set_height_limit", {"limit": "upper", "height": 135})
+        await _call(hass, "set_height_limit", {"limit": "upper", "height": height})
 
     assert err.value.translation_key == "limit_out_of_range"
+    assert err.value.translation_placeholders == {
+        "height": f"{height:.1f}",
+        "min": low,
+        "max": high,
+    }
+    assert str(err.value) == (
+        f"{height:.1f} cm is outside the range a limit can be set to, {low}-{high} cm"
+    )
     _assert_nothing_sent(mock_desk)
+
+
+@pytest.mark.parametrize(
+    ("unit", "limit", "height"),
+    [
+        ("cm", "upper", 124.0),
+        ("cm", "lower", 60.0),
+        ("in", "upper", 121.9),
+        ("in", "lower", 61.0),
+    ],
+)
+async def test_height_limit_at_the_end_of_the_range(
+    hass: HomeAssistant,
+    init_integration: MockConfigEntry,
+    mock_desk: MagicMock,
+    unit: str,
+    limit: str,
+    height: float,
+) -> None:
+    """Test a limit at either end of the range is sent."""
+    await set_desk_state(
+        hass,
+        init_integration,
+        unit_preference=unit,
+        height_limit_upper=None,
+        height_limit_lower=None,
+    )
+
+    await _call(hass, "set_height_limit", {"limit": limit, "height": height})
+
+    mock_desk.set_height_limit.assert_awaited_once_with(HeightLimit(limit), height)
 
 
 async def test_clear_height_limits(
