@@ -170,9 +170,32 @@ settings again after changing it, and also picks up a change made on the hand co
 
 ### LED strip (light)
 
-Turns the desk's LED strip on or off and sets its brightness. The colours are effects: **White**,
-**Red**, **Green**, **Blue**, **Yellow** and **Party mode**. Any other effect fails with an error,
-and nothing is sent to the desk.
+Turns the desk's LED strip on or off and sets its brightness and colour. The colours are also
+effects: **White**, **Red**, **Green**, **Blue**, **Yellow** and **Party mode**. Any other effect
+fails with an error, and nothing is sent to the desk.
+
+The light has a colour wheel (colour mode `hs`). The desk has only five fixed colours, so a colour
+you pick snaps to the nearest one:
+
+- A colour with a saturation below 30 % is **White**.
+- Any other colour is the nearest of **Red** (hue 0), **Yellow** (60), **Green** (120) or
+  **Blue** (240) round the colour wheel. A hue exactly between two colours goes to the one below
+  it: 30 is red, 90 yellow, 180 green and 300 blue.
+
+A colour given as RGB, XY or a colour name is converted to a hue and saturation first, so it snaps
+the same way. The desk has one white, so any colour temperature sets **White**. If you give both an
+effect and a colour, the effect wins.
+
+The light reports its colour as the desk's colour, not the one you picked: pick a light blue and it
+shows Blue, hue 240 and saturation 100 %. In Party mode the colours change on their own, so the
+light reports no colour.
+
+The colour wheel also reaches bridges that pick a device type from the light's colour modes, such
+as the HomeKit bridge and Matter bridges (for example Home Assistant Matter Hub). Before version
+2.0.0 they showed the LED strip as a dimmable light with no colour. Matter and HomeKit fix an
+accessory's type when it is created, so after upgrading the bridge may show the LED strip as a new
+colour light accessory. Assign its room again and update any scenes or automations in Apple Home or
+your other controller that used the old one.
 
 The desk takes brightness in whole percent. The brightness is rounded to the nearest percent, and
 a light that is on is never sent as 0 %.
