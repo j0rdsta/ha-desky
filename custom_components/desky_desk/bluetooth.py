@@ -662,6 +662,7 @@ class DeskBLEDevice:
         await self._send_awake_command(command)
         # Shown at once; the desk confirms it in its next lock status report
         self._lock_status = locked
+        self._notify_callbacks()
 
     async def set_sensitivity(self, level: int) -> None:
         """Set collision sensitivity level (1=High, 2=Medium, 3=Low)."""
@@ -905,36 +906,43 @@ class DeskBLEDevice:
         elif len(data) >= 6 and bytes(data[:4]) == LIGHT_COLOR_RESPONSE_HEADER:
             self._light_color = data[4]
             _LOGGER.debug("Light color response: %s", self._light_color)
+            self._notify_callbacks()
 
         # Check for brightness response
         elif len(data) >= 6 and bytes(data[:4]) == BRIGHTNESS_RESPONSE_HEADER:
             self._brightness = data[4]
             _LOGGER.debug("Brightness response: %s", self._brightness)
+            self._notify_callbacks()
 
         # Check for lighting status response
         elif len(data) >= 6 and bytes(data[:4]) == LIGHTING_RESPONSE_HEADER:
             self._lighting_enabled = data[4] != 0
             _LOGGER.debug("Lighting enabled response: %s", self._lighting_enabled)
+            self._notify_callbacks()
 
         # Check for vibration status response
         elif len(data) >= 6 and bytes(data[:4]) == VIBRATION_RESPONSE_HEADER:
             self._vibration_enabled = data[4] != 0
             _LOGGER.debug("Vibration enabled response: %s", self._vibration_enabled)
+            self._notify_callbacks()
 
         # Check for vibration intensity response
         elif len(data) >= 6 and bytes(data[:4]) == VIBRATION_INTENSITY_RESPONSE_HEADER:
             self._vibration_intensity = data[4]
             _LOGGER.debug("Vibration intensity response: %s", self._vibration_intensity)
+            self._notify_callbacks()
 
         # Check for lock status response
         elif len(data) >= 6 and bytes(data[:4]) == LOCK_STATUS_RESPONSE_HEADER:
             self._lock_status = data[4] != 0
             _LOGGER.debug("Lock status response: %s", self._lock_status)
+            self._notify_callbacks()
 
         # Check for sensitivity response
         elif len(data) >= 6 and bytes(data[:4]) == SENSITIVITY_RESPONSE_HEADER:
             self._sensitivity_level = data[4]
             _LOGGER.debug("Sensitivity level response: %s", self._sensitivity_level)
+            self._notify_callbacks()
 
         # Check for display unit response
         elif len(data) >= 6 and bytes(data[:4]) == UNIT_RESPONSE_HEADER:

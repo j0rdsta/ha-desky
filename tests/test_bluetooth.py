@@ -47,6 +47,8 @@ from custom_components.desky_desk.const import (
     WRITE_CHARACTERISTIC_UUID,
 )
 
+from . import desk_response
+
 
 def _status_frame(height_cm: float) -> bytearray:
     """Build a real status frame (f2 f2 01 03 HH LL 07 CS 7e) for a height in cm."""
@@ -1911,12 +1913,6 @@ async def test_device_capability_queries(mock_ble_device, mock_bleak_client):
         )
 
 
-def _response(header: bytes, *payload: int) -> bytearray:
-    """Build a desk response frame: header, payload, checksum and terminator."""
-    checksum = (sum(header[2:]) + sum(payload)) & 0xFF
-    return bytearray([*header, *payload, checksum, 0x7E])
-
-
 @pytest.mark.parametrize(
     ("header", "value", "attribute", "expected"),
     [
@@ -1933,12 +1929,86 @@ def _response(header: bytes, *payload: int) -> bytearray:
     ],
 )
 def test_parse_feature_responses(mock_ble_device, header, value, attribute, expected):
-    """Test parsing of single-byte feature responses."""
+    """Test each setting reply is stored and passed on to the listeners at once."""
     device = DeskBLEDevice(mock_ble_device)
+    callback = MagicMock()
+    device.register_notification_callback(callback)
 
-    device._handle_notification(None, _response(header, value))
+    device._handle_notification(None, desk_response(header, value))
 
     assert getattr(device, attribute) == expected
+    callback.assert_called_once_with(0.0, False, False)
+
+
+@pytest.mark.parametrize(
+    ("header", "attribute"),
+    [
+        (LIGHT_COLOR_RESPONSE_HEADER, "light_color"),
+        (BRIGHTNESS_RESPONSE_HEADER, "brightness"),
+        (LIGHTING_RESPONSE_HEADER, "lighting_enabled"),
+        (VIBRATION_RESPONSE_HEADER, "vibration_enabled"),
+        (VIBRATION_INTENSITY_RESPONSE_HEADER, "vibration_intensity"),
+        (LOCK_STATUS_RESPONSE_HEADER, "lock_status"),
+        (SENSITIVITY_RESPONSE_HEADER, "sensitivity_level"),
+    ],
+)
+def test_truncated_setting_reply_changes_nothing(mock_ble_device, header, attribute):
+    """Test a setting reply cut short is ignored and nobody is told."""
+    device = DeskBLEDevice(mock_ble_device)
+    callback = MagicMock()
+    device.register_notification_callback(callback)
+    before = getattr(device, attribute)
+
+    device._handle_notification(None, bytearray([*header, 0x01]))
+
+    assert getattr(device, attribute) == before
+    callback.assert_not_called()
+
+
+def test_setting_reply_mid_movement_keeps_the_movement(mock_ble_device):
+    """Test a setting reply during a movement passes on the movement unchanged."""
+    device = DeskBLEDevice(mock_ble_device)
+    _started_movement(
+        device, "continuous", "up", start_height=80.0, height=85.0, moved_until=0.0
+    )
+    callback = MagicMock()
+    device.register_notification_callback(callback)
+
+    device._handle_notification(None, desk_response(SENSITIVITY_RESPONSE_HEADER, 0x03))
+
+    assert device.sensitivity_level == 3
+    assert device.is_moving is True
+    callback.assert_called_once_with(85.0, False, True)
+
+
+async def test_set_lock_status_notifies(mock_ble_device, mock_bleak_client):
+    """Test the lock is shown at once, before the desk's reply arrives."""
+    device = DeskBLEDevice(mock_ble_device)
+    device._client = mock_bleak_client
+    callback = MagicMock()
+    device.register_notification_callback(callback)
+
+    await device.set_lock_status(True)
+
+    assert device.lock_status is True
+    callback.assert_called_once_with(0.0, False, False)
+
+
+async def test_failed_set_lock_status_changes_nothing(
+    mock_ble_device, mock_bleak_client
+):
+    """Test a lock command that does not reach the desk leaves the lock as it was."""
+    device = DeskBLEDevice(mock_ble_device)
+    device._client = mock_bleak_client
+    mock_bleak_client.write_gatt_char.side_effect = OSError("gone")
+    callback = MagicMock()
+    device.register_notification_callback(callback)
+
+    with pytest.raises(DeskCommandError):
+        await device.set_lock_status(True)
+
+    assert device.lock_status is False
+    callback.assert_not_called()
 
 
 def test_parse_height_limit_responses(mock_ble_device):
@@ -1946,12 +2016,12 @@ def test_parse_height_limit_responses(mock_ble_device):
     device = DeskBLEDevice(mock_ble_device)
 
     device._handle_notification(
-        None, _response(LIMIT_UPPER_RESPONSE_HEADER, 0x04, 0xB0)
+        None, desk_response(LIMIT_UPPER_RESPONSE_HEADER, 0x04, 0xB0)
     )
     assert device.height_limit_upper == 120.0
 
     device._handle_notification(
-        None, _response(LIMIT_LOWER_RESPONSE_HEADER, 0x02, 0x8A)
+        None, desk_response(LIMIT_LOWER_RESPONSE_HEADER, 0x02, 0x8A)
     )
     assert device.height_limit_lower == 65.0
 
@@ -1966,13 +2036,15 @@ def test_parse_limit_status_response(mock_ble_device, status, upper, lower):
     callback = MagicMock()
     device.register_notification_callback(callback)
     device._handle_notification(
-        None, _response(LIMIT_UPPER_RESPONSE_HEADER, 0x04, 0xB0)
+        None, desk_response(LIMIT_UPPER_RESPONSE_HEADER, 0x04, 0xB0)
     )
     device._handle_notification(
-        None, _response(LIMIT_LOWER_RESPONSE_HEADER, 0x02, 0x8A)
+        None, desk_response(LIMIT_LOWER_RESPONSE_HEADER, 0x02, 0x8A)
     )
 
-    device._handle_notification(None, _response(LIMIT_STATUS_RESPONSE_HEADER, status))
+    device._handle_notification(
+        None, desk_response(LIMIT_STATUS_RESPONSE_HEADER, status)
+    )
 
     assert device.height_limit_upper == upper
     assert device.height_limit_lower == lower
@@ -1986,13 +2058,13 @@ def test_limits_before_limit_status(mock_ble_device):
     device = DeskBLEDevice(mock_ble_device)
     assert device.limits_enabled is False
 
-    device._handle_notification(None, _response(LIMIT_STATUS_RESPONSE_HEADER, 0x00))
+    device._handle_notification(None, desk_response(LIMIT_STATUS_RESPONSE_HEADER, 0x00))
     device._handle_notification(
-        None, _response(LIMIT_UPPER_RESPONSE_HEADER, 0x04, 0xB0)
+        None, desk_response(LIMIT_UPPER_RESPONSE_HEADER, 0x04, 0xB0)
     )
     assert device.height_limit_upper is None
 
-    device._handle_notification(None, _response(LIMIT_STATUS_RESPONSE_HEADER, 0x01))
+    device._handle_notification(None, desk_response(LIMIT_STATUS_RESPONSE_HEADER, 0x01))
     assert device.height_limit_upper == 120.0
 
 

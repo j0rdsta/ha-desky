@@ -66,6 +66,12 @@ def notify_desk(desk: MagicMock, **changes: Any) -> None:
     callback(desk.height_cm, desk.collision_detected, desk.is_moving)
 
 
+def desk_response(header: bytes, *payload: int) -> bytearray:
+    """Build a desk response frame: header, payload, checksum and terminator."""
+    checksum = (sum(header[2:]) + sum(payload)) & 0xFF
+    return bytearray([*header, *payload, checksum, 0x7E])
+
+
 def disconnect_desk(desk: MagicMock) -> None:
     """Mark the mocked desk disconnected and run its disconnect callback."""
     desk.is_connected = False
