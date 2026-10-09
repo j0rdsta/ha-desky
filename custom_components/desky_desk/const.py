@@ -91,6 +91,13 @@ class Posture(StrEnum):
     STANDING = "standing"
 
 
+class HeightLimit(StrEnum):
+    """The desk's two height limits."""
+
+    UPPER = "upper"
+    LOWER = "lower"
+
+
 # Update intervals
 UPDATE_INTERVAL_SECONDS: Final = 30
 # Delay before retrying a failed reconnect, doubling up to the maximum, so a

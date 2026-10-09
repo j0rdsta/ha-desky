@@ -110,7 +110,7 @@
     }),
     'light.desky_desk_led_strip': dict({
       'attributes': dict({
-        'brightness': 127,
+        'brightness': 128,
         'color_mode': 'brightness',
         'color_name': 'White',
         'effect': 'White',

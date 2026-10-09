@@ -158,6 +158,9 @@
     },
     "not_connected": {
       "message": "The desk is not connected"
+    },
+    "unknown_effect": {
+      "message": "The LED strip has no effect called {effect}. Use one of: {effects}"
     }
   },
   "selector": {
