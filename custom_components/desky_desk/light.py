@@ -9,6 +9,7 @@ from typing import Any, Self
 from homeassistant.components.light import (
     ATTR_BRIGHTNESS,
     ATTR_EFFECT,
+    ATTR_HS_COLOR,
     ColorMode,
     LightEntity,
     LightEntityFeature,
@@ -76,6 +77,11 @@ def _nearest_color(hs_color: tuple[float, float]) -> int:
     return min((COLOR_RED, COLOR_YELLOW, COLOR_GREEN, COLOR_BLUE), key=distance)
 
 
+def _visible_color(color: int | None) -> int | None:
+    """Return the colour the LED shows, or None for an off or unknown code."""
+    return color if color in COLOR_TO_EFFECT else None
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: DeskyConfigEntry,
@@ -108,8 +114,8 @@ class DeskLight(DeskEntity, LightEntity, RestoreEntity):
     """Representation of a Desky desk LED strip."""
 
     _attr_translation_key = "desk_light"
-    _attr_color_mode = ColorMode.BRIGHTNESS
-    _attr_supported_color_modes = {ColorMode.BRIGHTNESS}
+    _attr_color_mode = ColorMode.HS
+    _attr_supported_color_modes = {ColorMode.HS}
     _attr_supported_features = LightEntityFeature.EFFECT
     _attr_effect_list = list(EFFECT_TO_COLOR)
 
@@ -151,8 +157,14 @@ class DeskLight(DeskEntity, LightEntity, RestoreEntity):
     @property
     def effect(self) -> str | None:
         """Return the current effect."""
-        light_color = self.coordinator.data.light_color
-        return None if light_color is None else COLOR_TO_EFFECT.get(light_color)
+        color = _visible_color(self.coordinator.data.light_color)
+        return None if color is None else COLOR_TO_EFFECT[color]
+
+    @property
+    def hs_color(self) -> tuple[float, float] | None:
+        """Return the hue and saturation of the colour; party mode has none."""
+        color = _visible_color(self.coordinator.data.light_color)
+        return None if color is None else COLOR_TO_HS.get(color)
 
     async def _async_set_color(self, color_code: int) -> None:
         """Set the light colour and remember it if it is a static colour."""
@@ -182,14 +194,15 @@ class DeskLight(DeskEntity, LightEntity, RestoreEntity):
             )
             await self._device.set_brightness(brightness_percent)
 
+        # An effect wins over a colour, which snaps to the nearest desk colour
         if effect is not None:
             await self._async_set_color(EFFECT_TO_COLOR[effect])
-        else:
-            # If no specific effect requested and light is off, turn on with the
-            # last static colour
-            current_color = self.coordinator.data.light_color
-            if current_color is None or current_color in OFF_COLORS:
-                await self._device.set_light_color(self._last_static_color)
+        elif ATTR_HS_COLOR in kwargs:
+            await self._async_set_color(_nearest_color(kwargs[ATTR_HS_COLOR]))
+        elif _visible_color(self.coordinator.data.light_color) is None:
+            # The LED is off or shows an unknown colour: turn on with the last
+            # static colour
+            await self._device.set_light_color(self._last_static_color)
 
         # Enable lighting if not already enabled
         if not self.coordinator.data.lighting_enabled:

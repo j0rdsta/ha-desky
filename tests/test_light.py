@@ -8,11 +8,17 @@ from unittest.mock import MagicMock, call, patch
 from homeassistant.components.light import (
     ATTR_BRIGHTNESS,
     ATTR_BRIGHTNESS_PCT,
+    ATTR_COLOR_MODE,
+    ATTR_COLOR_NAME,
     ATTR_EFFECT,
     ATTR_EFFECT_LIST,
+    ATTR_HS_COLOR,
+    ATTR_RGB_COLOR,
+    ATTR_SUPPORTED_COLOR_MODES,
     DOMAIN as LIGHT_DOMAIN,
     SERVICE_TURN_OFF,
     SERVICE_TURN_ON,
+    ColorMode,
 )
 from homeassistant.const import ATTR_ENTITY_ID, STATE_OFF, STATE_ON, STATE_UNAVAILABLE
 from homeassistant.core import HomeAssistant, State
@@ -187,6 +193,62 @@ async def test_light_unknown_color(
     assert state.attributes[ATTR_EFFECT] is None
 
 
+@pytest.mark.parametrize(
+    ("light_color", "hs_color"),
+    [
+        (1, (0, 0)),
+        (2, (0, 100)),
+        (3, (120, 100)),
+        (4, (240, 100)),
+        (5, (60, 100)),
+        # Party mode cycles colours, so it has no hue
+        (6, None),
+        (None, None),
+        (99, None),
+    ],
+)
+async def test_light_reports_hs_color(
+    hass: HomeAssistant,
+    init_integration: MockConfigEntry,
+    light_color: int | None,
+    hs_color: tuple[float, float] | None,
+) -> None:
+    """Test the light reports the desk's static colour as a hue and saturation."""
+    await set_desk_state(hass, init_integration, light_color=light_color)
+
+    state = hass.states.get(ENTITY_ID)
+    assert state.state == STATE_ON
+    assert state.attributes[ATTR_SUPPORTED_COLOR_MODES] == [ColorMode.HS]
+    assert state.attributes[ATTR_COLOR_MODE] == ColorMode.HS
+    assert state.attributes[ATTR_HS_COLOR] == hs_color
+
+
+async def test_light_party_mode_state(
+    hass: HomeAssistant, init_integration: MockConfigEntry
+) -> None:
+    """Test Party mode shows as an effect with no colour."""
+    await set_desk_state(hass, init_integration, light_color=6)
+
+    state = hass.states.get(ENTITY_ID)
+    assert state.attributes[ATTR_EFFECT] == "Party mode"
+    assert state.attributes[ATTR_HS_COLOR] is None
+    assert state.attributes[ATTR_RGB_COLOR] is None
+
+
+@pytest.mark.parametrize("light_color", [COLOR_OFF, COLOR_APP_OFF])
+async def test_light_off_has_no_hs_color(
+    hass: HomeAssistant, init_integration: MockConfigEntry, light_color: int
+) -> None:
+    """Test a light that is off reports no colour."""
+    await set_desk_state(hass, init_integration, light_color=light_color)
+
+    state = hass.states.get(ENTITY_ID)
+    assert state.state == STATE_OFF
+    assert state.attributes[ATTR_COLOR_MODE] is None
+    assert state.attributes[ATTR_HS_COLOR] is None
+    assert _light(hass).hs_color is None
+
+
 async def test_light_brightness_unknown(
     hass: HomeAssistant, init_integration: MockConfigEntry
 ) -> None:
@@ -311,6 +373,91 @@ async def test_light_turn_on_effect(
 
     mock_desk.set_light_color.assert_awaited_once_with(color)
     mock_desk.get_light_color.assert_awaited_once()
+
+
+@pytest.mark.parametrize(
+    ("data", "color"),
+    [
+        ({ATTR_HS_COLOR: (200, 80)}, 4),
+        ({ATTR_HS_COLOR: (30, 10)}, 1),
+        ({ATTR_HS_COLOR: (180, 100)}, 3),
+        ({ATTR_HS_COLOR: (300, 100)}, 4),
+        ({ATTR_RGB_COLOR: (255, 200, 0)}, 5),
+        ({ATTR_RGB_COLOR: (255, 255, 255)}, 1),
+        ({ATTR_COLOR_NAME: "red"}, 2),
+        ({ATTR_COLOR_NAME: "purple"}, 4),
+    ],
+)
+async def test_light_turn_on_color_snaps(
+    hass: HomeAssistant,
+    init_integration: MockConfigEntry,
+    mock_desk: MagicMock,
+    data: dict[str, Any],
+    color: int,
+) -> None:
+    """Test a picked colour is sent as the nearest desk colour."""
+    await _turn_on(hass, **data)
+
+    mock_desk.set_light_color.assert_awaited_once_with(color)
+    mock_desk.get_light_color.assert_awaited_once()
+
+
+async def test_light_turn_on_color_and_brightness(
+    hass: HomeAssistant, init_integration: MockConfigEntry, mock_desk: MagicMock
+) -> None:
+    """Test a colour and a brightness are both sent."""
+    await _turn_on(hass, **{ATTR_HS_COLOR: (240, 100), ATTR_BRIGHTNESS: 255})
+
+    mock_desk.set_brightness.assert_awaited_once_with(100)
+    mock_desk.set_light_color.assert_awaited_once_with(4)
+
+
+async def test_light_turn_on_effect_wins_over_color(
+    hass: HomeAssistant, init_integration: MockConfigEntry, mock_desk: MagicMock
+) -> None:
+    """Test an effect given with a colour sets the effect only."""
+    await _turn_on(hass, **{ATTR_EFFECT: "Red", ATTR_HS_COLOR: (240, 100)})
+
+    mock_desk.set_light_color.assert_awaited_once_with(2)
+
+
+async def test_light_turn_on_color_from_off(
+    hass: HomeAssistant, init_integration: MockConfigEntry, mock_desk: MagicMock
+) -> None:
+    """Test a colour picked while the light is off is the only colour sent."""
+    await set_desk_state(
+        hass, init_integration, light_color=COLOR_OFF, lighting_enabled=False
+    )
+
+    await _turn_on(hass, **{ATTR_HS_COLOR: (60, 100)})
+
+    mock_desk.set_light_color.assert_awaited_once_with(5)
+    mock_desk.set_lighting.assert_awaited_once_with(True)
+
+
+async def test_light_remembers_picked_color(
+    hass: HomeAssistant, init_integration: MockConfigEntry, mock_desk: MagicMock
+) -> None:
+    """Test a picked colour is restored when the light next turns on from off."""
+    await _turn_on(hass, **{ATTR_HS_COLOR: (120, 100)})
+    assert _light(hass).extra_restore_state_data.as_dict() == {"last_static_color": 3}
+
+    await set_desk_state(hass, init_integration, light_color=COLOR_OFF)
+    mock_desk.set_light_color.reset_mock()
+    await _turn_on(hass)
+
+    mock_desk.set_light_color.assert_awaited_once_with(3)
+
+
+async def test_light_turn_on_from_unknown_color(
+    hass: HomeAssistant, init_integration: MockConfigEntry, mock_desk: MagicMock
+) -> None:
+    """Test turning on a light showing an unknown colour sets the last colour."""
+    await set_desk_state(hass, init_integration, light_color=99)
+
+    await _turn_on(hass)
+
+    mock_desk.set_light_color.assert_awaited_once_with(1)
 
 
 async def test_light_turn_on_unknown_effect_rejected(
@@ -512,6 +659,22 @@ async def test_light_effect_follows_the_desk_reply(
     await hass.async_block_till_done()
     state = hass.states.get(ENTITY_ID)
     assert state.attributes[ATTR_EFFECT] == "Red"
+
+
+async def test_light_hs_color_follows_the_desk_reply(
+    hass: HomeAssistant, desk_client: MagicMock
+) -> None:
+    """Test a picked colour shows only once the desk reports it."""
+    deliver_frame(desk_client, desk_response(LIGHTING_RESPONSE_HEADER, 0x01))
+    await hass.async_block_till_done()
+
+    await _turn_on(hass, **{ATTR_HS_COLOR: (200, 80)})
+    await hass.async_block_till_done()
+    assert hass.states.get(ENTITY_ID).attributes[ATTR_HS_COLOR] is None
+
+    deliver_frame(desk_client, desk_response(LIGHT_COLOR_RESPONSE_HEADER, 0x04))
+    await hass.async_block_till_done()
+    assert hass.states.get(ENTITY_ID).attributes[ATTR_HS_COLOR] == (240, 100)
 
 
 async def test_light_off_by_color_turns_on_with_the_color_reply(
