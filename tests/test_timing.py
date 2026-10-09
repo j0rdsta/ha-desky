@@ -14,7 +14,11 @@ from homeassistant.core import HomeAssistant
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.desky_desk.bluetooth import DeskBLEDevice, DeskNotConnectedError
+from custom_components.desky_desk.bluetooth import (
+    DeskBLEDevice,
+    DeskCommandError,
+    DeskNotConnectedError,
+)
 from custom_components.desky_desk.const import (
     COMMAND_CLEAR_LIMITS,
     COMMAND_GET_BRIGHTNESS,
@@ -784,3 +788,114 @@ async def test_stop_waits_for_the_target_frame_on_the_air(
         (0.3, STOP),
         (0.35, STOP),
     ]
+
+
+SET_BOTH_120_70 = [
+    H,
+    CLEAR,
+    CLEAR,
+    UPPER_120,
+    UPPER_120,
+    "f1f1220202bce27e",  # lower 70
+    "f1f1220202bce27e",
+]
+
+
+async def test_limits_set_back_to_back_keep_the_first(
+    desk: DeskBLEDevice, frames: Frames
+) -> None:
+    """A limit set straight after another sends the first one's new value."""
+    _report_limits(desk, upper=1100, lower=650)
+
+    await desk.set_height_limit(HeightLimit.UPPER, 120.0)
+    assert (desk.height_limit_upper, desk.height_limit_lower) == (120.0, 65.0)
+    frames.clear()
+    await desk.set_height_limit(HeightLimit.LOWER, 70.0)
+
+    assert [frame for _, frame in frames] == SET_BOTH_120_70
+    assert (desk.height_limit_upper, desk.height_limit_lower) == (120.0, 70.0)
+
+
+async def test_limits_set_at_the_same_time_do_not_interleave(
+    desk: DeskBLEDevice, frames: Frames
+) -> None:
+    """Two limits set at once go out one sequence after the other, both kept."""
+    _report_limits(desk, upper=1100, lower=650)
+    frames.clear()
+
+    await asyncio.gather(
+        desk.set_height_limit(HeightLimit.UPPER, 120.0),
+        desk.set_height_limit(HeightLimit.LOWER, 70.0),
+    )
+
+    assert [frame for _, frame in frames] == [
+        H,
+        CLEAR,
+        CLEAR,
+        UPPER_120,
+        UPPER_120,
+        LOWER_65,
+        LOWER_65,
+        *SET_BOTH_120_70,
+    ]
+
+
+async def test_limit_set_after_a_clear_does_not_bring_back_the_other(
+    desk: DeskBLEDevice, frames: Frames
+) -> None:
+    """After clearing, setting one limit leaves the other cleared."""
+    _report_limits(desk, upper=1100, lower=650)
+    notified = MagicMock()
+    desk.register_notification_callback(notified)
+
+    await desk.clear_height_limits()
+    assert (desk.height_limit_upper, desk.height_limit_lower) == (None, None)
+    assert desk.limits_enabled is False
+    notified.assert_called_once()
+    frames.clear()
+    await desk.set_height_limit(HeightLimit.LOWER, 65.0)
+
+    assert [frame for _, frame in frames] == [H, CLEAR, CLEAR, LOWER_65, LOWER_65]
+    assert (desk.height_limit_upper, desk.height_limit_lower) == (None, 65.0)
+    assert desk.limits_enabled is True
+
+
+async def test_limit_from_before_a_unit_change_is_sent_in_the_new_unit(
+    desk: DeskBLEDevice, frames: Frames
+) -> None:
+    """A limit the desk reported in inches is re-sent in cm once it shows cm."""
+    for frame in (
+        "f2f20e0101107e",  # inches
+        "f2f2200110317e",  # only the lower limit set
+        "f2f2220201183d7e",  # lower 28.0 in, 71.1 cm
+        "f2f20e01000f7e",  # now cm
+    ):
+        desk._handle_notification(None, bytearray.fromhex(frame))
+    desk._handle_notification(None, _status_frame(80.0))
+    frames.clear()
+
+    await desk.set_height_limit(HeightLimit.UPPER, 120.0)
+
+    lower = desk._create_command_with_word_param(0x22, 711).hex()
+    assert [frame for _, frame in frames] == [
+        H,
+        CLEAR,
+        CLEAR,
+        UPPER_120,
+        UPPER_120,
+        lower,
+        lower,
+    ]
+
+
+async def test_failed_limit_write_keeps_the_known_limits(
+    desk: DeskBLEDevice, mock_bleak_client: MagicMock
+) -> None:
+    """A limit that could not be sent leaves the known limits as they were."""
+    _report_limits(desk, upper=1100, lower=650)
+    mock_bleak_client.write_gatt_char.side_effect = Exception("busy")
+
+    with pytest.raises(DeskCommandError):
+        await desk.set_height_limit(HeightLimit.UPPER, 120.0)
+
+    assert (desk.height_limit_upper, desk.height_limit_lower) == (110.0, 65.0)

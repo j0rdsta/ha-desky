@@ -64,6 +64,7 @@ from .const import (
     HeightLimit,
 )
 from .errors import DeskCommandError, DeskError, DeskNotConnectedError
+from .limits import HeightLimits, LimitValue
 from .sequencer import Clock, Sequencer, Step
 
 __all__ = [
@@ -222,11 +223,10 @@ class DeskBLEDevice:
         self._vibration_enabled: bool | None = None
         self._lock_status: bool = False
         self._sensitivity_level: int | None = None
-        self._height_limit_upper: float | None = None
-        self._height_limit_lower: float | None = None
-        # Whether each limit is set, as the limit status reports; None until reported
-        self._height_limit_upper_set: bool | None = None
-        self._height_limit_lower_set: bool | None = None
+        self._limits = HeightLimits()
+        # A limit is set as a sequence that clears both and sends both again,
+        # so limit changes go out one at a time
+        self._limit_lock = asyncio.Lock()
         self._touch_mode: int | None = None
         self._unit_preference: str | None = None  # "cm" or "in", as the desk reports
         # The unit the last height was actually in, for heights sent to the desk
@@ -308,21 +308,19 @@ class DeskBLEDevice:
     @property
     def height_limit_upper(self) -> float | None:
         """Return upper height limit in cm, or None when it is not set."""
-        if self._height_limit_upper_set is False:
-            return None
-        return self._height_limit_upper
+        value = self._limits.value(HeightLimit.UPPER)
+        return value.cm if value else None
 
     @property
     def height_limit_lower(self) -> float | None:
         """Return lower height limit in cm, or None when it is not set."""
-        if self._height_limit_lower_set is False:
-            return None
-        return self._height_limit_lower
+        value = self._limits.value(HeightLimit.LOWER)
+        return value.cm if value else None
 
     @property
     def limits_enabled(self) -> bool:
         """Return if any height limit is set."""
-        return bool(self._height_limit_upper_set or self._height_limit_lower_set)
+        return self._limits.any_set
 
     @property
     def touch_mode(self) -> int | None:
@@ -757,38 +755,64 @@ class DeskBLEDevice:
                 f"Invalid {limit} height limit: {height_cm:.1f} "
                 f"(must be {low:.1f}-{high:.1f})"
             )
-        limits = {
-            HeightLimit.UPPER: self.height_limit_upper,
-            HeightLimit.LOWER: self.height_limit_lower,
-        }
-        # The desk only tightens a limit that is set and silently ignores a
-        # looser one. So, as the app does, both limits are cleared, then both
-        # set, each frame twice; the other limit is sent again so it is kept.
-        # Nothing is cleared until the desk has reported which limits are set
-        # and the value of each, so no limit is lost.
-        clear = self._height_limit_upper_set is not None and not (
-            (self._height_limit_upper_set and limits[HeightLimit.UPPER] is None)
-            or (self._height_limit_lower_set and limits[HeightLimit.LOWER] is None)
-        )
-        limits[limit] = height_cm
-        frames = [COMMAND_CLEAR_LIMITS] * 2 if clear else []
-        for each in (HeightLimit.UPPER, HeightLimit.LOWER):
-            if (value := limits[each]) is not None:
-                # Limits are in the desk's display unit, unlike move-to-height targets
-                frame = self._create_command_with_word_param(
-                    LIMIT_COMMANDS[each], self._encode_height(value)
-                )
-                frames += [frame] * 2
+        async with self._limit_lock:
+            await self._send_height_limit(limit, height_cm)
+
+    async def _send_height_limit(self, limit: HeightLimit, height_cm: float) -> None:
+        """Send a height limit, keeping the other, and remember what was sent.
+
+        The desk only tightens a limit that is set and silently ignores a
+        looser one. So, as the app does, both limits are cleared, then both
+        set, each frame twice; the other limit is sent again so it is kept.
+        Nothing is cleared until the desk has reported which limits are set
+        and the value of each, so no limit is lost; the new limit then goes
+        out alone. The read-back that callers ask for corrects anything the
+        desk did differently.
+        """
+        known = self._limits
+        unit = self._limit_unit or "cm"
+        new = LimitValue(self._encode_height(height_cm), unit, height_cm)
+        if known.fully_known:
+            frames = [COMMAND_CLEAR_LIMITS] * 2
+            sending = list(HeightLimit)
+            sent = HeightLimits(upper_set=False, lower_set=False)
+            for each in HeightLimit:
+                if (value := new if each is limit else known.value(each)) is not None:
+                    sent = sent.with_limit(each, value)
+        else:
+            frames = []
+            sending = [limit]
+            sent = known.with_limit(limit, new)
+        for each in sending:
+            if (value := sent.value(each)) is not None:
+                frames += [self._limit_frame(each, value)] * 2
         await self._sequencer.run_setting(
             [
                 (0.0, COMMAND_HANDSHAKE),
                 *((n * SET_LIMITS_SPACING, frame) for n, frame in enumerate(frames)),
             ]
         )
+        self._limits = sent
+        self._notify_callbacks()
+
+    def _limit_frame(self, limit: HeightLimit, value: LimitValue) -> bytes:
+        """Build the frame that sets a limit, in the desk's display unit.
+
+        A limit is sent as the desk reported it while the unit is the same, so
+        it is exact; after a unit change it is converted from centimetres.
+        """
+        raw = value.raw
+        if value.unit != (self._limit_unit or "cm"):
+            raw = self._encode_height(value.cm)
+        # Limits are in the desk's display unit, unlike move-to-height targets
+        return self._create_command_with_word_param(LIMIT_COMMANDS[limit], raw)
 
     async def clear_height_limits(self) -> None:
         """Clear all height limits."""
-        await self._send_setting(COMMAND_CLEAR_LIMITS, CLEAR_LIMITS_TIMES)
+        async with self._limit_lock:
+            await self._send_setting(COMMAND_CLEAR_LIMITS, CLEAR_LIMITS_TIMES)
+            self._limits = HeightLimits(upper_set=False, lower_set=False)
+            self._notify_callbacks()
 
     async def _query_device_capabilities(self) -> None:
         """Wake the desk, ask for its status, then query its settings 200 ms apart.
@@ -1031,13 +1055,15 @@ class DeskBLEDevice:
 
         # Check for upper limit response (in display units, like heights)
         elif len(data) >= 7 and bytes(data[:4]) == LIMIT_UPPER_RESPONSE_HEADER:
-            self._height_limit_upper = self._decode_limit(data)
-            _LOGGER.debug("Upper limit response: %.1f cm", self._height_limit_upper)
+            value = self._decode_limit(data)
+            self._limits = self._limits.with_value(HeightLimit.UPPER, value)
+            _LOGGER.debug("Upper limit response: %.1f cm", value.cm)
 
         # Check for lower limit response (in display units, like heights)
         elif len(data) >= 7 and bytes(data[:4]) == LIMIT_LOWER_RESPONSE_HEADER:
-            self._height_limit_lower = self._decode_limit(data)
-            _LOGGER.debug("Lower limit response: %.1f cm", self._height_limit_lower)
+            value = self._decode_limit(data)
+            self._limits = self._limits.with_value(HeightLimit.LOWER, value)
+            _LOGGER.debug("Lower limit response: %.1f cm", value.cm)
 
         # Check for limit status response (0xF2 0xF2 0x20 0x01):
         # 0x00 no limits, 0x01 upper only, 0x10 lower only, 0x11 both
@@ -1046,12 +1072,14 @@ class DeskBLEDevice:
             and bytes(data[:4]) == LIMIT_STATUS_RESPONSE_HEADER
             and data[4] in (0x00, 0x01, 0x10, 0x11)
         ):
-            self._height_limit_upper_set = bool(data[4] & 0x01)
-            self._height_limit_lower_set = bool(data[4] & 0x10)
+            upper_set, lower_set = bool(data[4] & 0x01), bool(data[4] & 0x10)
+            self._limits = self._limits.with_status(
+                upper_set=upper_set, lower_set=lower_set
+            )
             _LOGGER.debug(
                 "Limit status response: upper %s, lower %s",
-                "set" if self._height_limit_upper_set else "not set",
-                "set" if self._height_limit_lower_set else "not set",
+                "set" if upper_set else "not set",
+                "set" if lower_set else "not set",
             )
 
         else:
@@ -1085,8 +1113,8 @@ class DeskBLEDevice:
         self._effective_unit = unit
         return height_cm
 
-    def _decode_limit(self, data: bytearray) -> float:
-        """Turn a height limit reply into centimetres.
+    def _decode_limit(self, data: bytearray) -> LimitValue:
+        """Turn a height limit reply into the limit as the desk takes it, and cm.
 
         The desk reports a limit one tenth low: 124.0 cm as 1239. As the
         official app does, a raw value that is not a multiple of 5 is rounded
@@ -1095,7 +1123,8 @@ class DeskBLEDevice:
         raw = (data[4] << 8) | data[5]
         if raw % 5:
             raw += 1
-        return self._decode_height(raw, data)
+        height_cm = self._decode_height(raw, data)
+        return LimitValue(raw, self._effective_unit or "cm", height_cm)
 
     def _encode_height(self, height_cm: float) -> int:
         """Turn centimetres into tenths of the unit the desk currently uses."""
