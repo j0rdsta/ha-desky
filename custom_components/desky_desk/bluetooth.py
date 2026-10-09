@@ -104,6 +104,16 @@ LIMIT_COMMANDS = {HeightLimit.UPPER: 0x21, HeightLimit.LOWER: 0x22}
 # A frame and when to write it, in seconds after its sequence starts
 type Step = tuple[float, bytes]
 
+# Frame timing, copied from the official Desky app. Times are seconds after a
+# sequence starts, as the app schedules its writes.
+SWITCH_SETTING_TIMES = (0.2, 0.4)  # lock, vibration, lighting
+MODE_SETTING_TIMES = (0.5,)  # collision sensitivity, touch mode
+LIGHT_SETTING_TIMES = (0.0, 0.1)  # LED colour, brightness
+UNIT_SETTING_TIMES = (0.0, 0.1, 0.2)
+CLEAR_LIMITS_TIMES = (0.0, 0.2)
+# The app asks for the settings this long after setting the sensitivity
+SENSITIVITY_READ_BACK_DELAY = 0.5
+
 
 class Clock:
     """Monotonic time and pauses for timed frames; tests use a virtual one."""
@@ -654,6 +664,12 @@ class DeskBLEDevice:
         self._begin_movement("preset", None)
         await self._send_movement_command(command)
 
+    async def _send_setting(self, frame: bytes, times: tuple[float, ...]) -> None:
+        """Wake the desk with the handshake, then send a setting at the app's times."""
+        await self._run_sequence(
+            [(0.0, COMMAND_HANDSHAKE), *((at, frame) for at in times)]
+        )
+
     def _create_command_with_byte_param(self, command_byte: int, param: int) -> bytes:
         """Create a command with a single byte parameter."""
         checksum = (command_byte + 0x01 + param) & 0xFF
@@ -735,32 +751,32 @@ class DeskBLEDevice:
         if color < 1 or color > 7:
             raise ValueError(f"Invalid light color: {color} (must be 1-7)")
         command = self._create_command_with_byte_param(0xB4, color)
-        await self._send_awake_command(command)
+        await self._send_setting(command, LIGHT_SETTING_TIMES)
 
     async def set_brightness(self, level: int) -> None:
         """Set brightness level (0-100)."""
         if level < 0 or level > 100:
             raise ValueError(f"Invalid brightness level: {level} (must be 0-100)")
         command = self._create_command_with_byte_param(0xB6, level)
-        await self._send_awake_command(command)
+        await self._send_setting(command, LIGHT_SETTING_TIMES)
 
     async def set_lighting(self, enabled: bool) -> None:
         """Enable or disable lighting."""
         value = 1 if enabled else 0
         command = self._create_command_with_byte_param(0xB5, value)
-        await self._send_awake_command(command)
+        await self._send_setting(command, SWITCH_SETTING_TIMES)
 
     async def set_vibration(self, enabled: bool) -> None:
         """Enable or disable vibration."""
         value = 1 if enabled else 0
         command = self._create_command_with_byte_param(0xB3, value)
-        await self._send_awake_command(command)
+        await self._send_setting(command, SWITCH_SETTING_TIMES)
 
     async def set_lock_status(self, locked: bool) -> None:
         """Lock or unlock desk controls."""
         value = 1 if locked else 0
         command = self._create_command_with_byte_param(0xB2, value)
-        await self._send_awake_command(command)
+        await self._send_setting(command, SWITCH_SETTING_TIMES)
         # Shown at once; the desk confirms it in its next lock status report
         self._lock_status = locked
         self._notify_callbacks()
@@ -770,14 +786,17 @@ class DeskBLEDevice:
         if level < 1 or level > 3:
             raise ValueError(f"Invalid sensitivity level: {level} (must be 1-3)")
         command = self._create_command_with_byte_param(0x1D, level)
-        await self._send_awake_command(command)
+        await self._send_setting(command, MODE_SETTING_TIMES)
+        # The desk takes a moment to apply it, so the settings block asked for
+        # next only reports the new level after this pause, as in the app
+        await self._clock.sleep(SENSITIVITY_READ_BACK_DELAY)
 
     async def set_touch_mode(self, mode: int) -> None:
         """Set touch mode (0=One press, 1=Press and hold)."""
         if mode not in [0, 1]:
             raise ValueError(f"Invalid touch mode: {mode} (must be 0 or 1)")
         command = self._create_command_with_byte_param(0x19, mode)
-        await self._send_awake_command(command)
+        await self._send_setting(command, MODE_SETTING_TIMES)
 
     async def set_unit(self, unit: str) -> None:
         """Set display unit preference."""
@@ -785,7 +804,7 @@ class DeskBLEDevice:
             raise ValueError(f"Invalid unit: {unit} (must be 'cm' or 'in')")
         value = 0 if unit == "cm" else 1
         command = self._create_command_with_byte_param(0x0E, value)
-        await self._send_awake_command(command)
+        await self._send_setting(command, UNIT_SETTING_TIMES)
 
     async def set_height_limit(self, limit: HeightLimit, height_cm: float) -> None:
         """Set the upper or lower height limit in cm, rounded to a whole unit."""
@@ -804,7 +823,7 @@ class DeskBLEDevice:
 
     async def clear_height_limits(self) -> None:
         """Clear all height limits."""
-        await self._send_awake_command(COMMAND_CLEAR_LIMITS)
+        await self._send_setting(COMMAND_CLEAR_LIMITS, CLEAR_LIMITS_TIMES)
 
     async def _query_device_capabilities(self) -> None:
         """Ask the desk for its settings; the answers arrive as notifications.

@@ -3009,7 +3009,6 @@ async def test_commands_wake_the_desk_first(
     await getattr(device, method)(*args)
 
     writes = [c.args[1] for c in mock_bleak_client.write_gatt_char.call_args_list]
-    assert len(writes) == 2
     assert writes[0] == COMMAND_HANDSHAKE
     assert writes[1] != COMMAND_HANDSHAKE
 
@@ -3034,7 +3033,13 @@ async def test_concurrent_commands_do_not_interleave(
     await asyncio.gather(device.move_to_preset(2), device.set_light_color(2))
 
     # Each command stays together with the handshake that wakes the desk for it
-    assert writes == [COMMAND_HANDSHAKE, COMMAND_MEMORY_2, COMMAND_HANDSHAKE, light_red]
+    assert writes == [
+        COMMAND_HANDSHAKE,
+        COMMAND_MEMORY_2,
+        COMMAND_HANDSHAKE,
+        light_red,
+        light_red,
+    ]
 
 
 async def test_failed_write_releases_the_desk_for_the_next_command(

@@ -219,3 +219,102 @@ async def test_failed_write_ends_the_sequence(
         )
 
     assert mock_bleak_client.write_gatt_char.await_count == 2
+
+
+# Settings
+
+
+LOCKED = "f1f1b20101b47e"
+VIBRATION_OFF = "f1f1b30100b47e"
+
+
+@pytest.mark.parametrize(
+    ("method", "args", "expected"),
+    [
+        # Lock, vibration and lighting: the set at 200 and 400 ms
+        ("set_lock_status", (True,), [(0.0, H), (0.2, LOCKED), (0.4, LOCKED)]),
+        (
+            "set_vibration",
+            (False,),
+            [(0.0, H), (0.2, VIBRATION_OFF), (0.4, VIBRATION_OFF)],
+        ),
+        (
+            "set_lighting",
+            (True,),
+            [(0.0, H), (0.2, "f1f1b50101b77e"), (0.4, "f1f1b50101b77e")],
+        ),
+        # Sensitivity and touch mode: the set once at 500 ms
+        ("set_sensitivity", (2,), [(0.0, H), (0.5, "f1f11d0102207e")]),
+        ("set_touch_mode", (1,), [(0.0, H), (0.5, "f1f11901011b7e")]),
+        # Colour and brightness: twice, 100 ms apart
+        (
+            "set_light_color",
+            (2,),
+            [(0.0, H), (0.0, "f1f1b40102b77e"), (0.1, "f1f1b40102b77e")],
+        ),
+        (
+            "set_brightness",
+            (75,),
+            [(0.0, H), (0.0, "f1f1b6014b027e"), (0.1, "f1f1b6014b027e")],
+        ),
+        # Unit: three times, 100 ms apart
+        (
+            "set_unit",
+            ("in",),
+            [
+                (0.0, H),
+                (0.0, "f1f10e0101107e"),
+                (0.1, "f1f10e0101107e"),
+                (0.2, "f1f10e0101107e"),
+            ],
+        ),
+        # Clearing the limits: twice, 200 ms apart
+        ("clear_height_limits", (), [(0.0, H), (0.0, CLEAR), (0.2, CLEAR)]),
+    ],
+)
+async def test_settings_follow_the_app_timing(
+    desk: DeskBLEDevice,
+    frames: Frames,
+    method: str,
+    args: tuple[Any, ...],
+    expected: Frames,
+) -> None:
+    """Each setting goes out with the official app's repeats and spacing."""
+    await getattr(desk, method)(*args)
+
+    assert frames == expected
+
+
+async def test_settings_sent_together_both_complete(
+    desk: DeskBLEDevice, frames: Frames, clock: FakeClock
+) -> None:
+    """Two settings changed at once both reach the desk; neither cancels the other."""
+    clock.auto = False
+    lock = asyncio.create_task(desk.set_lock_status(True))
+    vibration = asyncio.create_task(desk.set_vibration(False))
+    await clock.advance(1.0)
+    await asyncio.gather(lock, vibration)
+
+    assert frames == [
+        (0.0, H),
+        (0.0, H),
+        (0.2, LOCKED),
+        (0.2, VIBRATION_OFF),
+        (0.4, LOCKED),
+        (0.4, VIBRATION_OFF),
+    ]
+
+
+async def test_settings_read_back_half_a_second_after_sensitivity(
+    desk: DeskBLEDevice, frames: Frames
+) -> None:
+    """As in the app, the settings are asked for 500 ms after the sensitivity set."""
+    await desk.set_sensitivity(3)
+    await desk.get_settings()
+
+    assert frames == [
+        (0.0, H),
+        (0.5, "f1f11d0103217e"),
+        (1.0, H),
+        (1.0, STATUS),
+    ]
