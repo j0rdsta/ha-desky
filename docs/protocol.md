@@ -134,7 +134,7 @@ Setting responses start with `F2 F2 <command> <length>`:
 | `F2 F2 22 02` | Lower limit | Two bytes, big-endian |
 | `F2 F2 B2 01` | Lock | 0 unlocked, 1 locked |
 | `F2 F2 B3 01` | Vibration | 0 off, 1 on |
-| `F2 F2 B4 01` | Light colour | 1 white, 2 red, 3 green, 4 blue, 5 yellow, 6 party mode, 7 off |
+| `F2 F2 B4 01` | Light colour | 1 white, 2 red, 3 green, 4 blue, 5 yellow, 6 party mode, 7 off. 0 also means off: the official app sets it to turn the LED off |
 | `F2 F2 B5 01` | Lighting | 0 off, 1 on |
 | `F2 F2 B6 01` | Brightness | 0-100 |
 

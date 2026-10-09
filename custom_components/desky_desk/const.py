@@ -134,6 +134,10 @@ LIGHT_COLORS: Final = {
     7: "Off",
 }
 
+# Colours that mean the LED is off: the desk lists 7 as Off, and the official
+# app turns the LED off by setting 0
+OFF_COLORS: Final = frozenset({0, 7})
+
 # Sensitivity levels
 SENSITIVITY_LEVELS: Final = {1: "high", 2: "medium", 3: "low"}
 
