@@ -16,7 +16,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .const import MAX_HEIGHT, MIN_HEIGHT, HeightLimit
 from .coordinator import DeskUpdateCoordinator, DeskyConfigEntry
 from .entity import DeskEntity, desk_command
-from .validation import limit_range, validate_height_limit, validate_move_to_height
+from .validation import validate_height_limit, validate_move_to_height
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -102,12 +102,12 @@ class DeskHeightLimitNumber(DeskEntity, NumberEntity):
     @property
     def native_min_value(self) -> float:
         """Return the lowest limit the desk accepts in its display unit, in cm."""
-        return limit_range(self.coordinator.data)[0]
+        return self.coordinator.data.limit_range[0]
 
     @property
     def native_max_value(self) -> float:
         """Return the highest limit the desk accepts in its display unit, in cm."""
-        return limit_range(self.coordinator.data)[1]
+        return self.coordinator.data.limit_range[1]
 
     @property
     def native_value(self) -> float | None:

@@ -35,6 +35,7 @@ from custom_components.desky_desk.const import (
     LIGHT_COLOR_RESPONSE_HEADER,
     LIGHTING_RESPONSE_HEADER,
     LIMIT_LOWER_RESPONSE_HEADER,
+    LIMIT_RANGE_CM,
     LIMIT_STATUS_RESPONSE_HEADER,
     LIMIT_UPPER_RESPONSE_HEADER,
     LOCK_STATUS_RESPONSE_HEADER,
@@ -2174,13 +2175,24 @@ async def test_command_parameter_validation(
 
 
 @pytest.mark.parametrize("limit", list(HeightLimit))
-@pytest.mark.parametrize("height", [59.0, 125.0])
+@pytest.mark.parametrize(
+    ("unit_report", "height"),
+    [
+        (None, 59.0),
+        (None, 125.0),
+        # 24-48 in: 124 cm would be sent as 48.8 in and 60 cm as 23.6 in
+        ("f2f20e0101107e", 124.0),
+        ("f2f20e0101107e", 60.0),
+    ],
+)
 async def test_set_height_limit_out_of_range(
-    mock_ble_device, mock_bleak_client, limit, height
+    mock_ble_device, mock_bleak_client, limit, unit_report, height
 ):
-    """Test a limit outside 60-124 cm raises and sends nothing."""
+    """Test a limit outside 60-124 cm, or 24-48 in on an inch desk, raises."""
     device = DeskBLEDevice(mock_ble_device)
     device._client = mock_bleak_client
+    if unit_report:
+        device._handle_notification(None, bytearray.fromhex(unit_report))
 
     with pytest.raises(ValueError, match=f"Invalid {limit} height limit"):
         await device.set_height_limit(limit, height)
@@ -3305,6 +3317,7 @@ async def test_inch_limit_range_ends_are_sent_within_24_48_in(
     mock_ble_device, mock_bleak_client, height, sent
 ):
     """The ends of the inch limit range, 61.0 and 121.9 cm, are 24.0 and 48.0 in."""
+    assert LIMIT_RANGE_CM == {"cm": (60.0, 124.0), "in": (61.0, 121.9)}
     device = DeskBLEDevice(mock_ble_device)
     device._client = mock_bleak_client
     device._handle_notification(None, INCH_REPORT)
@@ -3359,3 +3372,24 @@ def test_height_frames_are_not_rounded(mock_ble_device, frame):
     device._handle_notification(None, frame)
 
     assert device.height_cm == 123.9
+
+
+@pytest.mark.parametrize(
+    ("frames", "expected"),
+    [
+        # Nothing reported yet: the cm range
+        ([], (60.0, 124.0)),
+        ([CM_REPORT], (60.0, 124.0)),
+        ([INCH_REPORT], (61.0, 121.9)),
+        # Heights in inches (27.4 in) before the desk reports its unit
+        ([bytearray.fromhex("f2f201030112071e7e")], (61.0, 121.9)),
+    ],
+    ids=["unknown", "cm", "inches", "inch heights"],
+)
+def test_limit_range(mock_ble_device, frames, expected):
+    """The limit range follows the unit limits are sent in, known from heights first."""
+    device = DeskBLEDevice(mock_ble_device)
+    for frame in frames:
+        device._handle_notification(None, frame)
+
+    assert device.limit_range == expected

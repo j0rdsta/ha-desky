@@ -19,6 +19,7 @@ from custom_components.desky_desk.bluetooth import DeskCommandError
 from custom_components.desky_desk.const import (
     COMMAND_GET_LIMITS,
     DOMAIN,
+    LIMIT_RANGE_CM,
     LIMIT_STATUS_RESPONSE_HEADER,
     LIMIT_UPPER_RESPONSE_HEADER,
     WRITE_CHARACTERISTIC_UUID,
@@ -236,8 +237,6 @@ async def test_inverted_height_limit_rejected(
         ("cm", 125, "60.0", "124.0"),
         ("cm", 127, "60.0", "124.0"),
         ("cm", 59, "60.0", "124.0"),
-        # Not known yet: the cm range
-        (None, 125, "60.0", "124.0"),
         # 24-48 in
         ("in", 122, "61.0", "121.9"),
         ("in", 60.5, "61.0", "121.9"),
@@ -247,7 +246,7 @@ async def test_height_limit_out_of_range(
     hass: HomeAssistant,
     init_integration: MockConfigEntry,
     mock_desk: MagicMock,
-    unit: str | None,
+    unit: str,
     height: float,
     low: str,
     high: str,
@@ -256,7 +255,7 @@ async def test_height_limit_out_of_range(
     await set_desk_state(
         hass,
         init_integration,
-        limit_unit=unit,
+        limit_range=LIMIT_RANGE_CM[unit],
         height_limit_upper=None,
         height_limit_lower=None,
     )
@@ -297,7 +296,7 @@ async def test_height_limit_at_the_end_of_the_range(
     await set_desk_state(
         hass,
         init_integration,
-        limit_unit=unit,
+        limit_range=LIMIT_RANGE_CM[unit],
         height_limit_upper=None,
         height_limit_lower=None,
     )

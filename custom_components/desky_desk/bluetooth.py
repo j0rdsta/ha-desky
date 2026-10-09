@@ -42,8 +42,7 @@ from .const import (
     LIGHT_COLOR_RESPONSE_HEADER,
     LIGHTING_RESPONSE_HEADER,
     LIMIT_LOWER_RESPONSE_HEADER,
-    LIMIT_MAX_HEIGHT,
-    LIMIT_MIN_HEIGHT,
+    LIMIT_RANGE_CM,
     LIMIT_STATUS_RESPONSE_HEADER,
     LIMIT_UPPER_RESPONSE_HEADER,
     LOCK_STATUS_RESPONSE_HEADER,
@@ -296,13 +295,22 @@ class DeskBLEDevice:
         return self._unit_preference
 
     @property
-    def limit_unit(self) -> str | None:
+    def _limit_unit(self) -> str | None:
         """Return the unit the desk takes limits in (cm or in), if known.
 
         That is the unit its heights arrive in, which can be known before the
         desk reports its unit, and changes first when the unit is switched.
         """
         return self._effective_unit or self._unit_preference
+
+    @property
+    def limit_range(self) -> tuple[float, float]:
+        """Return the lowest and highest limit the desk accepts, in cm.
+
+        60-124 cm, or 24-48 in when limits are sent in inches. A desk whose
+        unit is not known yet gets the cm range.
+        """
+        return LIMIT_RANGE_CM["in" if self._limit_unit == "in" else "cm"]
 
     @property
     def manufacturer_name(self) -> str | None:
@@ -679,10 +687,11 @@ class DeskBLEDevice:
 
     async def set_height_limit(self, limit: HeightLimit, height_cm: float) -> None:
         """Set the upper or lower height limit in cm."""
-        if not LIMIT_MIN_HEIGHT <= height_cm <= LIMIT_MAX_HEIGHT:
+        low, high = self.limit_range
+        if not low <= height_cm <= high:
             raise ValueError(
                 f"Invalid {limit} height limit: {height_cm:.1f} "
-                f"(must be {LIMIT_MIN_HEIGHT:.1f}-{LIMIT_MAX_HEIGHT:.1f})"
+                f"(must be {low:.1f}-{high:.1f})"
             )
         # Limits are in the desk's display unit, unlike move-to-height targets
         command = self._create_command_with_word_param(
@@ -990,7 +999,7 @@ class DeskBLEDevice:
 
     def _encode_height(self, height_cm: float) -> int:
         """Turn centimetres into tenths of the unit the desk currently uses."""
-        if self.limit_unit == "in":
+        if self._limit_unit == "in":
             return round(height_cm / CM_PER_INCH * 10)
         return round(height_cm * 10)
 

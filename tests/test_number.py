@@ -29,8 +29,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.desky_desk.const import (
     DOMAIN,
-    LIMIT_MAX_HEIGHT,
-    LIMIT_MIN_HEIGHT,
+    LIMIT_RANGE_CM,
     MAX_HEIGHT,
     MIN_HEIGHT,
     HeightLimit,
@@ -135,8 +134,8 @@ async def test_desk_number_state(
 @pytest.mark.parametrize(
     ("entity_id", "minimum", "maximum"),
     [
-        (UPPER_LIMIT, LIMIT_MIN_HEIGHT, LIMIT_MAX_HEIGHT),
-        (LOWER_LIMIT, LIMIT_MIN_HEIGHT, LIMIT_MAX_HEIGHT),
+        (UPPER_LIMIT, *LIMIT_RANGE_CM["cm"]),
+        (LOWER_LIMIT, *LIMIT_RANGE_CM["cm"]),
     ],
 )
 async def test_desk_number_range(
@@ -157,7 +156,7 @@ async def test_limit_number_range_in_inches(
     hass: HomeAssistant, init_integration: MockConfigEntry, entity_id: str
 ) -> None:
     """Test a desk showing inches accepts 24-48 in, shown as 61.0-121.9 cm."""
-    await set_desk_state(hass, init_integration, limit_unit="in")
+    await set_desk_state(hass, init_integration, limit_range=LIMIT_RANGE_CM["in"])
 
     state = hass.states.get(entity_id)
     assert state.attributes[ATTR_MIN] == 61.0

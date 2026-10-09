@@ -74,8 +74,8 @@ class DeskData:
     limits_enabled: bool
     touch_mode: int | None
     unit_preference: str | None
-    # The unit the desk takes limits in, from its heights before it reports one
-    limit_unit: str | None
+    # The lowest and highest limit the desk accepts in the unit limits are sent in
+    limit_range: tuple[float, float]
     # Device Information Service (0x180A)
     manufacturer_name: str | None
     model_number: str | None
@@ -209,7 +209,7 @@ class DeskUpdateCoordinator(DataUpdateCoordinator[DeskData]):
             limits_enabled=device.limits_enabled,
             touch_mode=device.touch_mode,
             unit_preference=device.unit_preference,
-            limit_unit=device.limit_unit,
+            limit_range=device.limit_range,
             manufacturer_name=device.manufacturer_name,
             model_number=device.model_number,
             serial_number=device.serial_number,
