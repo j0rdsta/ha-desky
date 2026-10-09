@@ -162,16 +162,16 @@ class Sequencer:
         """
         await self._wait(self._start_motion(steps, _Kind.MOTION))
 
-    def start_repeat(self, steps: Iterable[Step]) -> None:
+    def start_repeat(self, steps: Iterable[Step]) -> asyncio.Task[None]:
         """Repeat a movement frame in the background, in place of those still due.
 
         The desk moves only while the frame keeps coming evenly, so a repeat is
         written without response: waiting for each acknowledgement through a
         Bluetooth proxy (70-700 ms) makes the stream uneven, and the desk then
         takes the button as released. A failed write ends the repeat, and is
-        only logged.
+        only logged. Return the task sending it.
         """
-        self._start_motion(steps, _Kind.REPEAT)
+        return self._start_motion(steps, _Kind.REPEAT).task
 
     async def wait_for(self, done: asyncio.Future[None], seconds: float) -> bool:
         """Wait on the sequencer's clock until done completes or seconds pass.

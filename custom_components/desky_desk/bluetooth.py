@@ -600,9 +600,7 @@ class DeskBLEDevice:
             raise
         held = kind == "continuous" or self._touch_mode == TOUCH_MODE_PRESS_AND_HOLD
         if held and self._movement is movement:
-            self._sequencer.start_repeat(
-                _hold_steps(frame, movement, lambda: self._readings_stopped(movement))
-            )
+            self._hold(frame, movement)
 
     async def move_up(self) -> None:
         """Start moving the desk up."""
@@ -730,13 +728,7 @@ class DeskBLEDevice:
                 self._end_movement()
             raise
         if self._touch_mode == TOUCH_MODE_PRESS_AND_HOLD and self._movement is movement:
-            self._sequencer.start_repeat(
-                _hold_steps(
-                    command,
-                    movement,
-                    lambda: self._readings_stopped(movement) or self._reached(movement),
-                )
-            )
+            self._hold(command, movement, lambda: self._reached(movement))
 
     async def _await_height(self) -> None:
         """Make sure the desk has reported a height, asking for one if not.
@@ -757,23 +749,46 @@ class DeskBLEDevice:
         if self._height_cm <= 0:
             raise DeskCommandError("The desk has not reported its height yet")
 
-    def _readings_stopped(self, movement: _Movement) -> bool:
-        """End a started, held movement once its height readings have stopped.
+    def _hold(
+        self,
+        frame: bytes,
+        movement: _Movement,
+        reached: Callable[[], bool] | None = None,
+    ) -> None:
+        """Repeat a movement frame while held, until the movement ends or reached().
 
-        Return if they have. The repeat that asks then ends too.
+        The repeat also stops once the movement's height readings stop, and
+        the movement is then released when the repeat ends.
         """
-        quiet = self._sequencer.now() - self._last_reading_at
-        if not movement.started or quiet <= READING_WATCHDOG_SECONDS:
-            return False
+
+        def done() -> bool:
+            return self._readings_stopped(movement) or (
+                reached is not None and reached()
+            )
+
+        task = self._sequencer.start_repeat(_hold_steps(frame, movement, done))
+        task.add_done_callback(lambda task: self._hold_ended(task, movement))
+
+    def _hold_ended(self, task: asyncio.Task[None], movement: _Movement) -> None:
+        """Release a held movement whose repeat ended as its readings stopped."""
+        if (
+            task.cancelled()
+            or self._movement is not movement
+            or not self._readings_stopped(movement)
+        ):
+            return
         _LOGGER.info(
             "No height reading from the desk for %.1f seconds; releasing the held "
             "command",
-            quiet,
+            self._sequencer.now() - self._last_reading_at,
         )
-        # Only the current movement's repeat runs: a new command cancels it first
         self._end_movement()
         self._notify_callbacks()
-        return True
+
+    def _readings_stopped(self, movement: _Movement) -> bool:
+        """Return if a started movement's height readings have stopped coming."""
+        quiet = self._sequencer.now() - self._last_reading_at
+        return movement.started and quiet > READING_WATCHDOG_SECONDS
 
     def _reached(self, movement: _Movement) -> bool:
         """Return if a move to height has come within the jitter band of its target.
