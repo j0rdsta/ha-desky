@@ -658,10 +658,9 @@ class DeskBLEDevice:
     ) -> None:
         """Wake the desk with the handshake, then send a setting at the app's times.
 
-        The sequence ends with the read_back steps: the settings block for the
-        unit, touch mode and sensitivity, which the desk does not confirm, and
-        the limits after a clear. A sequence cut short by a failed write is not
-        read back.
+        The sequence ends with the read_back steps: the settings block for
+        sensitivity, which the desk does not confirm, and the limits after a
+        clear. A sequence cut short by a failed write is not read back.
         """
         await self._sequencer.run_setting(
             [(0.0, COMMAND_HANDSHAKE), *((at, frame) for at in times), *read_back]
