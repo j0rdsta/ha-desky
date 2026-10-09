@@ -123,16 +123,6 @@ LIMIT_STATUS_RESPONSE_HEADER: Final = bytes([0xF2, 0xF2, 0x20, 0x01])
 UNIT_RESPONSE_HEADER: Final = bytes([0xF2, 0xF2, 0x0E, 0x01])
 TOUCH_MODE_RESPONSE_HEADER: Final = bytes([0xF2, 0xF2, 0x19, 0x01])
 
-# Light color options
-LIGHT_COLORS: Final = {
-    1: "White",
-    2: "Red",
-    3: "Green",
-    4: "Blue",
-    5: "Yellow",
-    6: "Party mode",
-}
-
 # Colours that mean the LED is off: the desk reports 7 as Off, and the official
 # app turns the LED off by setting 0
 OFF_COLORS: Final = frozenset({0, 7})

@@ -21,7 +21,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import ExtraStoredData, RestoreEntity
 from homeassistant.util.color import brightness_to_value, value_to_brightness
 
-from .const import DOMAIN, LIGHT_COLORS, OFF_COLORS
+from .const import DOMAIN, OFF_COLORS
 from .coordinator import DeskUpdateCoordinator, DeskyConfigEntry
 from .entity import DeskEntity, desk_command
 
@@ -33,30 +33,34 @@ PARALLEL_UPDATES = 1
 # The desk takes brightness in % from 1 to 100
 BRIGHTNESS_SCALE = (1, 100)
 
-COLOR_WHITE = 1
-COLOR_RED = 2
-COLOR_GREEN = 3
-COLOR_BLUE = 4
-COLOR_YELLOW = 5
-COLOR_PARTY = 6
 
-# Hue and saturation of each static colour; party mode has none
-COLOR_TO_HS: dict[int, tuple[float, float]] = {
-    COLOR_WHITE: (0, 0),
-    COLOR_RED: (0, 100),
-    COLOR_YELLOW: (60, 100),
-    COLOR_GREEN: (120, 100),
-    COLOR_BLUE: (240, 100),
+@dataclass(frozen=True)
+class LedColor:
+    """A colour the LED strip shows."""
+
+    # Effect name
+    name: str
+    # Hue and saturation of a static colour; party mode has none
+    hs: tuple[float, float] | None
+
+
+COLOR_WHITE = 1
+
+# The colours the LED shows by desk colour code, in effect list order. Every
+# colour is an effect; the ones with a hue and saturation are static colours
+LED_COLORS: dict[int, LedColor] = {
+    COLOR_WHITE: LedColor("White", (0, 0)),
+    2: LedColor("Red", (0, 100)),
+    3: LedColor("Green", (120, 100)),
+    4: LedColor("Blue", (240, 100)),
+    5: LedColor("Yellow", (60, 100)),
+    6: LedColor("Party mode", None),
 }
+
+EFFECT_TO_COLOR = {color.name: code for code, color in LED_COLORS.items()}
 
 # A picked colour less saturated than this is White
 MIN_SATURATION = 30
-
-# Every colour the desk shows is an effect
-EFFECT_TO_COLOR = {name: code for code, name in LIGHT_COLORS.items()}
-
-# Colours that can be restored when the light turns on; party mode is an effect
-STATIC_COLORS = frozenset(COLOR_TO_HS)
 
 
 def _nearest_color(hs_color: tuple[float, float]) -> int:
@@ -65,17 +69,22 @@ def _nearest_color(hs_color: tuple[float, float]) -> int:
     if saturation < MIN_SATURATION:
         return COLOR_WHITE
 
-    def distance(color: int) -> tuple[float, float]:
+    def distance(color_hue: float) -> tuple[float, float]:
         # Nearest round the colour wheel; a tie goes to the colour below the hue
-        offset = (hue - COLOR_TO_HS[color][0]) % 360
+        offset = (hue - color_hue) % 360
         return min(offset, 360 - offset), offset
 
-    return min((COLOR_RED, COLOR_YELLOW, COLOR_GREEN, COLOR_BLUE), key=distance)
+    hues = {
+        code: color.hs[0]
+        for code, color in LED_COLORS.items()
+        if color.hs is not None and color.hs[1] == 100
+    }
+    return min(hues, key=lambda code: distance(hues[code]))
 
 
-def _visible_color(color: int | None) -> int | None:
+def _visible_color(color: int | None) -> LedColor | None:
     """Return the colour the LED shows, or None for an off or unknown code."""
-    return color if color in LIGHT_COLORS else None
+    return None if color is None else LED_COLORS.get(color)
 
 
 async def async_setup_entry(
@@ -101,7 +110,12 @@ class DeskLightExtraStoredData(ExtraStoredData):
     def from_dict(cls, restored: dict[str, Any]) -> Self | None:
         """Initialize the stored data from a dict, or None if it is invalid."""
         color = restored.get("last_static_color")
-        if type(color) is not int or color not in STATIC_COLORS:
+        # Only a static colour can be restored; party mode is an effect
+        if (
+            type(color) is not int
+            or (led_color := LED_COLORS.get(color)) is None
+            or led_color.hs is None
+        ):
             return None
         return cls(last_static_color=color)
 
@@ -156,18 +170,18 @@ class DeskLight(DeskEntity, LightEntity, RestoreEntity):
     def effect(self) -> str | None:
         """Return the current effect."""
         color = _visible_color(self.coordinator.data.light_color)
-        return None if color is None else LIGHT_COLORS[color]
+        return None if color is None else color.name
 
     @property
     def hs_color(self) -> tuple[float, float] | None:
         """Return the hue and saturation of the colour; party mode has none."""
         color = _visible_color(self.coordinator.data.light_color)
-        return None if color is None else COLOR_TO_HS.get(color)
+        return None if color is None else color.hs
 
     async def _async_set_color(self, color_code: int) -> None:
         """Set the light colour and remember it if it is a static colour."""
         await self._device.set_light_color(color_code)
-        if color_code != COLOR_PARTY:
+        if LED_COLORS[color_code].hs is not None:
             self._last_static_color = color_code
 
     @desk_command
