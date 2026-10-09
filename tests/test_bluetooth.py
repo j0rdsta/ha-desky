@@ -16,6 +16,7 @@ from custom_components.desky_desk.bluetooth import (
     RECENT_NOTIFICATION_HEADERS,
     DeskBLEDevice,
     _Movement,
+    height_known,
 )
 from custom_components.desky_desk.const import (
     BRIGHTNESS_RESPONSE_HEADER,
@@ -531,6 +532,85 @@ async def test_release_closes_then_reports_the_drop_once(
     assert device._client is None
 
 
+async def test_drop_reports_the_disconnect_before_closing(
+    mock_ble_device, mock_establish_connection, mock_bleak_client
+):
+    """Test a dropped link is reported at once, and a close that hangs is given up.
+
+    Through a proxy, closing a link the desk no longer answers on can take 20 s.
+    """
+    device = DeskBLEDevice(mock_ble_device)
+    await device.connect()
+    callback = MagicMock()
+    device.register_disconnect_callback(callback)
+    reports_before_close: list[int] = []
+
+    async def _disconnect() -> None:
+        reports_before_close.append(callback.call_count)
+        # Bleak also reports the drop of the link being closed
+        mock_establish_connection.call_args.kwargs["disconnected_callback"](
+            mock_bleak_client
+        )
+        await asyncio.Event().wait()  # the proxy never answers
+
+    mock_bleak_client.disconnect.side_effect = _disconnect
+
+    with patch("custom_components.desky_desk.bluetooth.CLOSE_TIMEOUT_SECONDS", 0.01):
+        # A bound that regressed fails here rather than hanging the run
+        async with asyncio.timeout(1):
+            await device.drop_connection()
+
+    assert reports_before_close == [1]
+    callback.assert_called_once_with()
+    mock_bleak_client.disconnect.assert_awaited_once()
+    assert not device.is_connected
+
+
+async def test_drop_without_a_connection_does_nothing(mock_ble_device):
+    """Test a drop after the link already went reports nothing more."""
+    device = DeskBLEDevice(mock_ble_device)
+    callback = MagicMock()
+    device.register_disconnect_callback(callback)
+
+    await device.drop_connection()
+
+    callback.assert_not_called()
+
+
+async def test_reconnect_waits_for_a_dropped_link_to_close(
+    mock_ble_device, mock_establish_connection, mock_bleak_client
+):
+    """Test a reconnect does not race the close of the link it replaces."""
+    device = DeskBLEDevice(mock_ble_device)
+    await device.connect()
+    mock_establish_connection.reset_mock()
+    closing = asyncio.Event()
+    closed = asyncio.Event()
+
+    async def _disconnect() -> None:
+        closing.set()
+        await closed.wait()
+
+    mock_bleak_client.disconnect.side_effect = _disconnect
+    reconnects: list[asyncio.Task[bool]] = []
+
+    def _reconnect() -> None:
+        # As the coordinator does, from the disconnect callback
+        reconnects.append(asyncio.create_task(device.connect()))
+
+    device.register_disconnect_callback(_reconnect)
+
+    drop = asyncio.create_task(device.drop_connection())
+    await closing.wait()
+    await asyncio.sleep(0)
+    mock_establish_connection.assert_not_called()
+
+    closed.set()
+    await drop
+    assert await reconnects[0] is True
+    mock_establish_connection.assert_called_once()
+
+
 async def test_cancelled_release_is_closed_on_disconnect(
     mock_ble_device, mock_establish_connection, mock_bleak_client
 ):
@@ -558,6 +638,70 @@ async def test_cancelled_release_is_closed_on_disconnect(
 
     assert mock_bleak_client.disconnect.await_count == 2
     assert device._client is None
+
+
+async def test_cancelled_drop_is_closed_before_disconnect_returns(
+    mock_ble_device, mock_establish_connection, mock_bleak_client
+):
+    """Test a drop cancelled while closing its link, as on unload.
+
+    The drop has already forgotten the link, so the disconnect() that unload
+    runs finds nothing to close and waits for the drop's close instead.
+    """
+    device = DeskBLEDevice(mock_ble_device)
+    await device.connect()
+    closing = asyncio.Event()
+    closed = asyncio.Event()
+
+    async def _disconnect() -> None:
+        closing.set()
+        await closed.wait()
+
+    mock_bleak_client.disconnect.side_effect = _disconnect
+
+    task = asyncio.create_task(device.drop_connection())
+    await closing.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert device._client is None
+
+    disconnect = asyncio.create_task(device.disconnect())
+    await asyncio.sleep(0)
+    assert not disconnect.done()
+
+    closed.set()
+    async with asyncio.timeout(1):
+        await disconnect
+    mock_bleak_client.disconnect.assert_awaited_once()
+    assert device._close_task is None
+
+
+async def test_cancelled_drop_close_is_bounded_on_disconnect(
+    mock_ble_device, mock_establish_connection, mock_bleak_client
+):
+    """Test unload waits for a cancelled drop's hung close only up to its bound."""
+    device = DeskBLEDevice(mock_ble_device)
+    await device.connect()
+    closing = asyncio.Event()
+
+    async def _disconnect() -> None:
+        closing.set()
+        await asyncio.Event().wait()  # the proxy never answers
+
+    mock_bleak_client.disconnect.side_effect = _disconnect
+
+    with patch("custom_components.desky_desk.bluetooth.CLOSE_TIMEOUT_SECONDS", 0.01):
+        task = asyncio.create_task(device.drop_connection())
+        await closing.wait()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        async with asyncio.timeout(1):
+            await device.disconnect()
+
+    mock_bleak_client.disconnect.assert_awaited_once()
+    assert device._close_task is None
 
 
 async def test_cancelled_connect_is_released_on_disconnect(
@@ -879,19 +1023,6 @@ def test_handle_unknown_notification(mock_ble_device):
     callback.assert_not_called()
 
 
-def test_vibration_intensity_reply_is_unrecognised(mock_ble_device):
-    """Test a vibration intensity reply, which the desk is never asked for, is ignored."""
-    device = DeskBLEDevice(mock_ble_device)
-    callback = MagicMock()
-    device.register_notification_callback(callback)
-
-    device._handle_notification(
-        0, bytearray([0xF2, 0xF2, 0xA4, 0x01, 0x32, 0xD7, 0x7E])
-    )
-
-    callback.assert_not_called()
-
-
 def test_handle_notification_various_lengths(mock_ble_device):
     """Test notification handling with different data lengths."""
     device = DeskBLEDevice(mock_ble_device)
@@ -1035,7 +1166,7 @@ async def test_move_to_height_edge_cases(mock_ble_device, mock_bleak_client):
 
 
 @patch("time.time")
-def test_auto_stop_detection(mock_time, mock_ble_device):
+async def test_auto_stop_detection(mock_time, mock_ble_device):
     """Test auto-stop detection when height stops changing."""
     device = DeskBLEDevice(mock_ble_device)
     _started_movement(
@@ -1070,6 +1201,8 @@ def test_auto_stop_detection(mock_time, mock_ble_device):
     assert callback.call_count == 3
     # Verify last callback includes collision state
     callback.assert_called_with(85.0, True, False)
+    assert device._auto_clear_task is not None
+    await device.disconnect()
 
 
 def test_auto_stop_detection_reset_on_movement(mock_ble_device):
@@ -1350,6 +1483,55 @@ async def test_collision_auto_clear(mock_ble_device):
     assert device._collision_time is None
 
 
+@patch("time.time")
+async def test_collision_events_log_only_at_debug(mock_time, connected_device, caplog):
+    """Test collisions, bounce-backs and their clearing log nothing above debug.
+
+    The collision binary sensor already shows them, so they are not news for the log.
+    """
+    caplog.set_level("DEBUG", logger="custom_components.desky_desk.bluetooth")
+    device = connected_device
+
+    # A bounce-back while moving down
+    _replay(device, mock_time, [(0.0, 75.0)])
+    await device.move_down()
+    _replay(device, mock_time, [(0.2, 74.0), (0.4, 73.0), (0.6, 74.0)])
+    assert device.collision_detected is True
+
+    # Moving on for more than 2 seconds clears it
+    await device.move_up()
+    _replay(device, mock_time, [(3.0, 75.0), (3.2, 76.0)])
+    assert device.collision_detected is False
+    await device.stop()
+
+    # A movement that stops almost at once is a collision
+    _started_movement(
+        device, "continuous", "up", start_height=84.9, height=85.0, moved_until=1.5
+    )
+    _replay(device, mock_time, [(1.5, 85.0)] * 3)
+    assert device.collision_detected is True
+
+    # The collision clears itself after a while
+    with patch(
+        "custom_components.desky_desk.bluetooth.COLLISION_AUTO_CLEAR_SECONDS", 0.01
+    ):
+        device._set_collision_detected(True)
+        await asyncio.sleep(0.05)
+    assert device.collision_detected is False
+
+    # The lines are still there for bug reports, at debug
+    for message in (
+        "Bounce-back detected!",
+        "Clearing collision state",
+        "Collision detected at 85.0 cm",
+        "Auto-clearing collision state",
+    ):
+        assert message in caplog.text
+    assert [
+        record.getMessage() for record in caplog.records if record.levelname != "DEBUG"
+    ] == []
+
+
 async def test_collision_persists_on_new_movement(mock_ble_device, mock_bleak_client):
     """Test collision state persists when new movement starts."""
     device = DeskBLEDevice(mock_ble_device)
@@ -1568,7 +1750,9 @@ async def test_collision_when_stopping_away_from_target(
 
 
 @patch("time.time")
-def test_continuous_movement_collision_minimal_movement(mock_time, mock_ble_device):
+async def test_continuous_movement_collision_minimal_movement(
+    mock_time, mock_ble_device
+):
     """Test that continuous movement detects collision for minimal distance moved."""
     device = DeskBLEDevice(mock_ble_device)
     _started_movement(
@@ -1588,6 +1772,8 @@ def test_continuous_movement_collision_minimal_movement(mock_time, mock_ble_devi
     # Should detect collision due to minimal movement (< 0.5cm)
     assert device.is_moving is False
     assert device.collision_detected is True
+    assert device._auto_clear_task is not None
+    await device.disconnect()
 
 
 @patch("time.time")
@@ -1637,7 +1823,7 @@ def test_continuous_movement_no_collision_short_duration(mock_time, mock_ble_dev
 
 
 @patch("time.time")
-def test_continuous_movement_collision_slow_speed(mock_time, mock_ble_device):
+async def test_continuous_movement_collision_slow_speed(mock_time, mock_ble_device):
     """Test that continuous movement detects collision for abnormally slow speed."""
     device = DeskBLEDevice(mock_ble_device)
     _started_movement(
@@ -1657,6 +1843,8 @@ def test_continuous_movement_collision_slow_speed(mock_time, mock_ble_device):
     # Should detect collision - 0.4 cm in 2.0 s is abnormally slow
     assert device.is_moving is False
     assert device.collision_detected is True
+    assert device._auto_clear_task is not None
+    await device.disconnect()
 
 
 @patch("time.time")
@@ -1720,7 +1908,7 @@ def test_preset_movement_no_collision_normal_movement(mock_time, mock_ble_device
 
 
 @patch("time.time")
-def test_preset_movement_collision_minimal_distance(mock_time, mock_ble_device):
+async def test_preset_movement_collision_minimal_distance(mock_time, mock_ble_device):
     """Test that preset movement triggers collision for minimal movement distance."""
     device = DeskBLEDevice(mock_ble_device)
     _started_movement(
@@ -1739,10 +1927,12 @@ def test_preset_movement_collision_minimal_distance(mock_time, mock_ble_device):
     # Should detect collision - minimal movement distance
     assert device.is_moving is False
     assert device.collision_detected is True
+    assert device._auto_clear_task is not None
+    await device.disconnect()
 
 
 @patch("time.time")
-def test_preset_movement_collision_slow_overall_speed(mock_time, mock_ble_device):
+async def test_preset_movement_collision_slow_overall_speed(mock_time, mock_ble_device):
     """Test that preset movement triggers collision for abnormally slow overall speed."""
     device = DeskBLEDevice(mock_ble_device)
     _started_movement(
@@ -1761,6 +1951,8 @@ def test_preset_movement_collision_slow_overall_speed(mock_time, mock_ble_device
     # Should detect collision - 0.2 cm in 10 s is very slow
     assert device.is_moving is False
     assert device.collision_detected is True
+    assert device._auto_clear_task is not None
+    await device.disconnect()
 
 
 @patch("time.time")
@@ -1887,54 +2079,54 @@ async def test_collision_detection_away_from_limits(
         await device.disconnect()
 
 
-async def test_new_device_commands(mock_ble_device, mock_bleak_client):
-    """Test new device control commands."""
+@pytest.mark.parametrize(
+    ("method", "args", "frames"),
+    [
+        # Each set frame is f1 f1 CMD 01 VALUE CS 7e, CS = (CMD + 01 + VALUE) & 0xFF
+        ("set_light_color", (2,), ["f1f1b40102b77e"] * 2),
+        ("set_brightness", (75,), ["f1f1b6014b027e"] * 2),
+        ("set_lighting", (True,), ["f1f1b50101b77e"] * 2),
+        ("set_vibration", (False,), ["f1f1b30100b47e"] * 2),
+        ("set_lock_status", (True,), ["f1f1b20101b47e"] * 2),
+        # Sensitivity and touch mode ask for the settings block afterwards
+        ("set_sensitivity", (2,), ["f1f11d0102207e", "handshake", "status"]),
+        ("set_touch_mode", (1,), ["f1f11901011b7e", "handshake", "status"]),
+        # Clearing the limits reads them back
+        ("clear_height_limits", (), ["f1f12300237e"] * 2 + ["limits"]),
+    ],
+)
+async def test_new_device_commands(
+    mock_ble_device, mock_bleak_client, method, args, frames
+):
+    """Test each setting is sent as its own frame, after the handshake."""
+    device = DeskBLEDevice(mock_ble_device)
+    device._client = mock_bleak_client
+    named = {
+        "handshake": COMMAND_HANDSHAKE,
+        "status": COMMAND_GET_STATUS,
+        "limits": COMMAND_GET_LIMITS,
+    }
+
+    await getattr(device, method)(*args)
+
+    assert mock_bleak_client.write_gatt_char.call_args_list == [
+        call(WRITE_CHARACTERISTIC_UUID, frame, response=True)
+        for frame in [
+            COMMAND_HANDSHAKE,
+            *(named.get(frame) or bytes.fromhex(frame) for frame in frames),
+        ]
+    ]
+
+
+async def test_invalid_light_color(mock_ble_device, mock_bleak_client):
+    """Test a colour the desk does not have is refused before anything is sent."""
     device = DeskBLEDevice(mock_ble_device)
     device._client = mock_bleak_client
 
-    # Test light color commands
-    await device.set_light_color(2)  # Red
-    expected_command = bytes([0xF1, 0xF1, 0xB4, 0x01, 0x02, 0xB7, 0x7E])
-    mock_bleak_client.write_gatt_char.assert_called_with(
-        WRITE_CHARACTERISTIC_UUID, expected_command, response=True
-    )
-
-    # Test invalid light color
     with pytest.raises(ValueError):
         await device.set_light_color(8)
 
-    # Test brightness
-    await device.set_brightness(75)
-    expected_command = bytes([0xF1, 0xF1, 0xB6, 0x01, 0x4B, 0x02, 0x7E])  # 75 = 0x4B
-
-    # Test lighting enabled
-    await device.set_lighting(True)
-    expected_command = bytes([0xF1, 0xF1, 0xB5, 0x01, 0x01, 0xB7, 0x7E])
-
-    # Test vibration
-    await device.set_vibration(False)
-    expected_command = bytes([0xF1, 0xF1, 0xB3, 0x01, 0x00, 0xB4, 0x7E])
-
-    # Test lock status
-    await device.set_lock_status(True)
-    expected_command = bytes([0xF1, 0xF1, 0xB2, 0x01, 0x01, 0xB4, 0x7E])
-
-    # Test sensitivity level
-    await device.set_sensitivity(2)  # Medium
-    expected_command = bytes([0xF1, 0xF1, 0x1D, 0x01, 0x02, 0x20, 0x7E])
-
-    # Test clear limits
-    await device.clear_height_limits()
-    expected_command = bytes([0xF1, 0xF1, 0x23, 0x00, 0x23, 0x7E])
-
-    # Test touch mode
-    await device.set_touch_mode(1)  # Press and hold
-    expected_command = bytes([0xF1, 0xF1, 0x19, 0x01, 0x01, 0x1B, 0x7E])
-
-    # Test units - not implemented in device
-    # result = await device.set_unit("inch")
-    # assert result is True
-    # expected_command = bytes([0xF1, 0xF1, 0x00, 0x00, 0x00, 0x7E])  # Not implemented
+    mock_bleak_client.write_gatt_char.assert_not_called()
 
 
 @pytest.mark.parametrize(
@@ -3482,3 +3674,11 @@ def test_round_limit(mock_ble_device, unit_report, height, expected):
     device._handle_notification(None, unit_report)
 
     assert device.round_limit(height) == expected
+
+
+@pytest.mark.parametrize(
+    ("height_cm", "known"), [(0.0, False), (-0.1, False), (0.1, True), (80.0, True)]
+)
+def test_height_known(height_cm: float, known: bool) -> None:
+    """Test 0 cm, the placeholder before the desk reports a height, is not a height."""
+    assert height_known(height_cm) is known

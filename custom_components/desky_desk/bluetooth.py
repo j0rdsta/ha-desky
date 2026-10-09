@@ -84,6 +84,11 @@ CONNECT_MAX_ATTEMPTS = 3
 # A cancelled write is waited for less (WRITE_SETTLE_SECONDS in sequencer.py).
 WRITE_TIMEOUT_SECONDS = 5.0
 
+# A link the desk stopped answering on is reported lost at once, then given this
+# long to close. Through a proxy the close can wait 20 s for an answer, and a
+# reconnect waits for it.
+CLOSE_TIMEOUT_SECONDS = 5.0
+
 # Headers of this many recent runs of notifications are kept for diagnostics. A
 # run is consecutive frames with the same header: an idle desk streams status
 # frames, which would otherwise push out the replies a bug report needs.
@@ -216,6 +221,11 @@ def _plausible(height_cm: float) -> bool:
     return low <= height_cm <= high
 
 
+def height_known(height_cm: float) -> bool:
+    """Return whether a height is a reading; 0 stands in until the desk reports one."""
+    return height_cm > 0
+
+
 class DeskBLEDevice:
     """Handle BLE communication with Desky desk."""
 
@@ -230,6 +240,8 @@ class DeskBLEDevice:
         self._ble_device = ble_device
         self._advertisement_data = advertisement_data
         self._client: BleakClient | None = None
+        # A dropped link's bounded close, which a reconnect and disconnect() wait for
+        self._close_task: asyncio.Task[None] | None = None
         # Writes go out one at a time; timed sequences pause without blocking them
         self._sequencer = Sequencer(self._write_frame, clock)
         # Counts movement commands and stops, so a command that waited can tell
@@ -456,6 +468,8 @@ class DeskBLEDevice:
         if self.is_connected:
             return True
 
+        await self._wait_closed()
+
         _LOGGER.debug("Connecting to Desky desk at %s", self.address)
 
         try:
@@ -521,6 +535,46 @@ class DeskBLEDevice:
                 "Error closing the connection to desk at %s: %s", self.address, err
             )
 
+    async def drop_connection(self) -> None:
+        """Report a link the desk no longer answers on as lost, then close it.
+
+        The drop is reported first, so the entities go unavailable at once and
+        commands fail as not connected, rather than waiting for a close that a
+        proxy can take 20 s to give up on. The close is bounded and runs as its
+        own task, so cancelling the caller (unload cancels the coordinator's
+        background tasks) does not abandon it: a reconnect and disconnect() wait
+        for it. A failed setup closes before reporting instead
+        (_release_client), so a cancel during the close leaves the link in
+        self._client for disconnect() to close.
+        """
+        if (client := self._client) is None:
+            return
+        # Started before reporting, as the report can start a reconnect at once
+        task = self._close_task = asyncio.create_task(self._close_bounded(client))
+        task.add_done_callback(self._close_done)
+        self._handle_disconnect(client)
+        await asyncio.shield(task)
+
+    async def _close_bounded(self, client: BleakClient) -> None:
+        """Close a dropped link, giving up after CLOSE_TIMEOUT_SECONDS."""
+        try:
+            async with asyncio.timeout(CLOSE_TIMEOUT_SECONDS):
+                await self._close(client)
+        except TimeoutError:
+            _LOGGER.debug("Gave up closing the connection to desk at %s", self.address)
+
+    def _close_done(self, _task: asyncio.Task[None]) -> None:
+        """Forget a dropped link's close once it has finished.
+
+        It is the only close: a new drop needs a reconnect, which waits for it.
+        """
+        self._close_task = None
+
+    async def _wait_closed(self) -> None:
+        """Wait for a dropped link's bounded close; a cancel leaves it running."""
+        if (task := self._close_task) is not None:
+            await asyncio.shield(task)
+
     def _get_ble_device(self) -> BLEDevice:
         """Return the latest BLE device, for retries during a connection attempt."""
         return self._ble_device
@@ -537,6 +591,7 @@ class DeskBLEDevice:
         # Closing the link ends the notification subscription too
         if client := self._client:
             await self._close(client)
+        await self._wait_closed()
         self._reset_link_state()
         # Let cancelled sequences finish, so none outlives the connection
         await self._sequencer.wait_cancelled()
@@ -749,7 +804,7 @@ class DeskBLEDevice:
         the desk is asked for its status and the reply waited for. A desk
         that does not answer fails the move rather than moving it blind.
         """
-        if self._height_cm > 0:
+        if height_known(self._height_cm):
             return
         report = self._expect_report(STATUS_NOTIFICATION_HEADER)
         try:
@@ -757,7 +812,7 @@ class DeskBLEDevice:
             await self._sequencer.wait_for(report, READ_BACK_TIMEOUT_SECONDS)
         finally:
             self._stop_expecting(STATUS_NOTIFICATION_HEADER, report)
-        if self._height_cm <= 0:
+        if not height_known(self._height_cm):
             raise DeskCommandError("The desk has not reported its height yet")
 
     def _hold(
@@ -789,7 +844,7 @@ class DeskBLEDevice:
         """Release a held movement whose repeat ended as its readings stopped."""
         if task.cancelled() or self._movement is not movement or not stalled:
             return
-        _LOGGER.info(
+        _LOGGER.debug(
             "No height reading from the desk for %.1f seconds; releasing the held "
             "command",
             self._sequencer.now() - self._last_reading_at,
@@ -1421,7 +1476,7 @@ class DeskBLEDevice:
             reversal = 0.0
         if reversal > HEIGHT_JITTER_CM:
             self._set_collision_detected(True)
-            _LOGGER.info(
+            _LOGGER.debug(
                 "Bounce-back detected! Commanded %s but reversed %.1f cm to %.1f cm",
                 movement.direction,
                 reversal,
@@ -1434,7 +1489,7 @@ class DeskBLEDevice:
         if self._collision_detected and self._collision_time:
             time_since_collision = now - self._collision_time
             if time_since_collision > 2.0:
-                _LOGGER.info(
+                _LOGGER.debug(
                     "Clearing collision state after %.1f seconds of successful movement",
                     time_since_collision,
                 )
@@ -1451,7 +1506,7 @@ class DeskBLEDevice:
         if duration > 1.0:  # Require at least 1 second of movement
             if self._is_collision_stop(movement, duration):
                 self._set_collision_detected(True)
-                _LOGGER.info(
+                _LOGGER.debug(
                     "Collision detected at %.1f cm after %.1f seconds",
                     self._height_cm,
                     duration,
@@ -1650,7 +1705,7 @@ class DeskBLEDevice:
         async def auto_clear():
             await asyncio.sleep(COLLISION_AUTO_CLEAR_SECONDS)
             if self._collision_detected:
-                _LOGGER.info(
+                _LOGGER.debug(
                     "Auto-clearing collision state after %.0f seconds",
                     COLLISION_AUTO_CLEAR_SECONDS,
                 )
@@ -1659,13 +1714,7 @@ class DeskBLEDevice:
                 # Notify callbacks about the state change
                 self._notify_callbacks()
 
-        # Schedule the task only if there's a running event loop
-        try:
-            asyncio.get_running_loop()
-            self._auto_clear_task = asyncio.create_task(auto_clear())
-        except RuntimeError:
-            # No event loop running (e.g., in sync tests)
-            _LOGGER.debug("No event loop available for auto-clear scheduling")
+        self._auto_clear_task = asyncio.create_task(auto_clear())
 
     def _cancel_collision_auto_clear(self) -> None:
         """Cancel any pending collision auto-clear task."""

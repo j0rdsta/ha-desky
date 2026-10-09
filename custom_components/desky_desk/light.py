@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import logging
 from typing import Any, Self
 
 from homeassistant.components.light import (
@@ -17,15 +16,13 @@ from homeassistant.components.light import (
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ServiceValidationError
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.restore_state import ExtraStoredData, RestoreEntity
 from homeassistant.util.color import brightness_to_value, value_to_brightness
 
 from .const import DOMAIN, OFF_COLORS
 from .coordinator import DeskUpdateCoordinator, DeskyConfigEntry
 from .entity import DeskEntity, desk_command
-
-_LOGGER = logging.getLogger(__name__)
 
 # Commands go to one BLE connection, so send them one at a time
 PARALLEL_UPDATES = 1
@@ -90,7 +87,7 @@ def _visible_color(color: int | None) -> LedColor | None:
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: DeskyConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up Desky light platform."""
     async_add_entities([DeskLight(entry.runtime_data)])

@@ -6,7 +6,6 @@ from typing import Final
 DOMAIN: Final = "desky_desk"
 
 # BLE Service and Characteristic UUIDs
-SERVICE_UUID: Final = "0000fe60-0000-1000-8000-00805f9b34fb"  # Desky Service
 WRITE_CHARACTERISTIC_UUID: Final = "0000fe61-0000-1000-8000-00805f9b34fb"
 NOTIFY_CHARACTERISTIC_UUID: Final = "0000fe62-0000-1000-8000-00805f9b34fb"
 
@@ -48,11 +47,6 @@ COMMAND_GET_LOCK_STATUS: Final = bytes([0xF1, 0xF1, 0xB2, 0x00, 0xB2, 0x7E])
 COMMAND_GET_LIMITS: Final = bytes([0xF1, 0xF1, 0x0C, 0x00, 0x0C, 0x7E])
 COMMAND_CLEAR_LIMITS: Final = bytes([0xF1, 0xF1, 0x23, 0x00, 0x23, 0x7E])
 
-# Controller info command
-COMMAND_CONTROLLER_DATA: Final = bytes(
-    [0xF1, 0xF1, 0xFE, 0x00, 0xFE, 0x7E]
-)  # Same as handshake
-
 # Move to specific height command structure:
 # bytes([0xF1, 0xF1, 0x1B, 0x02, height_high_byte, height_low_byte, checksum, 0x7E])
 # where height is in mm (e.g., 850mm = 0x0352, so high=0x03, low=0x52)
@@ -70,7 +64,6 @@ STATUS_NOTIFICATION_HEADER: Final = bytes(
 CM_PER_INCH: Final = 2.54
 MIN_HEIGHT: Final = 60.0
 MAX_HEIGHT: Final = 130.0
-DEFAULT_HEIGHT: Final = 75.0
 
 # Height limits the desk accepts, in cm, by the unit the limit is sent in; it
 # ignores a limit outside them without an error. The official app allows the
@@ -111,7 +104,6 @@ RECONNECT_BACKOFF_MAX_SECONDS: Final = 120
 
 # Cover position constants
 COVER_CLOSED_POSITION: Final = 0  # Desk at minimum height
-COVER_OPEN_POSITION: Final = 100  # Desk at maximum height
 
 # Response headers for device features
 LIGHT_COLOR_RESPONSE_HEADER: Final = bytes([0xF2, 0xF2, 0xB4, 0x01])
@@ -141,8 +133,3 @@ TOUCH_MODE_PRESS_AND_HOLD: Final = 1
 
 # Display units, as reported in the unit response
 DISPLAY_UNITS: Final = {0: "cm", 1: "in"}
-
-
-def height_known(height_cm: float) -> bool:
-    """Return whether a height is a reading; 0 stands in until the desk reports one."""
-    return height_cm > 0

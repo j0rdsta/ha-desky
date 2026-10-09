@@ -6,7 +6,6 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from decimal import Decimal
-import logging
 import time
 
 from homeassistant.components.sensor import (
@@ -18,7 +17,7 @@ from homeassistant.components.sensor import (
 )
 from homeassistant.const import UnitOfLength, UnitOfTime
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.event import (
     async_track_time_change,
     async_track_time_interval,
@@ -26,11 +25,10 @@ from homeassistant.helpers.event import (
 from homeassistant.helpers.typing import StateType
 from homeassistant.util import dt as dt_util
 
-from .const import Posture, height_known
+from .bluetooth import height_known
+from .const import Posture
 from .coordinator import DeskData, DeskUpdateCoordinator, DeskyConfigEntry
 from .entity import DeskEntity
-
-_LOGGER = logging.getLogger(__name__)
 
 # State comes from the coordinator, so there are no updates to limit
 PARALLEL_UPDATES = 0
@@ -86,7 +84,7 @@ POSTURE_TIME_DESCRIPTIONS = {
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: DeskyConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up Desky sensor platform."""
     coordinator = entry.runtime_data

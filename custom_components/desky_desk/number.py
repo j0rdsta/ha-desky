@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import logging
-
 from homeassistant.components.number import (
     NumberEntity,
     NumberEntityDescription,
@@ -11,14 +9,12 @@ from homeassistant.components.number import (
 )
 from homeassistant.const import EntityCategory, UnitOfLength
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .const import MAX_HEIGHT, MIN_HEIGHT, HeightLimit
 from .coordinator import DeskUpdateCoordinator, DeskyConfigEntry
 from .entity import DeskEntity, desk_command
 from .validation import checked_height_limit, validate_move_to_height
-
-_LOGGER = logging.getLogger(__name__)
 
 # Commands go to one BLE connection, so send them one at a time
 PARALLEL_UPDATES = 1
@@ -47,7 +43,7 @@ HEIGHT_LIMIT_DESCRIPTIONS = {
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: DeskyConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up Desky Desk number entities based on a config entry."""
     coordinator = entry.runtime_data

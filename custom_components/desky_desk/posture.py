@@ -9,8 +9,8 @@ import time
 from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
 from homeassistant.helpers.event import async_call_later
 
-from .bluetooth import DeskBLEDevice
-from .const import POSTURE_SETTLE_SECONDS, Posture, height_known
+from .bluetooth import DeskBLEDevice, height_known
+from .const import POSTURE_SETTLE_SECONDS, Posture
 
 
 class PostureTracker:

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import logging
 from typing import Any
 
 from homeassistant.components.cover import (
@@ -11,14 +10,12 @@ from homeassistant.components.cover import (
     CoverEntityFeature,
 )
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .const import COVER_CLOSED_POSITION, MAX_HEIGHT, MIN_HEIGHT
 from .coordinator import DeskUpdateCoordinator, DeskyConfigEntry
 from .entity import DeskEntity, desk_command
 from .validation import allowed_move_range
-
-_LOGGER = logging.getLogger(__name__)
 
 # Commands go to one BLE connection, so send them one at a time
 PARALLEL_UPDATES = 1
@@ -27,7 +24,7 @@ PARALLEL_UPDATES = 1
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: DeskyConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up Desky Desk cover based on a config entry."""
     async_add_entities([DeskyCover(entry.runtime_data)])

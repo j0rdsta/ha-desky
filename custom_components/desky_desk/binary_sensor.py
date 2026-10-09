@@ -2,20 +2,16 @@
 
 from __future__ import annotations
 
-import logging
-
 from homeassistant.components.binary_sensor import (
     BinarySensorDeviceClass,
     BinarySensorEntity,
 )
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .coordinator import DeskUpdateCoordinator, DeskyConfigEntry
 from .entity import DeskEntity
-
-_LOGGER = logging.getLogger(__name__)
 
 # State comes from the coordinator, so there are no updates to limit
 PARALLEL_UPDATES = 0
@@ -24,7 +20,7 @@ PARALLEL_UPDATES = 0
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: DeskyConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up Desky Desk binary sensor entities based on a config entry."""
     async_add_entities([DeskyCollisionSensor(entry.runtime_data)])

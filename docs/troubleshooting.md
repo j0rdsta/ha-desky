@@ -29,7 +29,7 @@ keeps retrying in the background. Check the points above, then:
 ## The desk becomes unavailable
 
 When the connection drops, every entity of the desk becomes unavailable and the log gets one
-warning:
+info line:
 
 ```text
 The desk at AA:BB:CC:DD:EE:FF is unavailable
@@ -43,6 +43,9 @@ back, the log gets one info line:
 ```text
 The desk at AA:BB:CC:DD:EE:FF is available again
 ```
+
+Home Assistant logs only warnings and errors by default. To see these two lines, set the
+integration's log level to `info` or `debug`, as in [Debug logging](#debug-logging).
 
 If the desk stays unavailable, work through [Setup keeps retrying](#setup-keeps-retrying).
 
@@ -157,6 +160,8 @@ Useful lines:
 | `Status notification (0xF2 0xF2 0x01 0x03): … cm` | A status height frame, decoded |
 | `Display unit response: cm` or `in` | The unit the desk's display uses |
 | `Unknown notification format: …` | A frame the integration does not understand |
+| `Collision detected at … cm after … seconds` | A commanded movement stopped early |
+| `Bounce-back detected! …` | A commanded movement reversed |
 | `Could not reconnect to the desk at …, retrying in … seconds` | A failed reconnect attempt |
 
 When you [report an issue](https://github.com/j0rdsta/ha-desky/issues), include the relevant

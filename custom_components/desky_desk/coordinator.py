@@ -274,28 +274,23 @@ class DeskUpdateCoordinator(DataUpdateCoordinator[DeskData]):
         if not (update_kwargs := self._device_registry_fields()):
             return
 
-        try:
-            # async_get_or_create() matches on identifiers, so no separate
-            # lookup is needed. device_registry.async_get_device() is
-            # deprecated and stops working in HA 2027.8.
-            dr.async_get(self.hass).async_get_or_create(
-                config_entry_id=self.config_entry.entry_id,
-                identifiers={(DOMAIN, cast(str, self.config_entry.unique_id))},
-                connections={(dr.CONNECTION_BLUETOOTH, self._address)},
-                name=self._device.name,
-                manufacturer=update_kwargs.get("manufacturer", UNDEFINED),
-                model=update_kwargs.get("model", UNDEFINED),
-                serial_number=update_kwargs.get("serial_number", UNDEFINED),
-                hw_version=update_kwargs.get("hw_version", UNDEFINED),
-                sw_version=update_kwargs.get("sw_version", UNDEFINED),
-            )
-            _LOGGER.debug(
-                "Updated device registry with BLE device information: %s",
-                update_kwargs,
-            )
-
-        except Exception as err:
-            _LOGGER.error("Failed to update device registry: %s", err)
+        # async_get_or_create() matches on identifiers, so no separate
+        # lookup is needed. device_registry.async_get_device() is
+        # deprecated and stops working in HA 2027.8.
+        dr.async_get(self.hass).async_get_or_create(
+            config_entry_id=self.config_entry.entry_id,
+            identifiers={(DOMAIN, cast(str, self.config_entry.unique_id))},
+            connections={(dr.CONNECTION_BLUETOOTH, self._address)},
+            name=self._device.name,
+            manufacturer=update_kwargs.get("manufacturer", UNDEFINED),
+            model=update_kwargs.get("model", UNDEFINED),
+            serial_number=update_kwargs.get("serial_number", UNDEFINED),
+            hw_version=update_kwargs.get("hw_version", UNDEFINED),
+            sw_version=update_kwargs.get("sw_version", UNDEFINED),
+        )
+        _LOGGER.debug(
+            "Updated device registry with BLE device information: %s", update_kwargs
+        )
 
     async def _async_update_data(self) -> DeskData:
         """Update data via BLE.
@@ -395,11 +390,13 @@ class DeskUpdateCoordinator(DataUpdateCoordinator[DeskData]):
             await self._async_drop_connection()
 
     async def _async_drop_connection(self) -> None:
-        """Close a connection the desk no longer answers on."""
+        """Give up on a connection the desk no longer answers on.
+
+        The device reports the drop through _handle_disconnect() before it
+        closes the link, so the entities go unavailable at once.
+        """
         _LOGGER.debug("The desk at %s stopped responding", self._address)
-        device = self.device
-        await device.disconnect()
-        self._handle_disconnect(device)
+        await self.device.drop_connection()
 
     @callback
     def _async_request_reconnect(self) -> None:
@@ -483,7 +480,7 @@ class DeskUpdateCoordinator(DataUpdateCoordinator[DeskData]):
         if not self._expected_connected:
             return
         if not self._unavailable_logged:
-            _LOGGER.warning("The desk at %s is unavailable", self._address)
+            _LOGGER.info("The desk at %s is unavailable", self._address)
             self._unavailable_logged = True
         # The desk usually advertises again at once, but do not wait for it
         self._async_request_reconnect()
