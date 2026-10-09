@@ -556,7 +556,9 @@ async def test_drop_reports_the_disconnect_before_closing(
     mock_bleak_client.disconnect.side_effect = _disconnect
 
     with patch("custom_components.desky_desk.bluetooth.CLOSE_TIMEOUT_SECONDS", 0.01):
-        await device.drop_connection()
+        # A bound that regressed fails here rather than hanging the run
+        async with asyncio.timeout(1):
+            await device.drop_connection()
 
     assert reports_before_close == [1]
     callback.assert_called_once_with()
@@ -636,6 +638,70 @@ async def test_cancelled_release_is_closed_on_disconnect(
 
     assert mock_bleak_client.disconnect.await_count == 2
     assert device._client is None
+
+
+async def test_cancelled_drop_is_closed_before_disconnect_returns(
+    mock_ble_device, mock_establish_connection, mock_bleak_client
+):
+    """Test a drop cancelled while closing its link, as on unload.
+
+    The drop has already forgotten the link, so the disconnect() that unload
+    runs finds nothing to close and waits for the drop's close instead.
+    """
+    device = DeskBLEDevice(mock_ble_device)
+    await device.connect()
+    closing = asyncio.Event()
+    closed = asyncio.Event()
+
+    async def _disconnect() -> None:
+        closing.set()
+        await closed.wait()
+
+    mock_bleak_client.disconnect.side_effect = _disconnect
+
+    task = asyncio.create_task(device.drop_connection())
+    await closing.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert device._client is None
+
+    disconnect = asyncio.create_task(device.disconnect())
+    await asyncio.sleep(0)
+    assert not disconnect.done()
+
+    closed.set()
+    async with asyncio.timeout(1):
+        await disconnect
+    mock_bleak_client.disconnect.assert_awaited_once()
+    assert device._close_task is None
+
+
+async def test_cancelled_drop_close_is_bounded_on_disconnect(
+    mock_ble_device, mock_establish_connection, mock_bleak_client
+):
+    """Test unload waits for a cancelled drop's hung close only up to its bound."""
+    device = DeskBLEDevice(mock_ble_device)
+    await device.connect()
+    closing = asyncio.Event()
+
+    async def _disconnect() -> None:
+        closing.set()
+        await asyncio.Event().wait()  # the proxy never answers
+
+    mock_bleak_client.disconnect.side_effect = _disconnect
+
+    with patch("custom_components.desky_desk.bluetooth.CLOSE_TIMEOUT_SECONDS", 0.01):
+        task = asyncio.create_task(device.drop_connection())
+        await closing.wait()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        async with asyncio.timeout(1):
+            await device.disconnect()
+
+    mock_bleak_client.disconnect.assert_awaited_once()
+    assert device._close_task is None
 
 
 async def test_cancelled_connect_is_released_on_disconnect(

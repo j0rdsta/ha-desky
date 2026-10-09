@@ -240,8 +240,8 @@ class DeskBLEDevice:
         self._ble_device = ble_device
         self._advertisement_data = advertisement_data
         self._client: BleakClient | None = None
-        # Held while a dropped link closes, so a reconnect does not race it
-        self._closing = asyncio.Lock()
+        # A dropped link's bounded close, which a reconnect and disconnect() wait for
+        self._close_task: asyncio.Task[None] | None = None
         # Writes go out one at a time; timed sequences pause without blocking them
         self._sequencer = Sequencer(self._write_frame, clock)
         # Counts movement commands and stops, so a command that waited can tell
@@ -468,8 +468,7 @@ class DeskBLEDevice:
         if self.is_connected:
             return True
 
-        async with self._closing:
-            pass
+        await self._wait_closed()
 
         _LOGGER.debug("Connecting to Desky desk at %s", self.address)
 
@@ -541,23 +540,38 @@ class DeskBLEDevice:
 
         The drop is reported first, so the entities go unavailable at once and
         commands fail as not connected, rather than waiting for a close that a
-        proxy can take 20 s to give up on. The close is bounded, and a reconnect
-        waits for it. A failed setup closes before reporting instead
+        proxy can take 20 s to give up on. The close is bounded and runs as its
+        own task, so cancelling the caller (unload cancels the coordinator's
+        background tasks) does not abandon it: a reconnect and disconnect() wait
+        for it. A failed setup closes before reporting instead
         (_release_client), so a cancel during the close leaves the link in
         self._client for disconnect() to close.
         """
         if (client := self._client) is None:
             return
-        # Taken before reporting, as the report can start a reconnect at once
-        async with self._closing:
-            self._handle_disconnect(client)
-            try:
-                async with asyncio.timeout(CLOSE_TIMEOUT_SECONDS):
-                    await self._close(client)
-            except TimeoutError:
-                _LOGGER.debug(
-                    "Gave up closing the connection to desk at %s", self.address
-                )
+        # Started before reporting, as the report can start a reconnect at once
+        task = self._close_task = asyncio.create_task(self._close_bounded(client))
+        task.add_done_callback(self._close_done)
+        self._handle_disconnect(client)
+        await asyncio.shield(task)
+
+    async def _close_bounded(self, client: BleakClient) -> None:
+        """Close a dropped link, giving up after CLOSE_TIMEOUT_SECONDS."""
+        try:
+            async with asyncio.timeout(CLOSE_TIMEOUT_SECONDS):
+                await self._close(client)
+        except TimeoutError:
+            _LOGGER.debug("Gave up closing the connection to desk at %s", self.address)
+
+    def _close_done(self, task: asyncio.Task[None]) -> None:
+        """Forget a dropped link's close once it has finished."""
+        if task is self._close_task:
+            self._close_task = None
+
+    async def _wait_closed(self) -> None:
+        """Wait for a dropped link's bounded close; a cancel leaves it running."""
+        if (task := self._close_task) is not None:
+            await asyncio.shield(task)
 
     def _get_ble_device(self) -> BLEDevice:
         """Return the latest BLE device, for retries during a connection attempt."""
@@ -575,6 +589,7 @@ class DeskBLEDevice:
         # Closing the link ends the notification subscription too
         if client := self._client:
             await self._close(client)
+        await self._wait_closed()
         self._reset_link_state()
         # Let cancelled sequences finish, so none outlives the connection
         await self._sequencer.wait_cancelled()
