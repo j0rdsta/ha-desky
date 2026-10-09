@@ -193,6 +193,14 @@ async def test_limit_number_above_the_range_rejected(
             (HeightLimit.LOWER, 70.0),
             "get_limits",
         ),
+        # Sent in whole centimetres, as the desk stores limits
+        (
+            LOWER_LIMIT,
+            70.4,
+            "set_height_limit",
+            (HeightLimit.LOWER, 70.0),
+            "get_limits",
+        ),
     ],
 )
 async def test_set_desk_number(
@@ -271,7 +279,8 @@ async def test_inverted_limit_rejected(
         "other": other,
     }
     assert str(err.value) == message
-    assert mock_desk.method_calls == []
+    mock_desk.set_height_limit.assert_not_awaited()
+    mock_desk.get_limits.assert_not_awaited()
     assert hass.states.get(UPPER_LIMIT).state == "110.0"
     assert hass.states.get(LOWER_LIMIT).state == "70.0"
 

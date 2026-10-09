@@ -120,6 +120,8 @@ class DeskHeightLimitNumber(DeskEntity, NumberEntity):
     @desk_command
     async def async_set_native_value(self, value: float) -> None:
         """Set the limit, then show the limits the desk reports."""
+        # The desk stores whole units, so the rounded limit is checked and sent
+        value = self._device.round_limit(value)
         validate_height_limit(self.coordinator.data, self._limit, value)
         await self._device.set_height_limit(self._limit, value)
         await self._device.get_limits()

@@ -49,11 +49,15 @@ the desk's control box.
 | Field | Required | Description |
 | --- | --- | --- |
 | `limit` | Yes | `upper` or `lower` |
-| `height` | Yes | The height of the limit, in cm, from 60 to 124 |
+| `height` | Yes | The height of the limit, in whole cm, from 60 to 124 |
+
+The desk stores limits in whole centimetres, or in whole inches if its display shows inches. The
+integration rounds the height to the nearest whole unit before it checks and sends it. On a desk
+that shows inches, 74 cm is 29.1 in, so the desk gets 29 in and the limit shows as 73.7 cm.
 
 The desk accepts limits from 60 to 124 cm. If its display shows inches, it accepts 24 to 48 in,
 which is 61.0 to 121.9 cm. It ignores a limit outside that range without an error, so the
-integration refuses it and sends nothing.
+integration refuses a limit that rounds to outside it and sends nothing.
 
 If the other limit is set, the upper limit must be above the lower one. The
 [limit entities](entities.md#upper-height-limit-and-lower-height-limit) run the same check, with

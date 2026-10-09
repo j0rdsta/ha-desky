@@ -2180,9 +2180,12 @@ async def test_command_parameter_validation(
     [
         (None, 59.0),
         (None, 125.0),
-        # 24-48 in: 124 cm would be sent as 48.8 in and 60 cm as 23.6 in
+        # Whole centimetres: 59.4 is sent as 59, 124.5 as 125
+        (None, 59.4),
+        (None, 124.5),
+        # 24-48 in: 124 cm is 48.8 in, sent as 49; 59 cm is 23.2 in, sent as 23
         ("f2f20e0101107e", 124.0),
-        ("f2f20e0101107e", 60.0),
+        ("f2f20e0101107e", 59.0),
     ],
 )
 async def test_set_height_limit_out_of_range(
@@ -3280,9 +3283,9 @@ async def test_move_to_height_target_is_always_mm(
     [
         # cm: tenths of a cm (mm)
         (CM_REPORT, "f2f2010302ba07c77e", 1100, "f2f22102044c737e", 110.0),
-        # inches: 110 cm is sent as 43.3 in; the desk reports 43.2 in, a tenth
-        # low, which is rounded back up to 43.3 in
-        (INCH_REPORT, "f2f201030112071e7e", 433, "f2f2210201b0d47e", 110.0),
+        # inches: 110 cm (43.3 in) is sent as a whole 43 in; the desk reports
+        # 42.9 in, a tenth low, which is rounded back up to 43 in, 109.2 cm
+        (INCH_REPORT, "f2f201030112071e7e", 430, "f2f2210201add17e", 109.2),
     ],
 )
 async def test_height_limits_round_trip_in_cm(
@@ -3305,7 +3308,7 @@ async def test_height_limits_round_trip_in_cm(
 
     writes = [c.args[1] for c in mock_bleak_client.write_gatt_char.call_args_list]
     assert writes[1] == device._create_command_with_word_param(0x21, sent)
-    lower = 700 if unit_report is CM_REPORT else 276  # 70 cm = 27.6 in
+    lower = 700 if unit_report is CM_REPORT else 280  # 70 cm = 27.6 in, so 28 in
     assert writes[3] == device._create_command_with_word_param(0x22, lower)
 
     device._handle_notification(None, bytearray.fromhex(response))
@@ -3342,6 +3345,9 @@ async def test_inch_limit_range_ends_are_sent_within_24_48_in(
         (INCH_REPORT, LIMIT_UPPER_RESPONSE_HEADER, 479, "height_limit_upper", 121.9),
         (INCH_REPORT, LIMIT_LOWER_RESPONSE_HEADER, 239, "height_limit_lower", 61.0),
         (INCH_REPORT, LIMIT_UPPER_RESPONSE_HEADER, 480, "height_limit_upper", 121.9),
+        # 110 cm is reported as 1099; 29 in (73.7 cm) as 289
+        (CM_REPORT, LIMIT_UPPER_RESPONSE_HEADER, 1099, "height_limit_upper", 110.0),
+        (INCH_REPORT, LIMIT_UPPER_RESPONSE_HEADER, 289, "height_limit_upper", 73.7),
     ],
 )
 def test_limit_replies_are_rounded_up_a_tenth(
@@ -3393,3 +3399,51 @@ def test_limit_range(mock_ble_device, frames, expected):
         device._handle_notification(None, frame)
 
     assert device.limit_range == expected
+
+
+@pytest.mark.parametrize(
+    ("unit_report", "height", "sent"),
+    [
+        # Whole centimetres, rounded half up
+        (CM_REPORT, 110.2, 1100),
+        (CM_REPORT, 110.5, 1110),
+        (CM_REPORT, 124.4, 1240),
+        (CM_REPORT, 59.5, 600),
+        # Whole inches: 74 cm is 29.1 in, sent as 29 in
+        (INCH_REPORT, 74.0, 290),
+        (INCH_REPORT, 123.0, 480),
+        (INCH_REPORT, 60.0, 240),
+    ],
+)
+async def test_limit_is_sent_in_whole_units(
+    mock_ble_device, mock_bleak_client, unit_report, height, sent
+):
+    """The desk stores limits in whole units of its display, so only those are sent."""
+    device = DeskBLEDevice(mock_ble_device)
+    device._client = mock_bleak_client
+    device._handle_notification(None, unit_report)
+
+    await device.set_height_limit(HeightLimit.UPPER, height)
+
+    assert mock_bleak_client.write_gatt_char.call_args_list[-1] == call(
+        WRITE_CHARACTERISTIC_UUID, device._create_command_with_word_param(0x21, sent)
+    )
+
+
+@pytest.mark.parametrize(
+    ("unit_report", "height", "expected"),
+    [
+        (CM_REPORT, 110.2, 110.0),
+        (CM_REPORT, 110.5, 111.0),
+        # A whole inch in cm, to 0.1 cm like decoded heights
+        (INCH_REPORT, 74.0, 73.7),
+        (INCH_REPORT, 121.9, 121.9),
+        (INCH_REPORT, 61.0, 61.0),
+    ],
+)
+def test_round_limit(mock_ble_device, unit_report, height, expected):
+    """A limit is rounded to the whole unit it is sent in, then given in cm."""
+    device = DeskBLEDevice(mock_ble_device)
+    device._handle_notification(None, unit_report)
+
+    assert device.round_limit(height) == expected

@@ -7,6 +7,7 @@ from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass, field
 import logging
+import math
 import time
 from typing import Any
 
@@ -138,6 +139,18 @@ class _Movement:
 def _to_cm(value: float, unit: str) -> float:
     """Convert a height in the given display unit to centimetres."""
     return round(value * CM_PER_INCH, 1) if unit == "in" else value
+
+
+def round_limit_to_unit(height_cm: float, unit: str | None) -> float:
+    """Round a limit in cm to a whole unit, half up, and return it in cm.
+
+    The desk stores limits in whole units of its display, so a fraction would
+    read back differently. A whole inch is given to 0.1 cm, like decoded
+    heights: 29 in is 73.7 cm.
+    """
+    if unit == "in":
+        return _to_cm(math.floor(height_cm / CM_PER_INCH + 0.5), unit)
+    return float(math.floor(height_cm + 0.5))
 
 
 def _plausible(height_cm: float) -> bool:
@@ -302,6 +315,10 @@ class DeskBLEDevice:
         desk reports its unit, and changes first when the unit is switched.
         """
         return self._effective_unit or self._unit_preference
+
+    def round_limit(self, height_cm: float) -> float:
+        """Return a limit rounded to the whole unit it is sent in, in cm."""
+        return round_limit_to_unit(height_cm, self._limit_unit)
 
     @property
     def limit_range(self) -> tuple[float, float]:
@@ -686,7 +703,8 @@ class DeskBLEDevice:
         await self._send_awake_command(command)
 
     async def set_height_limit(self, limit: HeightLimit, height_cm: float) -> None:
-        """Set the upper or lower height limit in cm."""
+        """Set the upper or lower height limit in cm, rounded to a whole unit."""
+        height_cm = self.round_limit(height_cm)
         low, high = self.limit_range
         if not low <= height_cm <= high:
             raise ValueError(

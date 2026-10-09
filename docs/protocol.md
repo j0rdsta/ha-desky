@@ -78,6 +78,7 @@ F1 F1 <command> 02 <high> <low> <checksum> 7E
   850 mm is `0x0352`, so the frame is `F1 F1 1B 02 03 52 72 7E`.
 - **Upper limit** (`0x21`) and **lower limit** (`0x22`): the limit is in tenths of the desk's
   display unit. The desk accepts 60-124 cm, or 24-48 in, and ignores a limit outside that range.
+  It stores whole units, so the integration sends a limit rounded to a whole cm or a whole inch.
 
 ## Waking the desk
 
