@@ -802,7 +802,7 @@ class DeskBLEDevice:
         the desk is asked for its status and the reply waited for. A desk
         that does not answer fails the move rather than moving it blind.
         """
-        if self._height_cm > 0:
+        if height_known(self._height_cm):
             return
         report = self._expect_report(STATUS_NOTIFICATION_HEADER)
         try:
@@ -810,7 +810,7 @@ class DeskBLEDevice:
             await self._sequencer.wait_for(report, READ_BACK_TIMEOUT_SECONDS)
         finally:
             self._stop_expecting(STATUS_NOTIFICATION_HEADER, report)
-        if self._height_cm <= 0:
+        if not height_known(self._height_cm):
             raise DeskCommandError("The desk has not reported its height yet")
 
     def _hold(
