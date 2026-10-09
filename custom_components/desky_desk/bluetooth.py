@@ -125,6 +125,13 @@ CONNECT_QUERY_SPACING = 0.2
 SENSITIVITY_READ_BACK_AT = 1.0
 # The desk sends its settings block for a status request after a handshake
 SETTINGS_REQUEST = (COMMAND_HANDSHAKE, COMMAND_GET_STATUS)
+
+
+def _steps_at(at: float, frames: tuple[bytes, ...]) -> tuple[Step, ...]:
+    """Return frames to be sent together, at one time in a sequence."""
+    return tuple((at, frame) for frame in frames)
+
+
 # In press-and-hold touch mode the desk moves only while frames keep coming,
 # and the app repeats a held button's frame this often
 HOLD_REPEAT_INTERVAL = 0.1
@@ -611,19 +618,18 @@ class DeskBLEDevice:
         frame: bytes,
         times: tuple[float, ...],
         *,
-        read_back_at: float | None = None,
-        read_back: tuple[bytes, ...] = SETTINGS_REQUEST,
+        read_back: tuple[Step, ...] = (),
     ) -> None:
         """Wake the desk with the handshake, then send a setting at the app's times.
 
-        The desk does not confirm the unit, touch mode or sensitivity, so those
-        ask for the settings block at read_back_at; other settings send their
-        own read_back. A sequence cut short by a failed write is not read back.
+        The sequence ends with the read_back steps: the settings block for the
+        unit, touch mode and sensitivity, which the desk does not confirm, and
+        the limits after a clear. A sequence cut short by a failed write is not
+        read back.
         """
-        steps = [(0.0, COMMAND_HANDSHAKE), *((at, frame) for at in times)]
-        if read_back_at is not None:
-            steps += [(read_back_at, request) for request in read_back]
-        await self._sequencer.run_setting(steps)
+        await self._sequencer.run_setting(
+            [(0.0, COMMAND_HANDSHAKE), *((at, frame) for at in times), *read_back]
+        )
 
     def _create_command_with_byte_param(self, command_byte: int, param: int) -> bytes:
         """Create a command with a single byte parameter."""
@@ -755,7 +761,9 @@ class DeskBLEDevice:
             raise ValueError(f"Invalid sensitivity level: {level} (must be 1-3)")
         command = self._create_command_with_byte_param(0x1D, level)
         await self._send_setting(
-            command, MODE_SETTING_TIMES, read_back_at=SENSITIVITY_READ_BACK_AT
+            command,
+            MODE_SETTING_TIMES,
+            read_back=_steps_at(SENSITIVITY_READ_BACK_AT, SETTINGS_REQUEST),
         )
 
     async def set_touch_mode(self, mode: int) -> None:
@@ -764,7 +772,9 @@ class DeskBLEDevice:
             raise ValueError(f"Invalid touch mode: {mode} (must be 0 or 1)")
         command = self._create_command_with_byte_param(0x19, mode)
         await self._send_setting(
-            command, MODE_SETTING_TIMES, read_back_at=MODE_SETTING_TIMES[-1]
+            command,
+            MODE_SETTING_TIMES,
+            read_back=_steps_at(MODE_SETTING_TIMES[-1], SETTINGS_REQUEST),
         )
 
     async def set_unit(self, unit: str) -> None:
@@ -774,7 +784,9 @@ class DeskBLEDevice:
         value = 0 if unit == "cm" else 1
         command = self._create_command_with_byte_param(0x0E, value)
         await self._send_setting(
-            command, UNIT_SETTING_TIMES, read_back_at=UNIT_SETTING_TIMES[-1]
+            command,
+            UNIT_SETTING_TIMES,
+            read_back=_steps_at(UNIT_SETTING_TIMES[-1], SETTINGS_REQUEST),
         )
 
     async def set_height_limit(self, limit: HeightLimit, height_cm: float) -> None:
@@ -798,8 +810,10 @@ class DeskBLEDevice:
         Nothing is cleared until the desk has reported which limits are set
         and the value of each, so no limit is lost; the new limit then goes
         out alone. The sequence ends by asking for the limits, so the desk's
-        reply corrects anything it did differently. Asked inside the limit
-        lock, that reply comes before the next change is sent.
+        reply corrects anything it did differently. The query goes out inside
+        the limit lock, so the reply usually arrives before the next change
+        starts. Nothing guarantees that: a reply that arrives during the next
+        change is overwritten once that change succeeds.
         """
         known = self._limits
         unit = self._limit_unit or "cm"
@@ -840,8 +854,7 @@ class DeskBLEDevice:
             await self._send_setting(
                 COMMAND_CLEAR_LIMITS,
                 CLEAR_LIMITS_TIMES,
-                read_back_at=CLEAR_LIMITS_TIMES[-1],
-                read_back=(COMMAND_GET_LIMITS,),
+                read_back=_steps_at(CLEAR_LIMITS_TIMES[-1], (COMMAND_GET_LIMITS,)),
             )
             self._limits = HeightLimits(upper_set=False, lower_set=False)
             self._notify_callbacks()
@@ -866,7 +879,7 @@ class DeskBLEDevice:
         ]
         await self._sequencer.run_setting(
             [
-                *((0.0, request) for request in SETTINGS_REQUEST),
+                *_steps_at(0.0, SETTINGS_REQUEST),
                 *(
                     (n * CONNECT_QUERY_SPACING, query)
                     for n, query in enumerate(queries, start=1)
