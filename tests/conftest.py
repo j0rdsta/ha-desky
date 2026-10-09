@@ -21,7 +21,18 @@ from custom_components.desky_desk.bluetooth import round_limit_to_unit
 from custom_components.desky_desk.const import DOMAIN
 from custom_components.desky_desk.coordinator import DeskData
 
-from . import BluetoothCallbacks, desk_data
+from . import BluetoothCallbacks, FakeClock, desk_data
+
+
+@pytest.fixture(autouse=True)
+def clock() -> Generator[FakeClock]:
+    """Run the desk's frame timing on a virtual clock that passes pauses at once.
+
+    Set `clock.auto = False` to hold each pause until `clock.advance()`.
+    """
+    fake = FakeClock()
+    with patch("custom_components.desky_desk.bluetooth.Clock", return_value=fake):
+        yield fake
 
 
 @pytest.fixture
