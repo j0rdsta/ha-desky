@@ -23,7 +23,13 @@ from custom_components.desky_desk.bluetooth import (
 )
 from custom_components.desky_desk.const import (
     COMMAND_CLEAR_LIMITS,
+    COMMAND_GET_BRIGHTNESS,
+    COMMAND_GET_LIGHT_COLOR,
+    COMMAND_GET_LIGHTING,
+    COMMAND_GET_LIMITS,
+    COMMAND_GET_LOCK_STATUS,
     COMMAND_GET_STATUS,
+    COMMAND_GET_VIBRATION,
     COMMAND_HANDSHAKE,
     COMMAND_MEMORY_2,
     COMMAND_MOVE_DOWN,
@@ -867,3 +873,28 @@ async def test_unload_ends_a_held_movement(
     await clock.advance(2.0)
 
     assert desk_client.write_gatt_char.await_count == sent
+
+
+# Connecting
+
+
+async def test_connect_spaces_the_queries(
+    mock_ble_device: MagicMock,
+    mock_establish_connection: MagicMock,
+    frames: Frames,
+) -> None:
+    """Connecting wakes the desk and asks for its status, then queries 200 ms apart."""
+    device = DeskBLEDevice(mock_ble_device)
+
+    assert await device.connect() is True
+
+    assert frames == [
+        (0.0, H),
+        (0.0, STATUS),  # after the handshake, this brings the settings block
+        (0.2, COMMAND_GET_LIGHTING.hex()),
+        (0.4, COMMAND_GET_LIGHT_COLOR.hex()),
+        (0.6, COMMAND_GET_BRIGHTNESS.hex()),
+        (0.8, COMMAND_GET_VIBRATION.hex()),
+        (1.0, COMMAND_GET_LOCK_STATUS.hex()),
+        (1.2, COMMAND_GET_LIMITS.hex()),
+    ]

@@ -339,9 +339,10 @@ async def test_sensitivity_is_forgotten_on_disconnect(
     await hass.async_block_till_done()
     assert hass.states.get(SENSITIVITY).state == "medium"
 
-    # The coordinator reconnects at once; the desk has not reported anything yet
+    # The coordinator reconnects at once, in the background, with its queries
+    # spaced out; the desk has not reported anything yet
     mock_establish_connection.call_args.kwargs["disconnected_callback"](desk_client)
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
     assert mock_establish_connection.call_count == 2
     assert hass.states.get(SENSITIVITY).state == STATE_UNKNOWN
 

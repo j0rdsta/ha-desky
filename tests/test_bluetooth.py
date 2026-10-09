@@ -268,22 +268,6 @@ def _bleak_client() -> MagicMock:
     return client
 
 
-async def test_connect_waits_on_no_fixed_delays(
-    mock_ble_device, mock_establish_connection, mock_bleak_client
-):
-    """Test connecting sends its queries back to back, without sleeping."""
-    device = DeskBLEDevice(mock_ble_device)
-
-    with patch(
-        "custom_components.desky_desk.bluetooth.asyncio.sleep", new_callable=AsyncMock
-    ) as mock_sleep:
-        assert await device.connect() is True
-
-    mock_sleep.assert_not_awaited()
-    # Handshake, status and the six capability queries
-    assert mock_bleak_client.write_gatt_char.await_count == 8
-
-
 async def test_capability_query_failure_is_not_an_unsupported_feature(
     mock_ble_device, mock_establish_connection, mock_bleak_client, caplog
 ):

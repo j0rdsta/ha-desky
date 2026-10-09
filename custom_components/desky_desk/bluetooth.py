@@ -114,6 +114,7 @@ CLEAR_LIMITS_TIMES = (0.0, 0.2)
 SET_LIMITS_SPACING = 0.05  # clear, upper and lower limit, each twice
 STOP_TIMES = (0.0, 0.05)
 MOVE_TO_HEIGHT_TIMES = (0.2, 0.3)  # after one stop at 0
+CONNECT_QUERY_SPACING = 0.2
 # The app asks for the settings this long after setting the sensitivity
 SENSITIVITY_READ_BACK_DELAY = 0.5
 # In press-and-hold touch mode the desk moves only while frames keep coming,
@@ -465,10 +466,8 @@ class DeskBLEDevice:
         """Subscribe to the desk's notifications and ask for its state."""
         await client.start_notify(NOTIFY_CHARACTERISTIC_UUID, self._handle_notification)
 
-        # The handshake enables movement controls
-        _LOGGER.debug("Sending handshake command...")
-        await self._send_command(COMMAND_HANDSHAKE)
-        await self.get_status()
+        # The handshake enables movement controls, and the status request after
+        # it asks for the settings block
         await self._query_device_capabilities()
 
         # Device Information Service (0x180A)
@@ -882,20 +881,33 @@ class DeskBLEDevice:
         await self._send_setting(COMMAND_CLEAR_LIMITS, CLEAR_LIMITS_TIMES)
 
     async def _query_device_capabilities(self) -> None:
-        """Ask the desk for its settings; the answers arrive as notifications.
+        """Wake the desk, ask for its status, then query its settings 200 ms apart.
 
-        A desk without a feature does not answer its query. A write that fails
-        means the connection is gone, so the error fails the connect. The
-        collision sensitivity is not queried: it comes from the settings block,
-        and the desk's reply to the sensitivity query can disagree with it.
+        The answers arrive as notifications. A desk without a feature does not
+        answer its query. A write that fails means the connection is gone, so
+        the error fails the connect. The collision sensitivity is not queried:
+        it comes from the settings block, and the desk's reply to the
+        sensitivity query can disagree with it.
         """
         _LOGGER.debug("Querying device capabilities...")
-        await self.get_lighting_status()
-        await self.get_light_color()
-        await self.get_brightness()
-        await self.get_vibration_status()
-        await self.get_lock_status()
-        await self.get_limits()
+        queries = [
+            COMMAND_GET_LIGHTING,
+            COMMAND_GET_LIGHT_COLOR,
+            COMMAND_GET_BRIGHTNESS,
+            COMMAND_GET_VIBRATION,
+            COMMAND_GET_LOCK_STATUS,
+            COMMAND_GET_LIMITS,
+        ]
+        await self._run_sequence(
+            [
+                (0.0, COMMAND_HANDSHAKE),
+                (0.0, COMMAND_GET_STATUS),
+                *(
+                    (n * CONNECT_QUERY_SPACING, query)
+                    for n, query in enumerate(queries, start=1)
+                ),
+            ]
+        )
         _LOGGER.debug("Device capability query complete")
 
     async def _read_device_information(self) -> None:
