@@ -179,12 +179,3 @@ class DeskLight(DeskEntity, LightEntity, RestoreEntity):
 
         # Request status update
         await self._device.get_lighting_status()
-
-    @property
-    def extra_state_attributes(self) -> dict[str, Any] | None:
-        """Return entity specific state attributes."""
-        # Add current color name if available
-        light_color = self.coordinator.data.light_color
-        if light_color and light_color in LIGHT_COLORS:
-            return {"color_name": LIGHT_COLORS[light_color]}
-        return None

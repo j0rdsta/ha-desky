@@ -83,8 +83,9 @@ This is a Home Assistant custom integration that follows the standard component 
    - Binary sensor: Collision detection
    - Light entity: LED strip control with color, brightness, and effects
    - Switch entities: Vibration on/off, desk lock
-   - Select entities: Collision sensitivity, touch mode, unit preference
+   - Select entities: Collision sensitivity (`high`/`medium`/`low`), touch mode (`one_press`/`press_and_hold`), display unit (`cm`/`in`); states are keys with translated labels
    - Sensor entities: Height display (cm, device class distance), posture, standing/sitting time today
+   - No entity has extra state attributes; diagnostics carry the full desk data
 
 ### BLE Protocol Commands
 ```python

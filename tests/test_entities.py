@@ -15,6 +15,7 @@ from unittest.mock import MagicMock, patch
 from homeassistant.const import STATE_UNAVAILABLE
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.entity_platform import async_get_platforms
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 from syrupy.assertion import SnapshotAssertion
@@ -250,6 +251,20 @@ async def test_translation_files_match() -> None:
     strings = json.loads((INTEGRATION_DIR / "strings.json").read_text())
     english = json.loads((INTEGRATION_DIR / "translations" / "en.json").read_text())
     assert english == strings
+
+
+async def test_no_entity_has_extra_state_attributes(
+    hass: HomeAssistant, init_integration: MockConfigEntry
+) -> None:
+    """Test no desk entity adds attributes of its own; other entities hold that data."""
+    entities = [
+        entity
+        for platform in async_get_platforms(hass, DOMAIN)
+        for entity in platform.entities.values()
+    ]
+    assert len(entities) == len(V1_ENTITIES - REMOVED_ENTITIES) + len(NEW_ENTITIES)
+    for entity in entities:
+        assert entity.extra_state_attributes is None, entity.entity_id
 
 
 async def test_availability_follows_connection(

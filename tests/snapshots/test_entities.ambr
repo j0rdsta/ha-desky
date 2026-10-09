@@ -112,7 +112,6 @@
       'attributes': dict({
         'brightness': 128,
         'color_mode': 'brightness',
-        'color_name': 'White',
         'effect': 'White',
         'effect_list': list([
           'White',
@@ -158,7 +157,6 @@
     'number.desky_desk_lower_height_limit': dict({
       'attributes': dict({
         'friendly_name': 'Desky Desk Lower height limit',
-        'limits_enabled': True,
         'max': 130.0,
         'min': 60.0,
         'mode': 'box',
@@ -177,7 +175,6 @@
     'number.desky_desk_upper_height_limit': dict({
       'attributes': dict({
         'friendly_name': 'Desky Desk Upper height limit',
-        'limits_enabled': True,
         'max': 130.0,
         'min': 60.0,
         'mode': 'box',
@@ -347,7 +344,6 @@
     'switch.desky_desk_vibration': dict({
       'attributes': dict({
         'friendly_name': 'Desky Desk Vibration',
-        'intensity': 75,
       }),
       'disabled_by': None,
       'entity_category': 'config',

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 from homeassistant.components.number import (
     NumberEntity,
@@ -130,12 +129,6 @@ class DeskHeightLimitNumber(DeskEntity, NumberEntity):
         validate_height_limit(self.coordinator.data, self._limit, value)
         await self._device.set_height_limit(self._limit, value)
         await self._device.get_limits()
-
-    @property
-    def extra_state_attributes(self) -> dict[str, Any] | None:
-        """Return entity specific state attributes."""
-        # Height limit entities report whether the limits are enabled
-        return {"limits_enabled": self.coordinator.data.limits_enabled}
 
 
 class DeskVibrationIntensityNumber(DeskEntity, NumberEntity):

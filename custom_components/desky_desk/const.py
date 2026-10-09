@@ -105,11 +105,6 @@ UPDATE_INTERVAL_SECONDS: Final = 30
 RECONNECT_BACKOFF_MIN_SECONDS: Final = 5
 RECONNECT_BACKOFF_MAX_SECONDS: Final = 120
 
-# Entity attributes
-ATTR_HEIGHT_CM: Final = "height_cm"
-ATTR_COLLISION_DETECTED: Final = "collision_detected"
-ATTR_MOVING: Final = "moving"
-
 # Cover position constants
 COVER_CLOSED_POSITION: Final = 0  # Desk at minimum height
 COVER_OPEN_POSITION: Final = 100  # Desk at maximum height

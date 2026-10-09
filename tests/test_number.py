@@ -364,21 +364,6 @@ async def test_vibration_intensity_sent_as_integer(
     assert isinstance(mock_desk.set_vibration_intensity.call_args.args[0], int)
 
 
-async def test_limits_enabled_attribute(
-    hass: HomeAssistant, init_integration: MockConfigEntry
-) -> None:
-    """Test only the height limit numbers report whether the limits are enabled."""
-    assert hass.states.get(UPPER_LIMIT).attributes["limits_enabled"] is True
-    assert hass.states.get(LOWER_LIMIT).attributes["limits_enabled"] is True
-    assert "limits_enabled" not in hass.states.get(VIBRATION_INTENSITY).attributes
-    assert "limits_enabled" not in hass.states.get(HEIGHT).attributes
-
-    await set_desk_state(hass, init_integration, limits_enabled=False)
-
-    assert hass.states.get(UPPER_LIMIT).attributes["limits_enabled"] is False
-    assert hass.states.get(LOWER_LIMIT).attributes["limits_enabled"] is False
-
-
 async def test_desk_numbers_without_values(
     hass: HomeAssistant, init_integration: MockConfigEntry
 ) -> None:

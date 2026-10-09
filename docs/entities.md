@@ -8,6 +8,7 @@ Version 2.0.0 removed the LED color and Vibration intensity display sensors, whi
 entities. Setting up the desk deletes them.
 
 All entities are enabled by default, and unavailable while the desk is not connected.
+Entities have no attributes of their own. Each value has its own entity.
 
 Heights are in centimetres, whatever unit the desk's display shows. To see the Height display
 sensor in inches, change its unit in the entity's settings.
@@ -132,8 +133,6 @@ The highest and lowest heights the desk will move to, stored on the desk's contr
 to 130 cm in steps of 1 cm. Setting a value writes the limit to the desk and reads the limits
 back. A limit that is not set shows as unknown.
 
-Attribute `limits_enabled`: true while at least one limit is set.
-
 If the other limit is set, the upper limit must be above it and the lower limit below it.
 Otherwise setting the value fails with an error, and nothing is sent to the desk. To set or clear
 limits from an automation, use the [actions](actions.md).
@@ -145,8 +144,7 @@ desk.
 
 ### Vibration
 
-Turns the desk's vibration on or off. Attribute `intensity`: the vibration intensity in %, when
-the desk has reported it.
+Turns the desk's vibration on or off.
 
 ### Lock
 
@@ -182,5 +180,4 @@ The desk takes brightness in whole percent. The brightness is rounded to the nea
 a light that is on is never sent as 0 %.
 
 If the desk reports its colour as off and you turn the light on without an effect, it goes back to
-the last colour you chose other than party mode. That colour is kept across restarts. Attribute
-`color_name`: the current colour.
+the last colour you chose other than party mode. That colour is kept across restarts.
