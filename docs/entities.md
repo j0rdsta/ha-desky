@@ -71,12 +71,14 @@ does not move. To move to a height in an automation, you can also use the
 ### Presets 1 to 4
 
 Moves the desk to the height saved in that preset. Presets are saved on the hand controller; the
-integration can only recall them.
+integration can only recall them. In press-and-hold touch mode the command repeats until the desk
+stops or you press stop.
 
 ### Move up and Move down
 
 Starts the desk moving up or down, the same as opening or closing the cover. Stop it with the
-cover's stop. The buttons stay available whatever the cover's state.
+cover's stop. The buttons stay available whatever the cover's state. In press-and-hold touch mode
+the command repeats until the desk stops or you press stop.
 
 ### Collision detected
 
@@ -135,7 +137,9 @@ to 124 cm in steps of 1 cm, the range the desk accepts. On a desk whose display 
 range is 24 to 48 in, shown as 61.0 to 121.9 cm. The desk stores whole centimetres, or whole
 inches, so a value is rounded to the nearest whole unit before it is sent: on a desk that shows
 inches, 74 cm is sent as 29 in and shows as 73.7 cm. Setting a value writes the limit to the desk
-and reads the limits back. A limit that is not set shows as unknown.
+and reads the limits back. A limit that is not set shows as unknown. The desk only tightens a
+limit that is already set, so, as the official app does, the integration clears both limits and
+sets both again; setting one limit keeps the other.
 
 If the other limit is set, the upper limit must be above it and the lower limit below it.
 Otherwise setting the value fails with an error, and nothing is sent to the desk. To set or clear
@@ -161,7 +165,9 @@ the desk reports the new value.
 
 The hand controller's touch mode: **One press** or **Press and hold**. The states are `one_press`
 and `press_and_hold`. Use these values in automations. The desk does not confirm the change, so
-the integration asks for its settings again after changing it.
+the integration asks for its settings again after changing it. In **Press and hold** mode the desk
+moves only while a command keeps arriving, so the integration repeats the movement and preset
+commands every 100 ms (see [Command timing](protocol.md#command-timing)).
 
 ### Display unit
 

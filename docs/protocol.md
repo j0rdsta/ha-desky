@@ -87,6 +87,45 @@ commands once its display sleeps, about a minute after the last touch. The hands
 the integration writes a handshake in front of every command that moves the desk or changes a
 setting. Stop is sent on its own: a moving desk is awake, and a sleeping one has nothing to stop.
 
+## Command timing
+
+The integration sends each command with the repeats and spacing of the official Desky app
+(Android app 4.5.4). The timings were read from the decompiled app. Times count from the first
+frame of the command.
+
+| Command | Frames |
+| --- | --- |
+| Lock, vibration, lighting on or off | Handshake, then the setting at 200 ms and 400 ms |
+| Collision sensitivity, touch mode | Handshake, then the setting once at 500 ms |
+| LED colour, brightness | Handshake, then the setting at 0 and 100 ms |
+| Display unit | Handshake, then the setting at 0, 100 and 200 ms |
+| Clear height limits | Handshake, then clear at 0 and 200 ms |
+| Set a height limit | Handshake, then clear, upper limit and lower limit, each twice, 50 ms apart |
+| Stop | Stop at 0 and 50 ms |
+| Move to height | Handshake and stop, then the target at 200 ms and 300 ms |
+| Move up, move down, presets | Handshake and the command. In press-and-hold touch mode, the command again every 100 ms |
+| Connecting | Handshake and status, then each settings query 200 ms apart |
+
+- The app sends colour, brightness, unit and limits without a handshake. The integration keeps
+  the handshake in front of them, because the desk ignores commands while its display sleeps.
+- After a collision sensitivity change, the settings are asked for 500 ms after the setting, as
+  the app does. Asked any sooner, the desk can still report the old level.
+- **Height limits.** While a limit is set, the desk only accepts a tighter one: with the upper
+  limit at 110 cm, 105 cm is applied but 124 cm is ignored, without an error. So, as the app does,
+  the integration clears both limits first and then sets both. Setting one limit sends the other
+  one again, in the desk's display unit, so it is kept. If the desk has not yet reported which
+  limits are set and their values, nothing is cleared, so no limit is lost; a looser limit then
+  needs another try once the desk has reported them.
+- **Press-and-hold touch mode.** The desk moves only while the command keeps arriving, so the
+  integration repeats it every 100 ms. The repeats end when you stop the desk, when it stops
+  moving (three readings in a row at the same height), on a collision, when it has not moved
+  within 5 seconds, on a disconnect, or after 60 seconds. A move to height is not repeated. In
+  one-press mode, or while the touch mode is unknown, the command is sent once.
+- A pause never holds up a stop. A stop, a new movement command or a disconnect cancels the
+  movement frames still due. A disconnect also cancels any setting still being sent.
+- Each write waits for the desk to confirm it, so a write that fails shows as an error. If a
+  write is slow, the frames after it move later and keep their spacing.
+
 ## Notifications
 
 Responses arrive on `0xfe62`.

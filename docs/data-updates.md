@@ -8,12 +8,13 @@ and the desk sends changes over it as they happen. It also polls the desk every 
 When the desk connects, the integration:
 
 1. Subscribes to the desk's notifications.
-2. Sends the handshake, which enables movement commands.
-3. Asks for the desk's status. The desk replies with its height and, because the request follows
-   a handshake, its settings block (display unit, touch mode, collision sensitivity and presets).
-4. Asks for the lighting, vibration, lock and height limit settings. A query the desk does not
-   answer is ignored. The collision sensitivity comes from the settings block in step 3.
-5. Reads the standard Bluetooth Device Information service for the manufacturer, model, serial
+2. Sends the handshake, which enables movement commands, and asks for the desk's status
+   together. The desk replies with its height and, because the request follows a handshake, its
+   settings block (display unit, touch mode, collision sensitivity and presets).
+3. Asks for the lighting, vibration, lock and height limit settings. The queries go out 200 ms
+   apart, as the official Desky app spaces them. A query the desk does not answer is ignored. The
+   collision sensitivity comes from the settings block in step 2.
+4. Reads the standard Bluetooth Device Information service for the manufacturer, model, serial
    number and versions shown on the device page.
 
 ## Push updates
