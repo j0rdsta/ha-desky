@@ -6,14 +6,24 @@ from datetime import timedelta
 from unittest.mock import MagicMock
 
 from freezegun.api import FrozenDateTimeFactory
-from homeassistant.components.sensor import ATTR_OPTIONS, SensorEntityDescription
+from homeassistant.components.sensor import (
+    ATTR_OPTIONS,
+    ATTR_STATE_CLASS,
+    DOMAIN as SENSOR_DOMAIN,
+    SensorDeviceClass,
+    SensorEntityDescription,
+    SensorStateClass,
+)
 from homeassistant.const import (
+    ATTR_DEVICE_CLASS,
+    ATTR_FRIENDLY_NAME,
     ATTR_UNIT_OF_MEASUREMENT,
     STATE_UNAVAILABLE,
     STATE_UNKNOWN,
     UnitOfLength,
 )
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_registry as er
 import pytest
 from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
@@ -29,37 +39,49 @@ HEIGHT_DISPLAY = "sensor.desky_desk_height_display"
 POSTURE = "sensor.desky_desk_posture"
 
 
-async def test_sensor_states(
+async def test_height_display(
     hass: HomeAssistant, init_integration: MockConfigEntry
 ) -> None:
-    """Test the height display reports the desk's height with its unit and attributes."""
+    """Test the height display is a distance in centimetres with no extra attributes."""
     height = hass.states.get(HEIGHT_DISPLAY)
     assert height is not None
     assert height.state == "80.0"
-    assert height.attributes[ATTR_UNIT_OF_MEASUREMENT] == UnitOfLength.CENTIMETERS
-    assert height.attributes["height_cm"] == 80.0
-    assert height.attributes["upper_limit_cm"] == 120.0
-    assert height.attributes["lower_limit_cm"] == 65.0
+    assert height.attributes == {
+        ATTR_FRIENDLY_NAME: "Desky Desk Height display",
+        ATTR_DEVICE_CLASS: SensorDeviceClass.DISTANCE,
+        ATTR_STATE_CLASS: SensorStateClass.MEASUREMENT,
+        ATTR_UNIT_OF_MEASUREMENT: UnitOfLength.CENTIMETERS,
+    }
 
 
-async def test_height_display_in_inches(
+async def test_height_display_ignores_the_desk_display_unit(
     hass: HomeAssistant, init_integration: MockConfigEntry
 ) -> None:
-    """Test the height display follows the desk's display unit."""
+    """Test the height display stays in centimetres while the desk shows inches."""
     await set_desk_state(hass, init_integration, unit_preference="in", height_cm=101.6)
-
-    state = hass.states.get(HEIGHT_DISPLAY)
-    assert state is not None
-    assert state.state == "40.0"
-    assert state.attributes[ATTR_UNIT_OF_MEASUREMENT] == UnitOfLength.INCHES
-    assert state.attributes["height_cm"] == 101.6
-
-    await set_desk_state(hass, init_integration, unit_preference="cm")
 
     state = hass.states.get(HEIGHT_DISPLAY)
     assert state is not None
     assert state.state == "101.6"
     assert state.attributes[ATTR_UNIT_OF_MEASUREMENT] == UnitOfLength.CENTIMETERS
+
+
+async def test_height_display_in_the_unit_the_user_picks(
+    hass: HomeAssistant,
+    entity_registry: er.EntityRegistry,
+    init_integration: MockConfigEntry,
+) -> None:
+    """Test a user who picks inches in the entity settings sees inches."""
+    entity_registry.async_update_entity_options(
+        HEIGHT_DISPLAY, SENSOR_DOMAIN, {"unit_of_measurement": UnitOfLength.INCHES}
+    )
+    await set_desk_state(hass, init_integration, height_cm=101.6)
+
+    state = hass.states.get(HEIGHT_DISPLAY)
+    assert state is not None
+    assert float(state.state) == pytest.approx(40.0)
+    assert state.attributes[ATTR_UNIT_OF_MEASUREMENT] == UnitOfLength.INCHES
+    assert state.attributes[ATTR_STATE_CLASS] == SensorStateClass.MEASUREMENT
 
 
 @pytest.mark.parametrize(
@@ -85,19 +107,6 @@ async def test_height_display_precision(
     assert state.state == expected
 
 
-async def test_height_display_without_limits(
-    hass: HomeAssistant, init_integration: MockConfigEntry
-) -> None:
-    """Test the height limit attributes are only present while limits are enabled."""
-    await set_desk_state(hass, init_integration, limits_enabled=False)
-
-    state = hass.states.get(HEIGHT_DISPLAY)
-    assert state is not None
-    assert state.attributes["height_cm"] == 80.0
-    assert "upper_limit_cm" not in state.attributes
-    assert "lower_limit_cm" not in state.attributes
-
-
 async def test_sensors_unavailable_when_disconnected(
     hass: HomeAssistant, init_integration: MockConfigEntry, mock_desk: MagicMock
 ) -> None:
@@ -112,14 +121,13 @@ async def test_sensors_unavailable_when_disconnected(
 
 
 async def test_sensor_unknown_key(init_integration: MockConfigEntry) -> None:
-    """Test a sensor with an unrecognised key has no value, unit or attributes."""
+    """Test a sensor with an unrecognised key has no value or unit."""
     entity = DeskSensor(
         init_integration.runtime_data, SensorEntityDescription(key="unknown")
     )
 
     assert entity.native_value is None
     assert entity.native_unit_of_measurement is None
-    assert entity.extra_state_attributes is None
 
 
 async def test_height_display_while_unit_unreported(
@@ -137,7 +145,7 @@ async def test_height_display_while_unit_unreported(
 async def test_height_display_unit_changed_while_connected(
     hass: HomeAssistant, init_integration: MockConfigEntry
 ) -> None:
-    """Test a switch to inches at 69.8 cm shows about 27.4 in, keeping height_cm."""
+    """Test a switch to inches on the desk keeps the height display in centimetres."""
     await set_desk_state(hass, init_integration, unit_preference="cm", height_cm=69.8)
     assert hass.states.get(HEIGHT_DISPLAY).state == "69.8"
 
@@ -145,9 +153,8 @@ async def test_height_display_unit_changed_while_connected(
     await set_desk_state(hass, init_integration, unit_preference="in", height_cm=69.6)
 
     state = hass.states.get(HEIGHT_DISPLAY)
-    assert state.state == "27.4"
-    assert state.attributes[ATTR_UNIT_OF_MEASUREMENT] == UnitOfLength.INCHES
-    assert abs(state.attributes["height_cm"] - 69.8) < 0.5
+    assert state.state == "69.6"
+    assert state.attributes[ATTR_UNIT_OF_MEASUREMENT] == UnitOfLength.CENTIMETERS
 
 
 async def test_posture_sensor(

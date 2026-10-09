@@ -265,15 +265,14 @@
     }),
     'sensor.desky_desk_height_display': dict({
       'attributes': dict({
+        'device_class': 'distance',
         'friendly_name': 'Desky Desk Height display',
-        'height_cm': 80.0,
-        'lower_limit_cm': 65.0,
+        'state_class': 'measurement',
         'unit_of_measurement': 'cm',
-        'upper_limit_cm': 120.0,
       }),
       'disabled_by': None,
       'entity_category': None,
-      'original_device_class': None,
+      'original_device_class': 'distance',
       'original_name': 'Height display',
       'platform': 'desky_desk',
       'state': '80.0',

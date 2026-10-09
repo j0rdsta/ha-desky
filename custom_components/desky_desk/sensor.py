@@ -6,7 +6,6 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 import logging
 import time
-from typing import Any
 
 from homeassistant.components.sensor import (
     RestoreSensor,
@@ -24,7 +23,7 @@ from homeassistant.helpers.event import (
 )
 from homeassistant.util import dt as dt_util
 
-from .const import CM_PER_INCH, Posture
+from .const import Posture
 from .coordinator import DeskUpdateCoordinator, DeskyConfigEntry
 from .entity import DeskEntity
 
@@ -34,9 +33,14 @@ _LOGGER = logging.getLogger(__name__)
 PARALLEL_UPDATES = 0
 
 SENSOR_DESCRIPTIONS = [
+    # Always cm; Home Assistant converts it to the unit the user picks
     SensorEntityDescription(
         key="height_display",
         translation_key="height_display",
+        device_class=SensorDeviceClass.DISTANCE,
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=UnitOfLength.CENTIMETERS,
+        suggested_display_precision=1,
     ),
     SensorEntityDescription(
         key="posture",
@@ -91,41 +95,15 @@ class DeskSensor(DeskEntity, SensorEntity):
         self.entity_description = description
 
     @property
-    def native_value(self) -> str | int | float | None:
+    def native_value(self) -> str | float | None:
         """Return the state of the sensor."""
         data = self.coordinator.data
 
         if self.entity_description.key == "height_display":
-            if data.unit_preference == "in":
-                return round(data.height_cm / CM_PER_INCH, 1)
             return round(data.height_cm, 1)
 
         if self.entity_description.key == "posture":
             return data.posture
-
-        return None
-
-    @property
-    def native_unit_of_measurement(self) -> str | None:
-        """Return the unit, which follows the desk's display unit for the height."""
-        if self.entity_description.key == "height_display":
-            if self.coordinator.data.unit_preference == "in":
-                return UnitOfLength.INCHES
-            return UnitOfLength.CENTIMETERS
-        return super().native_unit_of_measurement
-
-    @property
-    def extra_state_attributes(self) -> dict[str, Any] | None:
-        """Return entity specific state attributes."""
-        data = self.coordinator.data
-
-        if self.entity_description.key == "height_display":
-            attrs: dict[str, Any] = {"height_cm": data.height_cm}
-            # Add height limits if enabled
-            if data.limits_enabled:
-                attrs["upper_limit_cm"] = data.height_limit_upper
-                attrs["lower_limit_cm"] = data.height_limit_lower
-            return attrs
 
         return None
 

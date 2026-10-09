@@ -9,8 +9,8 @@ entities. Setting up the desk deletes them.
 
 All entities are enabled by default, and unavailable while the desk is not connected.
 
-Heights are in centimetres, whatever unit the desk's display shows. The one exception is the
-Height display sensor, which follows the display unit.
+Heights are in centimetres, whatever unit the desk's display shows. To see the Height display
+sensor in inches, change its unit in the entity's settings.
 
 Not every desk has every feature, but the entities are created anyway. For a feature the desk
 does not report, the entity shows unknown or a default value (see
@@ -30,7 +30,7 @@ Category is the section of the device page that lists the entity: **Controls**, 
 | Move down | `button.desky_desk_move_down` | Button | | Controls |
 | LED strip | `light.desky_desk_led_strip` | Light | | Controls |
 | Lock | `switch.desky_desk_lock` | Switch | | Controls |
-| Height display | `sensor.desky_desk_height_display` | Sensor | cm or in | Sensors |
+| Height display | `sensor.desky_desk_height_display` | Sensor | cm | Sensors |
 | Posture | `sensor.desky_desk_posture` | Sensor | | Sensors |
 | Standing time today | `sensor.desky_desk_standing_time_today` | Sensor | min | Sensors |
 | Sitting time today | `sensor.desky_desk_sitting_time_today` | Sensor | min | Sensors |
@@ -91,12 +91,11 @@ Device class: problem.
 
 ### Height display
 
-The desk's height in the unit its display shows: centimetres or inches, to 0.1. Attributes:
+The desk's height in centimetres, to 0.1 cm, whatever unit the desk's display shows. To see
+inches, open the entity's settings and change its unit. On a new install where Home Assistant
+uses US customary units, it shows inches from the start.
 
-| Attribute | Meaning |
-| --- | --- |
-| `height_cm` | The height in centimetres |
-| `upper_limit_cm`, `lower_limit_cm` | The height limits in centimetres, present while at least one limit is set; a limit that is not set is `null` |
+Device class: distance, state class: measurement. It is recorded in long-term statistics.
 
 ### Posture
 
@@ -167,9 +166,9 @@ the integration asks for its settings again after changing it.
 
 ### Display unit
 
-The unit the desk's display shows: **cm** or **in**, with the states `cm` and `in`. Only the
-Height display sensor follows this setting. The integration asks for the desk's settings again
-after changing it, and also picks up a change made on the hand controller.
+The unit the desk's display shows: **cm** or **in**, with the states `cm` and `in`. It changes
+only the desk's own display; entities keep using centimetres. The integration asks for the desk's
+settings again after changing it, and also picks up a change made on the hand controller.
 
 ## LED strip
 
