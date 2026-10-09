@@ -40,6 +40,7 @@ from custom_components.desky_desk.errors import (
     DeskNotConnectedError,
     DeskSettingNotAppliedError,
 )
+from custom_components.desky_desk.sequencer import _Kind
 
 from . import (
     FakeClock,
@@ -1170,7 +1171,8 @@ async def test_failed_move_to_height_leaves_a_stop_that_took_over(
     async def _stopped_then_failed(steps: Any) -> None:
         # The target write fails just as a stop replaces the movement
         desk._end_movement()
-        desk._sequencer._start_motion([(0.0, COMMAND_STOP), (0.05, COMMAND_STOP)])
+        stop = [(0.0, COMMAND_STOP), (0.05, COMMAND_STOP)]
+        desk._sequencer._start_motion(stop, _Kind.MOTION)
         raise DeskCommandError("busy")
 
     with (

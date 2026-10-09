@@ -43,12 +43,20 @@ class _Cancel(Enum):
     DISCONNECTED = "the desk disconnected"
 
 
+class _Kind(Enum):
+    """What a sequence sends."""
+
+    SETTING = "setting"  # settings, limits and queries
+    MOTION = "motion"  # movement and stop frames, each acknowledged
+    REPEAT = "repeat"  # a held movement frame, repeated without response
+
+
 @dataclass(eq=False, slots=True)
 class _Sequence:
     """A timed sequence being sent, and why it was cancelled, if it was."""
 
     task: asyncio.Task[None]
-    response: bool  # whether its writes wait for the desk's acknowledgement
+    kind: _Kind
     cancelled_by: _Cancel | None = None
 
     def cancel(self, reason: _Cancel) -> None:
@@ -89,7 +97,7 @@ class Sequencer:
     @property
     def repeating(self) -> bool:
         """Return if a movement frame is being repeated."""
-        return self._motion is not None and not self._motion.response
+        return self._motion is not None and self._motion.kind is _Kind.REPEAT
 
     async def write(self, *frames: bytes, response: bool = True) -> None:
         """Write frames in order, with no other write in between.
@@ -140,7 +148,7 @@ class Sequencer:
         A stop or a movement command does not cancel it. A disconnect does, and
         raises DeskNotConnectedError.
         """
-        await self._wait(self._start(steps))
+        await self._wait(self._start(steps, _Kind.SETTING))
 
     async def run_motion(self, steps: Iterable[Step]) -> None:
         """Send movement or stop frames in place of those still due, and wait.
@@ -148,7 +156,7 @@ class Sequencer:
         Cut short by a stop or a new movement command, it returns quietly. Cut
         short by a disconnect, it raises DeskNotConnectedError.
         """
-        await self._wait(self._start_motion(steps))
+        await self._wait(self._start_motion(steps, _Kind.MOTION))
 
     def start_repeat(self, steps: Iterable[Step]) -> None:
         """Repeat a movement frame in the background, in place of those still due.
@@ -159,7 +167,7 @@ class Sequencer:
         takes the button as released. A failed write ends the repeat, and is
         only logged.
         """
-        self._start_motion(steps, response=False)
+        self._start_motion(steps, _Kind.REPEAT)
 
     async def wait_for(self, done: asyncio.Future[None], seconds: float) -> bool:
         """Wait on the sequencer's clock until done completes or seconds pass.
@@ -190,19 +198,17 @@ class Sequencer:
         """Wait until every cancelled sequence has finished."""
         await asyncio.gather(*self._running, return_exceptions=True)
 
-    def _start(self, steps: Iterable[Step], *, response: bool = True) -> _Sequence:
+    def _start(self, steps: Iterable[Step], kind: _Kind) -> _Sequence:
         """Start sending a sequence in the background."""
-        task = asyncio.create_task(self._send(steps, response))
-        sequence = self._running[task] = _Sequence(task, response)
+        task = asyncio.create_task(self._send(steps, kind is not _Kind.REPEAT))
+        sequence = self._running[task] = _Sequence(task, kind)
         task.add_done_callback(self._done)
         return sequence
 
-    def _start_motion(
-        self, steps: Iterable[Step], *, response: bool = True
-    ) -> _Sequence:
+    def _start_motion(self, steps: Iterable[Step], kind: _Kind) -> _Sequence:
         """Start a motion sequence, cancelling the one it replaces."""
         self.cancel_motion()
-        sequence = self._motion = self._start(steps, response=response)
+        sequence = self._motion = self._start(steps, kind)
         return sequence
 
     def _done(self, task: asyncio.Task[None]) -> None:
