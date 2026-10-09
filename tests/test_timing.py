@@ -585,11 +585,16 @@ async def test_press_and_hold_ends_when_the_desk_never_moves(
     assert len(frames) == sent
 
 
+@patch("time.time", return_value=0.0)
 async def test_press_and_hold_stops_at_sixty_seconds(
-    held_desk: DeskBLEDevice, frames: Frames, clock: FakeClock
+    mock_time: MagicMock,
+    held_desk: DeskBLEDevice,
+    frames: Frames,
+    clock: FakeClock,
 ) -> None:
-    """The repeat never runs longer than 60 seconds."""
+    """The repeat never runs longer than 60 seconds, even while the desk moves."""
     await held_desk.move_up()
+    held_desk._handle_notification(None, _status_frame(82.0))  # it moves
     await clock.advance(70.0)
 
     repeats = [at for at, frame in frames if frame == UP]
@@ -612,6 +617,19 @@ async def test_press_and_hold_ends_on_disconnect(
     await clock.advance(2.0)
 
     assert mock_bleak_client.write_gatt_char.await_count == sent
+    assert held_desk._sequencer.idle
+
+
+async def test_press_and_hold_ends_when_nothing_moves_within_the_expiry(
+    held_desk: DeskBLEDevice, frames: Frames, clock: FakeClock
+) -> None:
+    """With no height reading at all, the repeat still ends after five seconds."""
+    await held_desk.move_up()
+    await clock.advance(10.0)
+
+    repeats = [at for at, frame in frames if frame == UP]
+    assert repeats[-1] == 5.0
+    assert len(repeats) == 51  # the first frame, then 50 repeats
     assert held_desk._sequencer.idle
 
 

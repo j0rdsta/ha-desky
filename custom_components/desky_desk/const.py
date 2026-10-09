@@ -137,6 +137,7 @@ SENSITIVITY_LEVELS: Final = {1: "high", 2: "medium", 3: "low"}
 
 # Touch modes
 TOUCH_MODES: Final = {0: "one_press", 1: "press_and_hold"}
+TOUCH_MODE_PRESS_AND_HOLD: Final = 1
 
 # Display units, as reported in the unit response
 DISPLAY_UNITS: Final = {0: "cm", 1: "in"}

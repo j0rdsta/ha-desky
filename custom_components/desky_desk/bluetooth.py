@@ -56,6 +56,7 @@ from .const import (
     SERIAL_NUMBER_CHAR_UUID,
     SOFTWARE_REVISION_CHAR_UUID,
     STATUS_NOTIFICATION_HEADER,
+    TOUCH_MODE_PRESS_AND_HOLD,
     TOUCH_MODE_RESPONSE_HEADER,
     TOUCH_MODES,
     UNIT_RESPONSE_HEADER,
@@ -130,13 +131,6 @@ SETTINGS_REQUEST = (COMMAND_HANDSHAKE, COMMAND_GET_STATUS)
 # and the app repeats a held button's frame this often
 HOLD_REPEAT_INTERVAL = 0.1
 HOLD_REPEAT_MAX_SECONDS = 60.0
-TOUCH_MODE_PRESS_AND_HOLD = 1
-
-
-def _hold_steps(frame: bytes) -> Iterator[Step]:
-    """Repeat a movement frame every 100 ms, up to the 60 s cap."""
-    repeats = round(HOLD_REPEAT_MAX_SECONDS / HOLD_REPEAT_INTERVAL)
-    return ((n * HOLD_REPEAT_INTERVAL, frame) for n in range(1, repeats + 1))
 
 
 @dataclass(slots=True)
@@ -178,6 +172,20 @@ def round_limit_to_unit(height_cm: float, unit: str | None) -> float:
     if unit == "in":
         return _to_cm(math.floor(height_cm / CM_PER_INCH + 0.5), unit)
     return float(math.floor(height_cm + 0.5))
+
+
+def _hold_steps(frame: bytes, movement: _Movement) -> Iterator[Step]:
+    """Repeat a movement frame every 100 ms, up to the 60 s cap.
+
+    The repeat also ends once COMMAND_EXPIRY_SECONDS pass without the desk
+    starting to move, even if it sends no height reading to expire it.
+    """
+    for n in range(1, round(HOLD_REPEAT_MAX_SECONDS / HOLD_REPEAT_INTERVAL) + 1):
+        at = n * HOLD_REPEAT_INTERVAL
+        if at > COMMAND_EXPIRY_SECONDS and not movement.started:
+            _LOGGER.debug("Held command expired without the desk moving")
+            return
+        yield at, frame
 
 
 def _plausible(height_cm: float) -> bool:
@@ -515,16 +523,17 @@ class DeskBLEDevice:
 
     def _begin_movement(
         self, kind: str, direction: str | None, target_height: float | None = None
-    ) -> None:
+    ) -> _Movement:
         """Record a movement command; the movement starts once the desk responds."""
         self._sequencer.cancel_motion()
-        self._movement = _Movement(
+        movement = self._movement = _Movement(
             kind=kind,
             direction=direction,
             target_height=target_height,
             command_time=time.time(),
             command_height=self._height_cm,
         )
+        return movement
 
     def _end_movement(self) -> None:
         """Forget the current movement and stop sending its frames.
@@ -544,15 +553,14 @@ class DeskBLEDevice:
         only while the frame repeats, so it repeats until the movement ends.
         A write that fails drops the movement.
         """
-        self._begin_movement(kind, direction)
-        movement = self._movement
+        movement = self._begin_movement(kind, direction)
         try:
             await self._sequencer.write(COMMAND_HANDSHAKE, frame)
         except DeskError:
             self._end_movement()
             raise
         if self._touch_mode == TOUCH_MODE_PRESS_AND_HOLD and self._movement is movement:
-            self._sequencer.start_motion(_hold_steps(frame))
+            self._sequencer.start_motion(_hold_steps(frame, movement))
 
     async def move_up(self) -> None:
         """Start moving the desk up."""
