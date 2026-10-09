@@ -19,7 +19,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import ExtraStoredData, RestoreEntity
 from homeassistant.util.color import brightness_to_value, value_to_brightness
 
-from .const import DOMAIN, LIGHT_COLORS
+from .const import DOMAIN, LIGHT_COLORS, OFF_COLORS
 from .coordinator import DeskUpdateCoordinator, DeskyConfigEntry
 from .entity import DeskEntity, desk_command
 
@@ -33,11 +33,10 @@ BRIGHTNESS_SCALE = (1, 100)
 
 COLOR_WHITE = 1
 COLOR_PARTY = 6
-COLOR_OFF = 7
 
 # Map effect names to colour codes; every colour except Off is an effect
 EFFECT_TO_COLOR = {
-    name: code for code, name in LIGHT_COLORS.items() if code != COLOR_OFF
+    name: code for code, name in LIGHT_COLORS.items() if code not in OFF_COLORS
 }
 
 # Map color codes to effect names
@@ -106,9 +105,9 @@ class DeskLight(DeskEntity, LightEntity, RestoreEntity):
     @property
     def is_on(self) -> bool:
         """Return true if light is on."""
-        # Light is on if lighting is enabled and color is not "Off"
+        # The light is on if lighting is enabled and the colour is not an off colour
         data = self.coordinator.data
-        return bool(data.lighting_enabled) and data.light_color != COLOR_OFF
+        return bool(data.lighting_enabled) and data.light_color not in OFF_COLORS
 
     @property
     def brightness(self) -> int | None:
@@ -159,7 +158,7 @@ class DeskLight(DeskEntity, LightEntity, RestoreEntity):
             # If no specific effect requested and light is off, turn on with the
             # last static colour
             current_color = self.coordinator.data.light_color
-            if current_color is None or current_color == COLOR_OFF:
+            if current_color is None or current_color in OFF_COLORS:
                 await self._device.set_light_color(self._last_static_color)
 
         # Enable lighting if not already enabled
