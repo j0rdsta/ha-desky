@@ -99,8 +99,8 @@ frame of the command.
 | Collision sensitivity, touch mode | Handshake, then the setting once at 500 ms |
 | LED colour, brightness | Handshake, then the setting at 0 and 100 ms |
 | Display unit | Handshake, then the setting at 0, 100 and 200 ms |
-| Clear height limits | Handshake, then clear at 0 and 200 ms |
-| Set a height limit | Handshake, then clear, upper limit and lower limit, each twice, 50 ms apart |
+| Clear height limits | Handshake, then clear at 0 and 200 ms, then the limit query |
+| Set a height limit | Handshake, then clear, upper limit and lower limit, each twice, 50 ms apart, then the limit query |
 | Stop | Stop at 0 and 50 ms |
 | Move to height | Handshake and stop, then the target at 200 ms and 300 ms |
 | Move up, move down, presets | Handshake and the command. In press-and-hold touch mode, the command again every 100 ms |
@@ -130,7 +130,10 @@ frame of the command.
   write is slow, the frames after it move later and keep their spacing. Through a Bluetooth proxy
   a write takes about 70-130 ms, so frames 50 ms apart come out about 90 ms apart.
 - A write already on its way to the desk is never cut off: a stop waits for it to finish, since
-  the Bluetooth stack rejects a write while another is in progress.
+  the Bluetooth stack rejects a write while another is in progress. A write the desk has not
+  confirmed within 5 seconds fails, so a stop never waits longer than that behind it.
+- Limits are forgotten when the desk disconnects, as they can change on the hand controller
+  meanwhile. Until the desk reports them again, setting a limit sends only the new one.
 
 ## Notifications
 
