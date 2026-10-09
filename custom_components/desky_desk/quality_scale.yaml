@@ -52,7 +52,9 @@ rules:
   discovery: done
   discovery-update-info:
     status: exempt
-    comment: The desk's Bluetooth address is stable, so there is nothing to update.
+    comment: |
+      Bluetooth only, no IP discovery. The address is the unique ID and the
+      only stored data, and each advertisement refreshes the BLEDevice.
   docs-data-update: done
   docs-examples: done
   docs-known-limitations: done
