@@ -1489,10 +1489,8 @@ async def test_command_while_waiting_for_the_height_cancels_the_move(
     desk._handle_notification(None, _status_frame(80.0))  # the height arrives
     await clock.advance(0.5)
     await move  # cut short quietly
-    if command == "stop":
-        await newer
-    else:
-        await _run(clock, desk.stop())
     await newer
+    if command != "stop":
+        await _run(clock, desk.stop())
 
     assert all(not frame.startswith("f1f11b") for _, frame in frames)  # no target
