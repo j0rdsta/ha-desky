@@ -108,14 +108,17 @@ frame of the command.
 
 - The app sends colour, brightness, unit and limits without a handshake. The integration keeps
   the handshake in front of them, because the desk ignores commands while its display sleeps.
-- After a collision sensitivity change, the settings are asked for 500 ms after the setting, as
-  the app does. Asked any sooner, the desk can still report the old level.
+- The desk does not confirm a unit, touch mode or sensitivity change, so the integration asks
+  for its settings at the end of the change: straight after the unit or touch mode, and 500 ms
+  after the sensitivity, as the app does. Asked any sooner, the desk can still report the old
+  level.
 - **Height limits.** While a limit is set, the desk only accepts a tighter one: with the upper
   limit at 110 cm, 105 cm is applied but 124 cm is ignored, without an error. So, as the app does,
   the integration clears both limits first and then sets both. Setting one limit sends the other
-  one again, in the desk's display unit, so it is kept. If the desk has not yet reported which
-  limits are set and their values, nothing is cleared, so no limit is lost; a looser limit then
-  needs another try once the desk has reported them.
+  one again, exactly as the desk reported it, so it is kept. If the desk has not yet reported
+  which limits are set and their values, nothing is cleared, so no limit is lost; a looser limit
+  then needs another try once the desk has reported them. Limit changes go out one at a time,
+  and the limits just sent count as known at once, so two changes in a row keep each other.
 - **Press-and-hold touch mode.** The desk moves only while the command keeps arriving, so the
   integration repeats it every 100 ms. The repeats end when you stop the desk, when it stops
   moving (three readings in a row at the same height), on a collision, when it has not moved
@@ -124,7 +127,10 @@ frame of the command.
 - A pause never holds up a stop. A stop, a new movement command or a disconnect cancels the
   movement frames still due. A disconnect also cancels any setting still being sent.
 - Each write waits for the desk to confirm it, so a write that fails shows as an error. If a
-  write is slow, the frames after it move later and keep their spacing.
+  write is slow, the frames after it move later and keep their spacing. Through a Bluetooth proxy
+  a write takes about 70-130 ms, so frames 50 ms apart come out about 90 ms apart.
+- A write already on its way to the desk is never cut off: a stop waits for it to finish, since
+  the Bluetooth stack rejects a write while another is in progress.
 
 ## Notifications
 
