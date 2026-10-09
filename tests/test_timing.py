@@ -37,7 +37,14 @@ from custom_components.desky_desk.const import (
 )
 from custom_components.desky_desk.errors import DeskCommandError, DeskNotConnectedError
 
-from . import FakeClock, deliver_frame, desk_response, record_frames, settle
+from . import (
+    FakeClock,
+    deliver_frame,
+    desk_response,
+    record_frames,
+    record_writes,
+    settle,
+)
 
 H = COMMAND_HANDSHAKE.hex()
 STATUS = COMMAND_GET_STATUS.hex()
@@ -714,7 +721,7 @@ async def test_movement_ended_during_its_first_frame_is_not_held(
 ) -> None:
     """A movement that ends while its first frame goes out does not repeat."""
 
-    async def _write(_uuid: str, data: bytes) -> None:
+    async def _write(_uuid: str, data: bytes, response: bool = True) -> None:
         held_desk._end_movement()  # as a bounce reported meanwhile would
 
     mock_bleak_client.write_gatt_char.side_effect = _write
@@ -824,7 +831,7 @@ async def test_stop_waits_for_the_target_frame_on_the_air(
     sent: Frames = []
     radio_free_at = 0.0
 
-    async def _write(_uuid: str, data: bytes) -> None:
+    async def _write(_uuid: str, data: bytes, response: bool = True) -> None:
         nonlocal radio_free_at
         if clock.now < radio_free_at - 1e-9:
             raise RuntimeError("InProgress")
@@ -1033,7 +1040,7 @@ async def test_stop_waits_at_most_the_write_timeout_behind_a_hung_write(
     """A write the desk never confirms fails after the timeout, and the stop follows."""
     sent: list[str] = []
 
-    async def _write(_uuid: str, data: bytes) -> None:
+    async def _write(_uuid: str, data: bytes, response: bool = True) -> None:
         if data == COMMAND_MOVE_UP:
             await asyncio.Event().wait()  # never confirmed
         sent.append(bytes(data).hex())
@@ -1060,7 +1067,7 @@ async def test_failed_move_to_height_leaves_a_stop_that_took_over(
     async def _stopped_then_failed(steps: Any) -> None:
         # The target write fails just as a stop replaces the movement
         desk._end_movement()
-        desk._sequencer.start_motion([(0.0, COMMAND_STOP), (0.05, COMMAND_STOP)])
+        desk._sequencer._start_motion([(0.0, COMMAND_STOP), (0.05, COMMAND_STOP)])
         raise DeskCommandError("busy")
 
     with (
@@ -1083,3 +1090,23 @@ async def test_failed_move_to_height_ends_its_movement(
         await desk.move_to_height(85.0)
 
     assert desk._movement is None
+
+
+async def test_only_the_repeats_skip_the_response(
+    held_desk: DeskBLEDevice, clock: FakeClock, mock_bleak_client: MagicMock
+) -> None:
+    """The first frame and the stops wait for the desk; the repeats do not."""
+    writes = record_writes(mock_bleak_client, clock)
+
+    await held_desk.move_to_preset(2)
+    await clock.advance(0.25)
+    await _run(clock, held_desk.stop())
+
+    assert writes == [
+        (0.0, H, True),
+        (0.0, PRESET_2, True),
+        (0.1, PRESET_2, False),
+        (0.2, PRESET_2, False),
+        (0.25, STOP, True),
+        (0.3, STOP, True),
+    ]

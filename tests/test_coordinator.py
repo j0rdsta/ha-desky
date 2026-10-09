@@ -957,3 +957,22 @@ async def test_reconnect_without_a_reported_outage_logs_nothing(
 
     mock_desk.connect.assert_awaited_once_with()
     assert "available again" not in caplog.text
+
+
+async def test_poll_writes_nothing_while_the_desk_is_held(
+    hass: HomeAssistant,
+    init_integration: MockConfigEntry,
+    mock_desk: MagicMock,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """A poll during a held movement leaves the repeats alone."""
+    mock_desk.get_status.reset_mock()
+    mock_desk.is_repeating = True
+
+    await _poll(hass, freezer)
+    mock_desk.get_status.assert_not_awaited()
+    mock_desk.get_settings.assert_not_awaited()
+
+    mock_desk.is_repeating = False
+    await _poll(hass, freezer)
+    assert mock_desk.get_status.await_count + mock_desk.get_settings.await_count == 1

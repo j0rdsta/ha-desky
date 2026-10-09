@@ -213,6 +213,7 @@ def mock_desk(mock_bluetooth_callbacks: BluetoothCallbacks) -> Generator[MagicMo
         for key, value in asdict(desk_data()).items():
             setattr(desk, key, value)
         desk.settings_known = True
+        desk.is_repeating = False
         # A desk showing cm; set round_limit_to_unit(..., "in") for inches
         desk.round_limit.side_effect = partial(round_limit_to_unit, unit="cm")
         yield desk

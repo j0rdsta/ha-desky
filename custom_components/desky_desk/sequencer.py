@@ -48,6 +48,7 @@ class _Sequence:
     """A timed sequence being sent, and why it was cancelled, if it was."""
 
     task: asyncio.Task[None]
+    response: bool  # whether its writes wait for the desk's acknowledgement
     cancelled_by: _Cancel | None = None
 
     def cancel(self, reason: _Cancel) -> None:
@@ -63,12 +64,13 @@ class Sequencer:
     A pause never holds the write lock, so a stop is never held up behind a
     sequence. A radio write is never interrupted: a cancel waits for it. The
     movement or stop frames still due are one motion sequence, which the next
-    one replaces.
+    one replaces. Every write waits for the desk's acknowledgement, except a
+    repeat's: write_frame(frame, response) is told which.
     """
 
     def __init__(
         self,
-        write_frame: Callable[[bytes], Awaitable[None]],
+        write_frame: Callable[[bytes, bool], Awaitable[None]],
         clock: Clock | None = None,
     ) -> None:
         """Write each frame with write_frame, timing sequences on the clock."""
@@ -84,17 +86,24 @@ class Sequencer:
         """Return if no sequence is being sent."""
         return not self._running
 
-    async def write(self, *frames: bytes) -> None:
+    @property
+    def repeating(self) -> bool:
+        """Return if a movement frame is being repeated."""
+        return self._motion is not None and not self._motion.response
+
+    async def write(self, *frames: bytes, response: bool = True) -> None:
         """Write frames in order, with no other write in between.
 
         The lock is held only for the writes, never during a sequence's pauses.
-        A cancel waits for the frame on the air, then skips the rest.
+        A cancel waits for the frame on the air, then skips the rest. Without
+        response, a write returns once the frame is queued, without waiting
+        for the desk's acknowledgement.
         """
         async with self._lock:
             for frame in frames:
-                await self._write_whole(frame)
+                await self._write_whole(frame, response)
 
-    async def _write_whole(self, frame: bytes) -> None:
+    async def _write_whole(self, frame: bytes, response: bool) -> None:
         """Write a frame to its end, even when cancelled, then pass a cancel on.
 
         The desk's Bluetooth stack rejects a write while another is in progress
@@ -104,7 +113,7 @@ class Sequencer:
         closed, and is given up. A write that fails after its caller was
         cancelled ends in the cancel; its error no longer matters.
         """
-        pending = asyncio.ensure_future(self._write_frame(frame))
+        pending = asyncio.ensure_future(self._write_frame(frame, response))
         try:
             # Unlike awaiting it, waiting does not pass a cancel on to the write
             await asyncio.wait([pending])
@@ -141,12 +150,16 @@ class Sequencer:
         """
         await self._wait(self._start_motion(steps))
 
-    def start_motion(self, steps: Iterable[Step]) -> None:
-        """Send movement frames in the background, in place of those still due.
+    def start_repeat(self, steps: Iterable[Step]) -> None:
+        """Repeat a movement frame in the background, in place of those still due.
 
-        A failed write ends them, and is only logged.
+        The desk moves only while the frame keeps coming evenly, so a repeat is
+        written without response: waiting for each acknowledgement through a
+        Bluetooth proxy (70-700 ms) makes the stream uneven, and the desk then
+        takes the button as released. A failed write ends the repeat, and is
+        only logged.
         """
-        self._start_motion(steps)
+        self._start_motion(steps, response=False)
 
     def cancel_motion(self) -> None:
         """Cancel the movement or stop frames still due."""
@@ -164,17 +177,19 @@ class Sequencer:
         """Wait until every cancelled sequence has finished."""
         await asyncio.gather(*self._running, return_exceptions=True)
 
-    def _start(self, steps: Iterable[Step]) -> _Sequence:
+    def _start(self, steps: Iterable[Step], *, response: bool = True) -> _Sequence:
         """Start sending a sequence in the background."""
-        task = asyncio.create_task(self._send(steps))
-        sequence = self._running[task] = _Sequence(task)
+        task = asyncio.create_task(self._send(steps, response))
+        sequence = self._running[task] = _Sequence(task, response)
         task.add_done_callback(self._done)
         return sequence
 
-    def _start_motion(self, steps: Iterable[Step]) -> _Sequence:
+    def _start_motion(
+        self, steps: Iterable[Step], *, response: bool = True
+    ) -> _Sequence:
         """Start a motion sequence, cancelling the one it replaces."""
         self.cancel_motion()
-        sequence = self._motion = self._start(steps)
+        sequence = self._motion = self._start(steps, response=response)
         return sequence
 
     def _done(self, task: asyncio.Task[None]) -> None:
@@ -185,7 +200,7 @@ class Sequencer:
         if not task.cancelled() and (err := task.exception()) is not None:
             _LOGGER.debug("Timed command sequence ended: %s", err)
 
-    async def _send(self, steps: Iterable[Step]) -> None:
+    async def _send(self, steps: Iterable[Step], response: bool) -> None:
         """Write each frame at its time, never holding the write lock in a pause.
 
         Frames due at the same time go out together, so nothing else is written
@@ -200,7 +215,7 @@ class Sequencer:
                 # Running late, as after a slow write: move the rest of the
                 # sequence back rather than send its frames in a burst
                 start -= wait
-            await self.write(*(frame for _, frame in group))
+            await self.write(*(frame for _, frame in group), response=response)
 
     async def _wait(self, sequence: _Sequence) -> None:
         """Wait for a sequence, turning its cancellation into the caller's result."""

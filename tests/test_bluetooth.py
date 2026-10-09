@@ -176,8 +176,8 @@ async def test_connect_success(
 
     # Verify handshake command was sent
     expected_calls = [
-        call(WRITE_CHARACTERISTIC_UUID, COMMAND_HANDSHAKE),
-        call(WRITE_CHARACTERISTIC_UUID, COMMAND_GET_STATUS),
+        call(WRITE_CHARACTERISTIC_UUID, COMMAND_HANDSHAKE, response=True),
+        call(WRITE_CHARACTERISTIC_UUID, COMMAND_GET_STATUS, response=True),
     ]
     mock_bleak_client.write_gatt_char.assert_has_calls(expected_calls)
 
@@ -278,7 +278,7 @@ async def test_capability_query_failure_is_not_an_unsupported_feature(
     caplog.set_level("DEBUG", logger="custom_components.desky_desk.bluetooth")
     device = DeskBLEDevice(mock_ble_device)
 
-    async def _write(_uuid: str, command: bytes) -> None:
+    async def _write(_uuid: str, command: bytes, response: bool = True) -> None:
         if command == COMMAND_GET_VIBRATION:
             mock_bleak_client.is_connected = False
             raise BleakError("not connected")
@@ -318,7 +318,7 @@ async def test_connect_releases_the_link_when_a_setup_write_fails(
     """Test a write that fails while setting up closes the new link."""
     device = DeskBLEDevice(mock_ble_device)
 
-    async def _write(_uuid: str, command: bytes) -> None:
+    async def _write(_uuid: str, command: bytes, response: bool = True) -> None:
         if command == failing_command:
             raise BleakError("write failed")
 
@@ -343,7 +343,7 @@ async def test_failed_setup_reports_one_disconnect(
     callback = MagicMock()
     device.register_disconnect_callback(callback)
 
-    async def _write(_uuid: str, command: bytes) -> None:
+    async def _write(_uuid: str, command: bytes, response: bool = True) -> None:
         if command == COMMAND_GET_STATUS:
             # The desk reports inches, then the link fails
             device._handle_notification(None, bytearray.fromhex("f2f20e0101107e"))
@@ -372,7 +372,7 @@ async def test_drop_during_setup_is_reported_once(
     callback = MagicMock()
     device.register_disconnect_callback(callback)
 
-    async def _write(_uuid: str, command: bytes) -> None:
+    async def _write(_uuid: str, command: bytes, response: bool = True) -> None:
         if command == COMMAND_GET_STATUS:
             mock_bleak_client.is_connected = False
             mock_establish_connection.call_args.kwargs["disconnected_callback"](
@@ -397,7 +397,7 @@ async def test_drop_after_the_last_query_fails_the_connect(
     callback = MagicMock()
     device.register_disconnect_callback(callback)
 
-    async def _write(_uuid: str, command: bytes) -> None:
+    async def _write(_uuid: str, command: bytes, response: bool = True) -> None:
         if command == COMMAND_GET_LIMITS:
             # The write goes out, then the link drops
             mock_bleak_client.is_connected = False
@@ -551,7 +551,7 @@ async def test_cancelled_connect_is_released_on_disconnect(
     device = DeskBLEDevice(mock_ble_device)
     writing = asyncio.Event()
 
-    async def _write(_uuid: str, command: bytes) -> None:
+    async def _write(_uuid: str, command: bytes, response: bool = True) -> None:
         writing.set()
         await asyncio.Event().wait()  # the desk never answers
 
@@ -612,7 +612,7 @@ async def test_send_command_success(mock_ble_device, mock_bleak_client):
     await device._send_command(COMMAND_GET_STATUS)
 
     mock_bleak_client.write_gatt_char.assert_called_once_with(
-        WRITE_CHARACTERISTIC_UUID, COMMAND_GET_STATUS
+        WRITE_CHARACTERISTIC_UUID, COMMAND_GET_STATUS, response=True
     )
 
 
@@ -648,7 +648,7 @@ async def test_movement_commands(mock_ble_device, mock_bleak_client):
     assert device.movement_direction == "up"
     assert device._movement.kind == "continuous"
     mock_bleak_client.write_gatt_char.assert_called_with(
-        WRITE_CHARACTERISTIC_UUID, COMMAND_MOVE_UP
+        WRITE_CHARACTERISTIC_UUID, COMMAND_MOVE_UP, response=True
     )
 
     # Test move down
@@ -657,7 +657,7 @@ async def test_movement_commands(mock_ble_device, mock_bleak_client):
     assert device.movement_direction == "down"
     assert device._movement.kind == "continuous"
     mock_bleak_client.write_gatt_char.assert_called_with(
-        WRITE_CHARACTERISTIC_UUID, COMMAND_MOVE_DOWN
+        WRITE_CHARACTERISTIC_UUID, COMMAND_MOVE_DOWN, response=True
     )
 
     # Test stop
@@ -665,7 +665,7 @@ async def test_movement_commands(mock_ble_device, mock_bleak_client):
     assert device.is_moving is False
     assert device.movement_direction is None
     mock_bleak_client.write_gatt_char.assert_called_with(
-        WRITE_CHARACTERISTIC_UUID, COMMAND_STOP
+        WRITE_CHARACTERISTIC_UUID, COMMAND_STOP, response=True
     )
 
 
@@ -687,7 +687,7 @@ async def test_preset_commands(mock_ble_device, mock_bleak_client):
         assert device.is_moving is False  # Not moving until the desk responds
         assert device._movement.kind == "preset"
         mock_bleak_client.write_gatt_char.assert_called_with(
-            WRITE_CHARACTERISTIC_UUID, command
+            WRITE_CHARACTERISTIC_UUID, command, response=True
         )
 
 
@@ -948,10 +948,10 @@ async def test_move_to_height_success(mock_ble_device, mock_bleak_client):
 
     # As the app: wake, stop, then the target twice
     assert mock_bleak_client.write_gatt_char.call_args_list == [
-        call(WRITE_CHARACTERISTIC_UUID, COMMAND_HANDSHAKE),
-        call(WRITE_CHARACTERISTIC_UUID, COMMAND_STOP),
-        call(WRITE_CHARACTERISTIC_UUID, expected_command),
-        call(WRITE_CHARACTERISTIC_UUID, expected_command),
+        call(WRITE_CHARACTERISTIC_UUID, COMMAND_HANDSHAKE, response=True),
+        call(WRITE_CHARACTERISTIC_UUID, COMMAND_STOP, response=True),
+        call(WRITE_CHARACTERISTIC_UUID, expected_command, response=True),
+        call(WRITE_CHARACTERISTIC_UUID, expected_command, response=True),
     ]
 
 
@@ -966,7 +966,7 @@ async def test_move_to_height_rounds_to_mm(mock_ble_device, mock_bleak_client):
     # 853 mm = 0x0355; checksum = (0x1B + 0x02 + 0x03 + 0x55) & 0xFF = 0x75
     expected_command = bytes([0xF1, 0xF1, 0x1B, 0x02, 0x03, 0x55, 0x75, 0x7E])
     assert mock_bleak_client.write_gatt_char.call_args_list[-1] == call(
-        WRITE_CHARACTERISTIC_UUID, expected_command
+        WRITE_CHARACTERISTIC_UUID, expected_command, response=True
     )
 
 
@@ -1005,14 +1005,14 @@ async def test_move_to_height_edge_cases(mock_ble_device, mock_bleak_client):
     expected_max = bytes([0xF1, 0xF1, 0x1B, 0x02, 0x05, 0x14, 0x36, 0x7E])
 
     expected_calls = [
-        call(WRITE_CHARACTERISTIC_UUID, COMMAND_HANDSHAKE),
-        call(WRITE_CHARACTERISTIC_UUID, COMMAND_STOP),
-        call(WRITE_CHARACTERISTIC_UUID, expected_min),
-        call(WRITE_CHARACTERISTIC_UUID, expected_min),
-        call(WRITE_CHARACTERISTIC_UUID, COMMAND_HANDSHAKE),
-        call(WRITE_CHARACTERISTIC_UUID, COMMAND_STOP),
-        call(WRITE_CHARACTERISTIC_UUID, expected_max),
-        call(WRITE_CHARACTERISTIC_UUID, expected_max),
+        call(WRITE_CHARACTERISTIC_UUID, COMMAND_HANDSHAKE, response=True),
+        call(WRITE_CHARACTERISTIC_UUID, COMMAND_STOP, response=True),
+        call(WRITE_CHARACTERISTIC_UUID, expected_min, response=True),
+        call(WRITE_CHARACTERISTIC_UUID, expected_min, response=True),
+        call(WRITE_CHARACTERISTIC_UUID, COMMAND_HANDSHAKE, response=True),
+        call(WRITE_CHARACTERISTIC_UUID, COMMAND_STOP, response=True),
+        call(WRITE_CHARACTERISTIC_UUID, expected_max, response=True),
+        call(WRITE_CHARACTERISTIC_UUID, expected_max, response=True),
     ]
     mock_bleak_client.write_gatt_char.assert_has_calls(expected_calls)
 
@@ -1882,7 +1882,7 @@ async def test_new_device_commands(mock_ble_device, mock_bleak_client):
     await device.set_light_color(2)  # Red
     expected_command = bytes([0xF1, 0xF1, 0xB4, 0x01, 0x02, 0xB7, 0x7E])
     mock_bleak_client.write_gatt_char.assert_called_with(
-        WRITE_CHARACTERISTIC_UUID, expected_command
+        WRITE_CHARACTERISTIC_UUID, expected_command, response=True
     )
 
     # Test invalid light color
@@ -1944,10 +1944,10 @@ async def test_set_height_limit_frames(
     # The desk has not reported its limits, so the limit is sent alone, twice,
     # then the limits are read back
     assert mock_bleak_client.write_gatt_char.call_args_list == [
-        call(WRITE_CHARACTERISTIC_UUID, COMMAND_HANDSHAKE),
-        call(WRITE_CHARACTERISTIC_UUID, bytes.fromhex(frame)),
-        call(WRITE_CHARACTERISTIC_UUID, bytes.fromhex(frame)),
-        call(WRITE_CHARACTERISTIC_UUID, COMMAND_GET_LIMITS),
+        call(WRITE_CHARACTERISTIC_UUID, COMMAND_HANDSHAKE, response=True),
+        call(WRITE_CHARACTERISTIC_UUID, bytes.fromhex(frame), response=True),
+        call(WRITE_CHARACTERISTIC_UUID, bytes.fromhex(frame), response=True),
+        call(WRITE_CHARACTERISTIC_UUID, COMMAND_GET_LIMITS, response=True),
     ]
 
 
@@ -1970,7 +1970,7 @@ async def test_device_capability_queries(mock_ble_device, mock_bleak_client):
         mock_bleak_client.write_gatt_char.reset_mock()
         await method()
         mock_bleak_client.write_gatt_char.assert_called_once_with(
-            WRITE_CHARACTERISTIC_UUID, expected_command
+            WRITE_CHARACTERISTIC_UUID, expected_command, response=True
         )
 
 
@@ -3042,7 +3042,7 @@ async def test_concurrent_commands_do_not_interleave(
     device._height_cm = 80.0
     writes: list[bytes] = []
 
-    async def _write(_uuid: str, data: bytes) -> None:
+    async def _write(_uuid: str, data: bytes, response: bool = True) -> None:
         # Yield mid-write, as a real GATT write does, so the other caller can run
         await asyncio.sleep(0)
         writes.append(bytes(data))
@@ -3085,8 +3085,8 @@ async def test_stop_is_sent_without_waking(mock_ble_device, mock_bleak_client):
     await device.stop()
 
     assert mock_bleak_client.write_gatt_char.call_args_list == [
-        call(WRITE_CHARACTERISTIC_UUID, COMMAND_STOP),
-        call(WRITE_CHARACTERISTIC_UUID, COMMAND_STOP),
+        call(WRITE_CHARACTERISTIC_UUID, COMMAND_STOP, response=True),
+        call(WRITE_CHARACTERISTIC_UUID, COMMAND_STOP, response=True),
     ]
 
 
@@ -3100,8 +3100,8 @@ async def test_get_settings_requests_status_after_handshake(
     await device.get_settings()
 
     assert mock_bleak_client.write_gatt_char.call_args_list == [
-        call(WRITE_CHARACTERISTIC_UUID, COMMAND_HANDSHAKE),
-        call(WRITE_CHARACTERISTIC_UUID, COMMAND_GET_STATUS),
+        call(WRITE_CHARACTERISTIC_UUID, COMMAND_HANDSHAKE, response=True),
+        call(WRITE_CHARACTERISTIC_UUID, COMMAND_GET_STATUS, response=True),
     ]
 
 
@@ -3120,7 +3120,7 @@ async def test_failed_handshake_fails_the_command(
     with pytest.raises(DeskCommandError):
         await getattr(device, method)(*args)
     mock_bleak_client.write_gatt_char.assert_called_once_with(
-        WRITE_CHARACTERISTIC_UUID, COMMAND_HANDSHAKE
+        WRITE_CHARACTERISTIC_UUID, COMMAND_HANDSHAKE, response=True
     )
     assert device._movement is None
 
@@ -3301,6 +3301,7 @@ async def test_move_to_height_target_is_always_mm(
     mock_bleak_client.write_gatt_char.assert_called_with(
         WRITE_CHARACTERISTIC_UUID,
         bytes([0xF1, 0xF1, 0x1B, 0x02, 0x03, 0x52, 0x72, 0x7E]),
+        response=True,
     )
 
 
@@ -3357,7 +3358,9 @@ async def test_inch_limit_range_ends_are_sent_within_24_48_in(
 
     # The last limit frame, before the limits are read back
     assert mock_bleak_client.write_gatt_char.call_args_list[-2] == call(
-        WRITE_CHARACTERISTIC_UUID, device._create_command_with_word_param(0x21, sent)
+        WRITE_CHARACTERISTIC_UUID,
+        device._create_command_with_word_param(0x21, sent),
+        response=True,
     )
 
 
@@ -3456,7 +3459,9 @@ async def test_limit_is_sent_in_whole_units(
 
     # The last limit frame, before the limits are read back
     assert mock_bleak_client.write_gatt_char.call_args_list[-2] == call(
-        WRITE_CHARACTERISTIC_UUID, device._create_command_with_word_param(0x21, sent)
+        WRITE_CHARACTERISTIC_UUID,
+        device._create_command_with_word_param(0x21, sent),
+        response=True,
     )
 
 

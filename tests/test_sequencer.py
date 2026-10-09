@@ -30,7 +30,7 @@ class Desk:
         self.frames: Frames = []
         self.fail: dict[int, Exception] = {}
 
-    async def write_frame(self, frame: bytes) -> None:
+    async def write_frame(self, frame: bytes, response: bool = True) -> None:
         """Record the frame, or fail it if this write is set to fail."""
         if (err := self.fail.get(len(self.frames))) is not None:
             self.frames.append((round(self.clock.now, 3), frame))
@@ -98,7 +98,7 @@ async def test_late_frames_are_not_sent_in_a_burst(
     """After a slow write the rest of the sequence moves back, keeping its spacing."""
     times: list[float] = []
 
-    async def _write(frame: bytes) -> None:
+    async def _write(frame: bytes, response: bool = True) -> None:
         times.append(round(desk.clock.now, 3))
         if len(times) == 2:
             desk.clock.now += 0.35  # the second write takes 350 ms
@@ -202,7 +202,7 @@ async def test_wait_cancelled_waits_for_every_sequence(
     sequencer: Sequencer, desk: Desk
 ) -> None:
     """After a disconnect, waiting returns once no sequence is left."""
-    sequencer.start_motion([(0.0, A), (0.5, B)])
+    sequencer.start_repeat([(0.0, A), (0.5, B)])
     setting = asyncio.create_task(sequencer.run_setting([(0.0, A), (0.5, B)]))
     await desk.clock.advance(0.1)
 
@@ -247,7 +247,7 @@ async def test_failed_background_motion_is_logged(
     caplog.set_level("DEBUG", logger="custom_components.desky_desk.sequencer")
     desk.fail[1] = DeskCommandError("busy")
 
-    sequencer.start_motion([(0.0, A), (0.1, A), (0.2, A)])
+    sequencer.start_repeat([(0.0, A), (0.1, A), (0.2, A)])
     await desk.clock.advance(1.0)
 
     assert desk.frames == [(0.0, A), (0.1, A)]
@@ -289,7 +289,7 @@ async def test_cancel_waits_for_the_write_on_the_air(desk: Desk) -> None:
     sent: Frames = []
     radio_free_at = 0.0
 
-    async def _write(frame: bytes) -> None:
+    async def _write(frame: bytes, response: bool = True) -> None:
         nonlocal radio_free_at
         if desk.clock.now < radio_free_at - 1e-9:
             raise DeskCommandError("InProgress")
@@ -310,7 +310,7 @@ async def test_cancel_waits_for_the_write_on_the_air(desk: Desk) -> None:
 async def test_cancelled_write_error_is_not_raised(desk: Desk) -> None:
     """A write that fails after its caller was cancelled ends in the cancel."""
 
-    async def _write(frame: bytes) -> None:
+    async def _write(frame: bytes, response: bool = True) -> None:
         await desk.clock.sleep(0.05)
         raise DeskCommandError("busy")
 
@@ -332,7 +332,7 @@ async def test_hung_write_is_given_up_after_a_cancel(desk: Desk) -> None:
     started = asyncio.Event()
     finished = False
 
-    async def _write(frame: bytes) -> None:
+    async def _write(frame: bytes, response: bool = True) -> None:
         nonlocal finished
         if frame != A:
             return
@@ -361,7 +361,7 @@ async def test_hung_write_is_given_up_after_a_cancel(desk: Desk) -> None:
 async def test_write_cancelled_itself_after_a_cancel(desk: Desk) -> None:
     """A write that ends cancelled itself, as at shutdown, still ends the caller."""
 
-    async def _write(frame: bytes) -> None:
+    async def _write(frame: bytes, response: bool = True) -> None:
         await desk.clock.sleep(0.05)
         raise asyncio.CancelledError
 
@@ -374,3 +374,46 @@ async def test_write_cancelled_itself_after_a_cancel(desk: Desk) -> None:
 
     with pytest.raises(asyncio.CancelledError):
         await write
+
+
+async def test_repeat_is_written_without_response_at_an_even_cadence(
+    desk: Desk,
+) -> None:
+    """Repeats do not wait for acknowledgements, so a slow ack cannot space them out.
+
+    A write with response here takes 350 ms; the repeats still go out every
+    100 ms.
+    """
+    sent: list[tuple[float, bytes, bool]] = []
+
+    async def _write(frame: bytes, response: bool = True) -> None:
+        sent.append((round(desk.clock.now, 3), frame, response))
+        if response:
+            await desk.clock.sleep(0.35)
+
+    sequencer = Sequencer(_write, desk.clock)
+    sequencer.start_repeat([(n * 0.1, A) for n in range(1, 6)])
+    assert sequencer.repeating
+    await desk.clock.advance(1.0)
+
+    assert sent == [(n / 10, A, False) for n in range(1, 6)]
+    assert not sequencer.repeating
+    assert sequencer.idle
+
+
+async def test_motion_and_settings_wait_for_responses(
+    sequencer: Sequencer, desk: Desk
+) -> None:
+    """Everything but a repeat waits for the desk's acknowledgement."""
+    responses: list[bool] = []
+
+    async def _write(frame: bytes, response: bool = True) -> None:
+        responses.append(response)
+
+    sequencer = Sequencer(_write, desk.clock)
+    await _run(desk.clock, sequencer.run_motion([(0.0, A)]))
+    await _run(desk.clock, sequencer.run_setting([(0.0, B)]))
+    await sequencer.write(C)
+
+    assert responses == [True, True, True]
+    assert not sequencer.repeating

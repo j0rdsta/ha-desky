@@ -201,3 +201,14 @@ def record_frames(client: MagicMock, clock: FakeClock) -> list[tuple[float, str]
 
     client.write_gatt_char.side_effect = _write
     return frames
+
+
+def record_writes(client: MagicMock, clock: FakeClock) -> list[tuple[float, str, bool]]:
+    """Record each frame written, its virtual time, and if it waited for a response."""
+    writes: list[tuple[float, str, bool]] = []
+
+    async def _write(_uuid: str, data: bytes, *, response: bool) -> None:
+        writes.append((round(clock.now, 3), bytes(data).hex(), response))
+
+    client.write_gatt_char.side_effect = _write
+    return writes

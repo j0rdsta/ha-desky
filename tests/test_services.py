@@ -437,8 +437,10 @@ async def test_upper_limit_reads_back_exactly(
 
     # 1240 = 0x04D8; checksum (0x21 + 0x02 + 0x04 + 0xD8) & 0xFF = 0xFF
     assert desk_client.write_gatt_char.call_args_list[-2:] == [
-        call(WRITE_CHARACTERISTIC_UUID, bytes.fromhex("f1f1210204d8ff7e")),
-        call(WRITE_CHARACTERISTIC_UUID, COMMAND_GET_LIMITS),
+        call(
+            WRITE_CHARACTERISTIC_UUID, bytes.fromhex("f1f1210204d8ff7e"), response=True
+        ),
+        call(WRITE_CHARACTERISTIC_UUID, COMMAND_GET_LIMITS, response=True),
     ]
 
     # The desk answers the limit query: upper set, at 1239 tenths of a cm
@@ -508,8 +510,8 @@ async def test_limit_is_set_in_whole_units(
     await _call(hass, "set_height_limit", {"limit": "upper", "height": height})
 
     assert desk_client.write_gatt_char.call_args_list[-2:] == [
-        call(WRITE_CHARACTERISTIC_UUID, bytes.fromhex(sent)),
-        call(WRITE_CHARACTERISTIC_UUID, COMMAND_GET_LIMITS),
+        call(WRITE_CHARACTERISTIC_UUID, bytes.fromhex(sent), response=True),
+        call(WRITE_CHARACTERISTIC_UUID, COMMAND_GET_LIMITS, response=True),
     ]
 
     deliver_frame(desk_client, desk_response(LIMIT_STATUS_RESPONSE_HEADER, 0x01))

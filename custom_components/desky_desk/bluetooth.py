@@ -277,6 +277,11 @@ class DeskBLEDevice:
         return self._collision_detected
 
     @property
+    def is_repeating(self) -> bool:
+        """Return if a movement frame is being repeated to keep the desk moving."""
+        return self._sequencer.repeating
+
+    @property
     def is_moving(self) -> bool:
         """Return if the desk is moving in response to a command."""
         return self._movement is not None and self._movement.started
@@ -512,14 +517,16 @@ class DeskBLEDevice:
         # Let cancelled sequences finish, so none outlives the connection
         await self._sequencer.wait_cancelled()
 
-    async def _write_frame(self, frame: bytes) -> None:
-        """Write one frame to the desk."""
+    async def _write_frame(self, frame: bytes, response: bool = True) -> None:
+        """Write one frame to the desk, waiting for its acknowledgement if asked."""
         if not self.is_connected:
             raise DeskNotConnectedError("The desk is not connected")
         assert self._client is not None  # guaranteed by is_connected
         try:
             async with asyncio.timeout(WRITE_TIMEOUT_SECONDS):
-                await self._client.write_gatt_char(WRITE_CHARACTERISTIC_UUID, frame)
+                await self._client.write_gatt_char(
+                    WRITE_CHARACTERISTIC_UUID, frame, response=response
+                )
         except Exception as err:
             raise DeskCommandError(str(err) or type(err).__name__) from err
 
@@ -569,7 +576,7 @@ class DeskBLEDevice:
                 self._end_movement()
             raise
         if self._touch_mode == TOUCH_MODE_PRESS_AND_HOLD and self._movement is movement:
-            self._sequencer.start_motion(_hold_steps(frame, movement))
+            self._sequencer.start_repeat(_hold_steps(frame, movement))
 
     async def move_up(self) -> None:
         """Start moving the desk up."""
