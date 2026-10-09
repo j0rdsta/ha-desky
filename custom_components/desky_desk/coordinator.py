@@ -332,7 +332,11 @@ class DeskUpdateCoordinator(DataUpdateCoordinator[DeskData]):
         """
         if self._recheck_settings and self.data is not None:
             self._recheck_settings = False
-            if device.unit_preference is None or device.touch_mode is None:
+            if None in (
+                device.unit_preference,
+                device.touch_mode,
+                device.sensitivity_level,
+            ):
                 _LOGGER.debug("Asking the desk at %s for its settings", self._address)
                 await device.get_settings()
                 return

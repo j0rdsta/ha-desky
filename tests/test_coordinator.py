@@ -578,14 +578,22 @@ async def test_settings_reported_while_connecting_are_not_asked_for_again(
     assert mock_desk.get_status.await_count == status_requests + 1
 
 
+@pytest.mark.parametrize(
+    "setting", ["unit_preference", "touch_mode", "sensitivity_level"]
+)
 async def test_settings_missing_after_setup_are_asked_for_at_the_first_poll(
     hass: HomeAssistant,
     mock_config_entry: MockConfigEntry,
     mock_desk: MagicMock,
     freezer: FrozenDateTimeFactory,
+    setting: str,
 ) -> None:
-    """Test the refresh right after setup does not ask, but the first poll does."""
-    mock_desk.unit_preference = None
+    """Test the refresh right after setup does not ask, but the first poll does.
+
+    Each setting of the settings block counts, the collision sensitivity too.
+    It is asked once per connection, so a desk that never reports it is left alone.
+    """
+    setattr(mock_desk, setting, None)
     mock_config_entry.add_to_hass(hass)
     with patch(
         "homeassistant.components.bluetooth.async_ble_device_from_address",
@@ -596,7 +604,9 @@ async def test_settings_missing_after_setup_are_asked_for_at_the_first_poll(
     mock_desk.get_settings.assert_not_called()
 
     await _poll(hass, freezer)
+    mock_desk.get_settings.assert_awaited_once_with()
 
+    await _poll(hass, freezer)
     mock_desk.get_settings.assert_awaited_once_with()
 
 
