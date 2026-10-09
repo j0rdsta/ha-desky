@@ -563,12 +563,15 @@ class DeskBLEDevice:
         except TimeoutError:
             _LOGGER.debug("Gave up closing the connection to desk at %s", self.address)
 
-    def _close_done(self, _task: asyncio.Task[None]) -> None:
-        """Forget a dropped link's close once it has finished.
+    def _close_done(self, task: asyncio.Task[None]) -> None:
+        """Forget a dropped link's close once it has finished, unless replaced.
 
-        It is the only close: a new drop needs a reconnect, which waits for it.
+        A new drop normally needs a reconnect, which waits for this close, but a
+        backend can report the link down before its disconnect callback runs,
+        so a second drop's close may start before this one ends and must be kept.
         """
-        self._close_task = None
+        if self._close_task is task:
+            self._close_task = None
 
     async def _wait_closed(self) -> None:
         """Wait for a dropped link's bounded close; a cancel leaves it running."""
