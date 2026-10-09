@@ -1441,3 +1441,34 @@ async def test_move_to_height_without_a_reading_fails(
 
     assert frames == [(0.0, STATUS)]
     assert desk._movement is None
+
+
+@pytest.mark.parametrize(("method", "value", "report", "attempt"), CHECKED_SETTINGS)
+async def test_checked_setting_ignores_a_report_from_before_the_read_back(
+    desk: DeskBLEDevice,
+    clock: FakeClock,
+    mock_bleak_client: MagicMock,
+    method: str,
+    value: Any,
+    report: dict[Any, bytearray],
+    attempt: Frames,
+) -> None:
+    """An older report, arriving before the settings are asked for, is not the answer.
+
+    It might be another setting's read-back, the first poll's re-ask or a
+    change on the hand controller, and still show the old value.
+    """
+    clock.auto = False
+    old = next(report[other] for other in report if other != value)
+    frames = record_frames(mock_bleak_client, clock)
+    task = asyncio.create_task(getattr(desk, method)(value))
+    read_back_at = attempt[-1][0]
+    await clock.advance(read_back_at - 0.1)
+
+    desk._handle_notification(None, old)  # before the settings are asked for
+    await clock.advance(0.15)  # the settings are asked for
+    desk._handle_notification(None, report[value])  # the desk's answer
+    await clock.advance(1.0)
+    await task
+
+    assert frames == attempt  # sent once: the read-back showed the new value

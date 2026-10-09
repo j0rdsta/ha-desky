@@ -173,6 +173,10 @@ class Sequencer:
         """
         return self._start_motion(steps, _Kind.REPEAT).task
 
+    async def sleep(self, seconds: float) -> None:
+        """Wait on the sequencer's clock, without holding the write lock."""
+        await self._clock.sleep(seconds)
+
     async def wait_for(self, done: asyncio.Future[None], seconds: float) -> bool:
         """Wait on the sequencer's clock until done completes or seconds pass.
 

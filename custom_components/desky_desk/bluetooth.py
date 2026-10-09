@@ -908,17 +908,20 @@ class DeskBLEDevice:
     ) -> None:
         """Send a setting the desk does not confirm, and check that it applied.
 
-        The settings are asked for READ_BACK_DELAY after the last set. The desk
-        can ignore a set, so one it reports unchanged is sent once more and
-        checked again; still unchanged, it raises DeskSettingNotAppliedError.
-        A desk that sends no report cannot be checked, so the setting is taken
-        as sent.
+        The settings are asked for READ_BACK_DELAY after the last set. Only a
+        report that arrives after that request counts: an older one, such as
+        another setting's read-back or a change on the hand controller, can
+        still show the old value. The desk can ignore a set, so one it reports
+        unchanged is sent once more and checked again; still unchanged, it
+        raises DeskSettingNotAppliedError. A desk that sends no report cannot
+        be checked, so the setting is taken as sent.
         """
-        read_back = _steps_at(times[-1] + READ_BACK_DELAY, SETTINGS_REQUEST)
         for attempt in (1, 2):
+            await self._send_setting(frame, times)
+            await self._sequencer.sleep(READ_BACK_DELAY)
             report = self._expect_report(header)
             try:
-                await self._send_setting(frame, times, read_back=read_back)
+                await self._sequencer.write(*SETTINGS_REQUEST)
                 reported = await self._sequencer.wait_for(
                     report, READ_BACK_TIMEOUT_SECONDS
                 )
