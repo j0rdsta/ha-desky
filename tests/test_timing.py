@@ -1472,3 +1472,27 @@ async def test_checked_setting_ignores_a_report_from_before_the_read_back(
     await task
 
     assert frames == attempt  # sent once: the read-back showed the new value
+
+
+@pytest.mark.parametrize("command", ["stop", "move_up"])
+async def test_command_while_waiting_for_the_height_cancels_the_move(
+    desk: DeskBLEDevice, frames: Frames, clock: FakeClock, command: str
+) -> None:
+    """A stop or a newer command, while a move to height waits for a height, wins."""
+    clock.auto = False
+    desk._height_cm = 0.0
+    move = asyncio.create_task(desk.move_to_height(75.0))
+    await clock.advance(0.1)  # the status request is out, unanswered
+
+    newer = asyncio.create_task(getattr(desk, command)())
+    await clock.advance(0.1)
+    desk._handle_notification(None, _status_frame(80.0))  # the height arrives
+    await clock.advance(0.5)
+    await move  # cut short quietly
+    if command == "stop":
+        await newer
+    else:
+        await _run(clock, desk.stop())
+    await newer
+
+    assert all(not frame.startswith("f1f11b") for _, frame in frames)  # no target

@@ -232,6 +232,9 @@ class DeskBLEDevice:
         self._client: BleakClient | None = None
         # Writes go out one at a time; timed sequences pause without blocking them
         self._sequencer = Sequencer(self._write_frame, clock)
+        # Counts movement commands and stops, so a command that waited can tell
+        # whether a newer one came meanwhile
+        self._motion_commands = 0
         # When the last height reading came, on the sequencer's clock
         self._last_reading_at = 0.0
         # Callers waiting for the next report with a given header
@@ -559,6 +562,7 @@ class DeskBLEDevice:
         self, kind: str, direction: str | None, target_height: float | None = None
     ) -> _Movement:
         """Record a movement command; the movement starts once the desk responds."""
+        self._motion_commands += 1
         self._sequencer.cancel_motion()
         movement = self._movement = _Movement(
             kind=kind,
@@ -612,6 +616,7 @@ class DeskBLEDevice:
 
     async def stop(self) -> None:
         """Stop desk movement."""
+        self._motion_commands += 1
         self._end_movement()
         # Sent at once: a moving desk is awake, and a sleeping one has nothing to stop
         await self._sequencer.run_motion([(at, COMMAND_STOP) for at in STOP_TIMES])
@@ -689,7 +694,11 @@ class DeskBLEDevice:
                 f"({MIN_HEIGHT:.1f}-{MAX_HEIGHT:.1f} cm)"
             )
 
+        issued = self._motion_commands
         await self._await_height()
+        if self._motion_commands != issued:
+            _LOGGER.debug("A stop or a newer command came first; not moving to height")
+            return
         if height_cm == self._height_cm:
             # Already at target height
             self._end_movement()
