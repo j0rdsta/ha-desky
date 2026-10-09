@@ -9,7 +9,7 @@ from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import SENSITIVITY_LEVELS, TOUCH_MODES
+from .const import DISPLAY_UNITS, SENSITIVITY_LEVELS, TOUCH_MODES
 from .coordinator import DeskUpdateCoordinator, DeskyConfigEntry
 from .entity import DeskEntity, desk_command
 
@@ -22,19 +22,19 @@ SELECT_DESCRIPTIONS = [
     SelectEntityDescription(
         key="sensitivity",
         translation_key="sensitivity",
-        options=["High", "Medium", "Low"],
+        options=list(SENSITIVITY_LEVELS.values()),
         entity_category=EntityCategory.CONFIG,
     ),
     SelectEntityDescription(
         key="touch_mode",
         translation_key="touch_mode",
-        options=["One press", "Press and hold"],
+        options=list(TOUCH_MODES.values()),
         entity_category=EntityCategory.CONFIG,
     ),
     SelectEntityDescription(
         key="unit",
         translation_key="unit",
-        options=["cm", "in"],
+        options=list(DISPLAY_UNITS.values()),
         entity_category=EntityCategory.CONFIG,
     ),
 ]
@@ -109,6 +109,6 @@ class DeskSelect(DeskEntity, SelectEntity):
                 await self._device.get_settings()
 
         elif self.entity_description.key == "unit":
-            if option in ["cm", "in"]:
+            if option in DISPLAY_UNITS.values():
                 await self._device.set_unit(option)
                 await self._device.get_settings()

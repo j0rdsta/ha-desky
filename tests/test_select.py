@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -19,13 +21,14 @@ from homeassistant.const import (
     EntityCategory,
 )
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import HomeAssistantError
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.translation import async_get_translations
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.desky_desk.bluetooth import DeskCommandError
-from custom_components.desky_desk.const import SENSITIVITY_RESPONSE_HEADER
+from custom_components.desky_desk.const import DOMAIN, SENSITIVITY_RESPONSE_HEADER
 from custom_components.desky_desk.select import SELECT_DESCRIPTIONS, DeskSelect
 
 from . import deliver_frame, desk_response, disconnect_desk, notify_desk, set_desk_state
@@ -33,6 +36,7 @@ from . import deliver_frame, desk_response, disconnect_desk, notify_desk, set_de
 SENSITIVITY = "select.desky_desk_collision_sensitivity"
 TOUCH_MODE = "select.desky_desk_touch_mode"
 UNIT = "select.desky_desk_display_unit"
+STRINGS = Path(__file__).parent.parent / "custom_components" / DOMAIN / "strings.json"
 
 DESCRIPTIONS = {description.key: description for description in SELECT_DESCRIPTIONS}
 
@@ -40,8 +44,8 @@ DESCRIPTIONS = {description.key: description for description in SELECT_DESCRIPTI
 @pytest.mark.parametrize(
     ("entity_id", "unique_id_suffix", "state", "options"),
     [
-        (SENSITIVITY, "sensitivity", "Medium", ["High", "Medium", "Low"]),
-        (TOUCH_MODE, "touch_mode", "One press", ["One press", "Press and hold"]),
+        (SENSITIVITY, "sensitivity", "medium", ["high", "medium", "low"]),
+        (TOUCH_MODE, "touch_mode", "one_press", ["one_press", "press_and_hold"]),
         (UNIT, "unit", "cm", ["cm", "in"]),
     ],
 )
@@ -63,21 +67,20 @@ async def test_select_setup(
     select_state = hass.states.get(entity_id)
     assert select_state is not None
     assert select_state.state == state
-    # Option values are kept as they were so existing automations keep working
     assert select_state.attributes[ATTR_OPTIONS] == options
 
 
 @pytest.mark.parametrize(
     ("entity_id", "field", "value", "expected"),
     [
-        (SENSITIVITY, "sensitivity_level", 1, "High"),
-        (SENSITIVITY, "sensitivity_level", 2, "Medium"),
-        (SENSITIVITY, "sensitivity_level", 3, "Low"),
+        (SENSITIVITY, "sensitivity_level", 1, "high"),
+        (SENSITIVITY, "sensitivity_level", 2, "medium"),
+        (SENSITIVITY, "sensitivity_level", 3, "low"),
         (SENSITIVITY, "sensitivity_level", None, STATE_UNKNOWN),
         (SENSITIVITY, "sensitivity_level", 0, STATE_UNKNOWN),
         (SENSITIVITY, "sensitivity_level", 4, STATE_UNKNOWN),
-        (TOUCH_MODE, "touch_mode", 0, "One press"),
-        (TOUCH_MODE, "touch_mode", 1, "Press and hold"),
+        (TOUCH_MODE, "touch_mode", 0, "one_press"),
+        (TOUCH_MODE, "touch_mode", 1, "press_and_hold"),
         (TOUCH_MODE, "touch_mode", None, STATE_UNKNOWN),
         (TOUCH_MODE, "touch_mode", 2, STATE_UNKNOWN),
         (UNIT, "unit_preference", "cm", "cm"),
@@ -102,11 +105,11 @@ async def test_select_current_option(
 @pytest.mark.parametrize(
     ("entity_id", "option", "command", "argument", "follow_up"),
     [
-        (SENSITIVITY, "High", "set_sensitivity", 1, "get_sensitivity"),
-        (SENSITIVITY, "Low", "set_sensitivity", 3, "get_sensitivity"),
+        (SENSITIVITY, "high", "set_sensitivity", 1, "get_sensitivity"),
+        (SENSITIVITY, "low", "set_sensitivity", 3, "get_sensitivity"),
         # The desk has no query for one setting, so all settings are read back
-        (TOUCH_MODE, "Press and hold", "set_touch_mode", 1, "get_settings"),
-        (TOUCH_MODE, "One press", "set_touch_mode", 0, "get_settings"),
+        (TOUCH_MODE, "press_and_hold", "set_touch_mode", 1, "get_settings"),
+        (TOUCH_MODE, "one_press", "set_touch_mode", 0, "get_settings"),
         (UNIT, "in", "set_unit", "in", "get_settings"),
         (UNIT, "cm", "set_unit", "cm", "get_settings"),
     ],
@@ -143,13 +146,13 @@ async def test_select_state_follows_desk(
     await hass.services.async_call(
         SELECT_DOMAIN,
         SERVICE_SELECT_OPTION,
-        {ATTR_ENTITY_ID: SENSITIVITY, ATTR_OPTION: "Low"},
+        {ATTR_ENTITY_ID: SENSITIVITY, ATTR_OPTION: "low"},
         blocking=True,
     )
-    assert hass.states.get(SENSITIVITY).state == "Medium"
+    assert hass.states.get(SENSITIVITY).state == "medium"
 
     await set_desk_state(hass, init_integration, sensitivity_level=3)
-    assert hass.states.get(SENSITIVITY).state == "Low"
+    assert hass.states.get(SENSITIVITY).state == "low"
 
 
 async def test_selects_unavailable_when_disconnected(
@@ -166,7 +169,7 @@ async def test_selects_unavailable_when_disconnected(
     await hass.services.async_call(
         SELECT_DOMAIN,
         SERVICE_SELECT_OPTION,
-        {ATTR_ENTITY_ID: SENSITIVITY, ATTR_OPTION: "High"},
+        {ATTR_ENTITY_ID: SENSITIVITY, ATTR_OPTION: "high"},
         blocking=True,
     )
 
@@ -226,7 +229,7 @@ async def test_select_unknown_key(
     ("entity_id", "field", "option", "reported"),
     [
         (UNIT, "unit_preference", "in", "in"),
-        (TOUCH_MODE, "touch_mode", "Press and hold", 1),
+        (TOUCH_MODE, "touch_mode", "press_and_hold", 1),
     ],
 )
 async def test_select_shows_the_desk_report_after_selecting(
@@ -256,7 +259,7 @@ async def test_select_shows_the_desk_report_after_selecting(
 
 @pytest.mark.parametrize(
     ("entity_id", "option", "command"),
-    [(UNIT, "in", "set_unit"), (TOUCH_MODE, "Press and hold", "set_touch_mode")],
+    [(UNIT, "in", "set_unit"), (TOUCH_MODE, "press_and_hold", "set_touch_mode")],
 )
 async def test_select_skips_read_back_when_the_write_fails(
     hass: HomeAssistant,
@@ -293,7 +296,7 @@ async def test_unreported_settings_show_no_option(
     await hass.services.async_call(
         SELECT_DOMAIN,
         SERVICE_SELECT_OPTION,
-        {ATTR_ENTITY_ID: TOUCH_MODE, ATTR_OPTION: "One press"},
+        {ATTR_ENTITY_ID: TOUCH_MODE, ATTR_OPTION: "one_press"},
         blocking=True,
     )
     mock_desk.set_touch_mode.assert_awaited_once_with(0)
@@ -314,7 +317,7 @@ async def test_settings_are_read_again_after_reconnecting(
     await hass.async_block_till_done()
 
     assert hass.states.get(UNIT).state == "in"
-    assert hass.states.get(TOUCH_MODE).state == "One press"
+    assert hass.states.get(TOUCH_MODE).state == "one_press"
 
 
 async def test_sensitivity_follows_a_desk_report(
@@ -325,4 +328,66 @@ async def test_sensitivity_follows_a_desk_report(
 
     deliver_frame(desk_client, desk_response(SENSITIVITY_RESPONSE_HEADER, 0x03))
     await hass.async_block_till_done()
-    assert hass.states.get(SENSITIVITY).state == "Low"
+    assert hass.states.get(SENSITIVITY).state == "low"
+
+
+@pytest.mark.parametrize(
+    ("key", "option", "label"),
+    [
+        ("sensitivity", "high", "High"),
+        ("sensitivity", "medium", "Medium"),
+        ("sensitivity", "low", "Low"),
+        ("touch_mode", "one_press", "One press"),
+        ("touch_mode", "press_and_hold", "Press and hold"),
+        ("unit", "cm", "cm"),
+        ("unit", "in", "in"),
+    ],
+)
+async def test_select_states_show_the_same_labels(
+    hass: HomeAssistant,
+    init_integration: MockConfigEntry,
+    key: str,
+    option: str,
+    label: str,
+) -> None:
+    """Each state key is shown with the label the select used before it had keys."""
+    translations = await async_get_translations(hass, "en", "entity", {DOMAIN})
+
+    assert translations[f"component.{DOMAIN}.entity.select.{key}.state.{option}"] == (
+        label
+    )
+
+
+async def test_select_options_match_translations() -> None:
+    """Every option has a state translation, and no translation is left over."""
+    strings = json.loads(STRINGS.read_text())["entity"]["select"]
+
+    for description in SELECT_DESCRIPTIONS:
+        assert description.options is not None
+        assert set(description.options) == set(strings[description.key]["state"]), (
+            description.key
+        )
+
+
+@pytest.mark.parametrize(
+    ("entity_id", "label"),
+    [(SENSITIVITY, "High"), (TOUCH_MODE, "Press and hold")],
+)
+async def test_select_rejects_old_labels(
+    hass: HomeAssistant,
+    init_integration: MockConfigEntry,
+    mock_desk: MagicMock,
+    entity_id: str,
+    label: str,
+) -> None:
+    """An automation that still sets an English label gets an error, not a silent no-op."""
+    with pytest.raises(ServiceValidationError):
+        await hass.services.async_call(
+            SELECT_DOMAIN,
+            SERVICE_SELECT_OPTION,
+            {ATTR_ENTITY_ID: entity_id, ATTR_OPTION: label},
+            blocking=True,
+        )
+
+    mock_desk.set_sensitivity.assert_not_awaited()
+    mock_desk.set_touch_mode.assert_not_awaited()

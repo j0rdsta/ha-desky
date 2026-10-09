@@ -86,13 +86,26 @@
     },
     "select": {
       "sensitivity": {
-        "name": "Collision sensitivity"
+        "name": "Collision sensitivity",
+        "state": {
+          "high": "High",
+          "low": "Low",
+          "medium": "Medium"
+        }
       },
       "touch_mode": {
-        "name": "Touch mode"
+        "name": "Touch mode",
+        "state": {
+          "one_press": "One press",
+          "press_and_hold": "Press and hold"
+        }
       },
       "unit": {
-        "name": "Display unit"
+        "name": "Display unit",
+        "state": {
+          "cm": "cm",
+          "in": "in"
+        }
       }
     },
     "sensor": {

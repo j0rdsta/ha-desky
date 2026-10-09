@@ -156,18 +156,20 @@ then confirms it, or switches it back.
 
 ### Collision sensitivity
 
-How sensitive the desk's own anti-collision system is: **High**, **Medium** or **Low**.
+How sensitive the desk's own anti-collision system is: **High**, **Medium** or **Low**. The states
+are `high`, `medium` and `low`. Use these values in automations.
 
 ### Touch mode
 
-The hand controller's touch mode: **One press** or **Press and hold**. The desk does not confirm
-the change, so the integration asks for its settings again after changing it.
+The hand controller's touch mode: **One press** or **Press and hold**. The states are `one_press`
+and `press_and_hold`. Use these values in automations. The desk does not confirm the change, so
+the integration asks for its settings again after changing it.
 
 ### Display unit
 
-The unit the desk's display shows: **cm** or **in**. Only the Height display sensor follows this
-setting. The integration asks for the desk's settings again after changing it, and also picks up a
-change made on the hand controller.
+The unit the desk's display shows: **cm** or **in**, with the states `cm` and `in`. Only the
+Height display sensor follows this setting. The integration asks for the desk's settings again
+after changing it, and also picks up a change made on the hand controller.
 
 ## LED strip
 

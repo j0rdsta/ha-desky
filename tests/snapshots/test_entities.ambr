@@ -215,9 +215,9 @@
       'attributes': dict({
         'friendly_name': 'Desky Desk Collision sensitivity',
         'options': list([
-          'High',
-          'Medium',
-          'Low',
+          'high',
+          'medium',
+          'low',
         ]),
       }),
       'disabled_by': None,
@@ -225,7 +225,7 @@
       'original_device_class': None,
       'original_name': 'Collision sensitivity',
       'platform': 'desky_desk',
-      'state': 'Medium',
+      'state': 'medium',
       'translation_key': 'sensitivity',
       'unique_id': 'AA:BB:CC:DD:EE:FF_sensitivity',
     }),
@@ -250,8 +250,8 @@
       'attributes': dict({
         'friendly_name': 'Desky Desk Touch mode',
         'options': list([
-          'One press',
-          'Press and hold',
+          'one_press',
+          'press_and_hold',
         ]),
       }),
       'disabled_by': None,
@@ -259,7 +259,7 @@
       'original_device_class': None,
       'original_name': 'Touch mode',
       'platform': 'desky_desk',
-      'state': 'One press',
+      'state': 'one_press',
       'translation_key': 'touch_mode',
       'unique_id': 'AA:BB:CC:DD:EE:FF_touch_mode',
     }),
