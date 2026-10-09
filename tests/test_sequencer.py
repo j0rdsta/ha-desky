@@ -6,7 +6,6 @@ import asyncio
 from collections.abc import Coroutine
 import time
 from typing import Any
-from unittest.mock import patch
 
 import pytest
 
@@ -347,10 +346,12 @@ async def test_hung_write_is_given_up_after_a_cancel(desk: Desk) -> None:
     write = asyncio.create_task(sequencer.write(A))
     await started.wait()
 
-    with patch("custom_components.desky_desk.sequencer.WRITE_SETTLE_SECONDS", 0.01):
-        write.cancel()
-        with pytest.raises(asyncio.CancelledError):
-            await write
+    write.cancel()
+    await desk.clock.advance(1.9)
+    assert not write.done()  # still waiting for the radio
+    await desk.clock.advance(0.1)
+    with pytest.raises(asyncio.CancelledError):
+        await write
     await asyncio.sleep(0)
 
     assert finished

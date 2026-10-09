@@ -57,33 +57,6 @@ class _Sequence:
         self.task.cancel(reason.value)
 
 
-async def _uninterrupted(write: Awaitable[None]) -> None:
-    """Await a radio write to its end, even when cancelled, then pass a cancel on.
-
-    The desk's Bluetooth stack rejects a write while another is in progress
-    (BlueZ: InProgress), so a write is not abandoned halfway: the write lock is
-    released only once the radio is free. A write that hangs is given up after
-    WRITE_SETTLE_SECONDS, as its link is being closed. A write that fails after
-    its caller was cancelled ends in the cancel; its error no longer matters.
-    """
-    pending = asyncio.ensure_future(write)
-    try:
-        # Unlike awaiting it, waiting does not pass a cancel on to the write
-        await asyncio.wait([pending])
-    except asyncio.CancelledError:
-        loop = asyncio.get_running_loop()
-        deadline = loop.time() + WRITE_SETTLE_SECONDS
-        while not pending.done() and (remaining := deadline - loop.time()) > 0:
-            with contextlib.suppress(asyncio.CancelledError):
-                await asyncio.wait([pending], timeout=remaining)
-        if not pending.done():
-            pending.cancel()
-        elif not pending.cancelled():
-            pending.exception()  # retrieved, so it is not reported as unhandled
-        raise
-    pending.result()
-
-
 class Sequencer:
     """Write frames to the desk one at a time, and send timed sequences of them.
 
@@ -119,7 +92,38 @@ class Sequencer:
         """
         async with self._lock:
             for frame in frames:
-                await _uninterrupted(self._write_frame(frame))
+                await self._write_whole(frame)
+
+    async def _write_whole(self, frame: bytes) -> None:
+        """Write a frame to its end, even when cancelled, then pass a cancel on.
+
+        The desk's Bluetooth stack rejects a write while another is in progress
+        (BlueZ: InProgress), so a write is not abandoned halfway: the write
+        lock is released only once the radio is free. A cancelled write still
+        running after WRITE_SETTLE_SECONDS has hung, as its link is being
+        closed, and is given up. A write that fails after its caller was
+        cancelled ends in the cancel; its error no longer matters.
+        """
+        pending = asyncio.ensure_future(self._write_frame(frame))
+        try:
+            # Unlike awaiting it, waiting does not pass a cancel on to the write
+            await asyncio.wait([pending])
+        except asyncio.CancelledError:
+            settled = asyncio.ensure_future(self._clock.sleep(WRITE_SETTLE_SECONDS))
+            try:
+                while not (pending.done() or settled.done()):
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await asyncio.wait(
+                            [pending, settled], return_when=asyncio.FIRST_COMPLETED
+                        )
+            finally:
+                settled.cancel()
+            if not pending.done():
+                pending.cancel()
+            elif not pending.cancelled():
+                pending.exception()  # retrieved, so it is not reported as unhandled
+            raise
+        pending.result()
 
     async def run_setting(self, steps: Iterable[Step]) -> None:
         """Send a sequence and wait for it to finish.

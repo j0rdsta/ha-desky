@@ -560,11 +560,11 @@ async def test_cancelled_connect_is_released_on_disconnect(
 
     task = asyncio.create_task(device.connect())
     await writing.wait()
-    # The hung write is waited for only briefly before it is given up
-    with patch("custom_components.desky_desk.sequencer.WRITE_SETTLE_SECONDS", 0.01):
-        task.cancel()
-        with pytest.raises(asyncio.CancelledError):
-            await task
+    # The hung write is waited for only briefly before it is given up; the
+    # virtual clock passes that wait at once
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
     await device.disconnect()
 
     mock_bleak_client.disconnect.assert_awaited_once()
