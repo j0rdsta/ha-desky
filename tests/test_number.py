@@ -237,6 +237,14 @@ async def test_set_desk_number(
             "70.0",
             "The upper limit of 65.0 cm must be above the lower limit of 70.0 cm",
         ),
+        # Rounded to 70 cm first, so it is not above the lower limit
+        (
+            UPPER_LIMIT,
+            70.4,
+            "limit_inverted_upper",
+            "70.0",
+            "The upper limit of 70.0 cm must be above the lower limit of 70.0 cm",
+        ),
         (
             LOWER_LIMIT,
             110.0,
@@ -274,10 +282,8 @@ async def test_inverted_limit_rejected(
 
     assert err.value.translation_domain == DOMAIN
     assert err.value.translation_key == key
-    assert err.value.translation_placeholders == {
-        "height": f"{value:.1f}",
-        "other": other,
-    }
+    # The message shows the rounded height that would have been sent
+    assert err.value.translation_placeholders["other"] == other
     assert str(err.value) == message
     mock_desk.set_height_limit.assert_not_awaited()
     mock_desk.get_limits.assert_not_awaited()

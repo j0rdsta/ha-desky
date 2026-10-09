@@ -94,7 +94,7 @@ the run unless the step uses `continue_on_error`.
 | *The action does not target a Desky desk* | The target contains no Desky desk |
 | *The desk … is not loaded* | The desk's entry is not set up, for example while setup is retrying |
 | *… cm is outside the desk's allowed range of …-… cm* | `move_to_height` or the Height entity, with a height outside the desk's limits |
-| *… cm is outside the range a limit can be set to, …-… cm* | `set_height_limit` with a height outside 60-124 cm, or 61.0-121.9 cm on a desk that shows inches |
+| *… cm is outside the range a limit can be set to, …-… cm* | `set_height_limit` with a height that rounds to outside 60-124 cm (61.0-121.9 cm on a desk that shows inches); the message shows the rounded height |
 | *The upper limit of … cm must be above the lower limit of … cm* | `set_height_limit` or the Upper height limit entity, with an upper limit at or below the lower limit |
 | *The lower limit of … cm must be below the upper limit of … cm* | `set_height_limit` or the Lower height limit entity, with a lower limit at or above the upper limit |
 | *The desk is not connected* | The desk is set up but not connected |

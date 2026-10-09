@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from homeassistant.exceptions import ServiceValidationError
 
+from .bluetooth import DeskBLEDevice
 from .const import DOMAIN, MAX_HEIGHT, MIN_HEIGHT, HeightLimit
 from .coordinator import DeskData
 
@@ -71,3 +72,15 @@ def validate_height_limit(data: DeskData, limit: HeightLimit, height: float) -> 
                 "other": f"{other:.1f}",
             },
         )
+
+
+def checked_height_limit(
+    data: DeskData, device: DeskBLEDevice, limit: HeightLimit, height: float
+) -> float:
+    """Return a height limit rounded to the whole unit the desk stores, checked.
+
+    The rounded limit is what the desk gets, so it is what is checked.
+    """
+    rounded = device.round_limit(height)
+    validate_height_limit(data, limit, rounded)
+    return rounded

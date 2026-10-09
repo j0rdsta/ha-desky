@@ -16,7 +16,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .const import MAX_HEIGHT, MIN_HEIGHT, HeightLimit
 from .coordinator import DeskUpdateCoordinator, DeskyConfigEntry
 from .entity import DeskEntity, desk_command
-from .validation import validate_height_limit, validate_move_to_height
+from .validation import checked_height_limit, validate_move_to_height
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -120,8 +120,8 @@ class DeskHeightLimitNumber(DeskEntity, NumberEntity):
     @desk_command
     async def async_set_native_value(self, value: float) -> None:
         """Set the limit, then show the limits the desk reports."""
-        # The desk stores whole units, so the rounded limit is checked and sent
-        value = self._device.round_limit(value)
-        validate_height_limit(self.coordinator.data, self._limit, value)
+        value = checked_height_limit(
+            self.coordinator.data, self._device, self._limit, value
+        )
         await self._device.set_height_limit(self._limit, value)
         await self._device.get_limits()
