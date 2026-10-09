@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 import logging
 import time
-from typing import Any
 
 from homeassistant.components.sensor import (
     RestoreSensor,
@@ -15,17 +16,18 @@ from homeassistant.components.sensor import (
     SensorEntityDescription,
     SensorStateClass,
 )
-from homeassistant.const import PERCENTAGE, EntityCategory, UnitOfLength, UnitOfTime
+from homeassistant.const import UnitOfLength, UnitOfTime
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import (
     async_track_time_change,
     async_track_time_interval,
 )
+from homeassistant.helpers.typing import StateType
 from homeassistant.util import dt as dt_util
 
-from .const import CM_PER_INCH, LIGHT_COLORS, Posture
-from .coordinator import DeskUpdateCoordinator, DeskyConfigEntry
+from .const import Posture, height_known
+from .coordinator import DeskData, DeskUpdateCoordinator, DeskyConfigEntry
 from .entity import DeskEntity
 
 _LOGGER = logging.getLogger(__name__)
@@ -33,27 +35,34 @@ _LOGGER = logging.getLogger(__name__)
 # State comes from the coordinator, so there are no updates to limit
 PARALLEL_UPDATES = 0
 
+
+@dataclass(frozen=True, kw_only=True)
+class DeskSensorEntityDescription(SensorEntityDescription):
+    """A desk sensor and how to read its value from the desk data."""
+
+    value_fn: Callable[[DeskData], StateType]
+
+
 SENSOR_DESCRIPTIONS = [
-    SensorEntityDescription(
+    # Always cm; Home Assistant converts it to the unit the user picks. Unknown
+    # until the desk reports a height, so the placeholder is not recorded
+    DeskSensorEntityDescription(
         key="height_display",
         translation_key="height_display",
+        device_class=SensorDeviceClass.DISTANCE,
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=UnitOfLength.CENTIMETERS,
+        suggested_display_precision=1,
+        value_fn=lambda data: (
+            round(data.height_cm, 1) if height_known(data.height_cm) else None
+        ),
     ),
-    SensorEntityDescription(
-        key="led_color",
-        translation_key="led_color",
-        entity_category=EntityCategory.DIAGNOSTIC,
-    ),
-    SensorEntityDescription(
-        key="vibration_intensity_display",
-        translation_key="vibration_intensity_display",
-        native_unit_of_measurement=PERCENTAGE,
-        entity_category=EntityCategory.DIAGNOSTIC,
-    ),
-    SensorEntityDescription(
+    DeskSensorEntityDescription(
         key="posture",
         translation_key="posture",
         device_class=SensorDeviceClass.ENUM,
         options=[posture.value for posture in Posture],
+        value_fn=lambda data: data.posture,
     ),
 ]
 
@@ -94,71 +103,21 @@ async def async_setup_entry(
 class DeskSensor(DeskEntity, SensorEntity):
     """Representation of a Desky desk sensor."""
 
+    entity_description: DeskSensorEntityDescription
+
     def __init__(
-        self, coordinator: DeskUpdateCoordinator, description: SensorEntityDescription
+        self,
+        coordinator: DeskUpdateCoordinator,
+        description: DeskSensorEntityDescription,
     ) -> None:
         """Initialize the sensor."""
         super().__init__(coordinator, description.key)
         self.entity_description = description
 
     @property
-    def native_value(self) -> str | int | float | None:
+    def native_value(self) -> StateType:
         """Return the state of the sensor."""
-        data = self.coordinator.data
-
-        if self.entity_description.key == "height_display":
-            if data.unit_preference == "in":
-                return round(data.height_cm / CM_PER_INCH, 1)
-            return round(data.height_cm, 1)
-
-        if self.entity_description.key == "led_color":
-            color = data.light_color
-            if color and color in LIGHT_COLORS:
-                return LIGHT_COLORS[color]
-            return "Unknown"
-
-        if self.entity_description.key == "vibration_intensity_display":
-            intensity = data.vibration_intensity
-            return intensity if intensity is not None else 0
-
-        if self.entity_description.key == "posture":
-            return data.posture
-
-        return None
-
-    @property
-    def native_unit_of_measurement(self) -> str | None:
-        """Return the unit, which follows the desk's display unit for the height."""
-        if self.entity_description.key == "height_display":
-            if self.coordinator.data.unit_preference == "in":
-                return UnitOfLength.INCHES
-            return UnitOfLength.CENTIMETERS
-        return super().native_unit_of_measurement
-
-    @property
-    def extra_state_attributes(self) -> dict[str, Any] | None:
-        """Return entity specific state attributes."""
-        data = self.coordinator.data
-
-        if self.entity_description.key == "height_display":
-            attrs: dict[str, Any] = {"height_cm": data.height_cm}
-            # Add height limits if enabled
-            if data.limits_enabled:
-                attrs["upper_limit_cm"] = data.height_limit_upper
-                attrs["lower_limit_cm"] = data.height_limit_lower
-            return attrs
-
-        if self.entity_description.key == "led_color":
-            return {
-                "color_value": data.light_color,
-                "brightness": data.brightness,
-                "lighting_enabled": data.lighting_enabled,
-            }
-
-        if self.entity_description.key == "vibration_intensity_display":
-            return {"vibration_enabled": data.vibration_enabled}
-
-        return None
+        return self.entity_description.value_fn(self.coordinator.data)
 
 
 class PostureTimeSensor(DeskEntity, RestoreSensor):

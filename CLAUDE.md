@@ -78,13 +78,14 @@ This is a Home Assistant custom integration that follows the standard component 
 
 3. **Entity Implementation**:
    - Cover entity: Main control interface (0-100% position mapping) with proper direction tracking
-   - Number entities: Direct height control (60-130cm range), height limits, vibration intensity
+   - Number entities: Direct height control (60-130cm range), height limits. There is no vibration intensity entity: the desk never answers the `A4` query, and the official app neither sends it nor sets it
    - Button entities: Four preset positions + manual Move Up/Down controls
    - Binary sensor: Collision detection
    - Light entity: LED strip control with color, brightness, and effects
    - Switch entities: Vibration on/off, desk lock
-   - Select entities: Collision sensitivity, touch mode, unit preference
-   - Sensor entities: Height display with units, light color name, sensitivity level, posture, standing/sitting time today
+   - Select entities: Collision sensitivity (`high`/`medium`/`low`), touch mode (`one_press`/`press_and_hold`), display unit (`cm`/`in`); states are keys with translated labels
+   - Sensor entities: Height display (cm, device class distance), posture, standing/sitting time today
+   - No entity has extra state attributes; diagnostics carry the full desk data
 
 ### BLE Protocol Commands
 ```python

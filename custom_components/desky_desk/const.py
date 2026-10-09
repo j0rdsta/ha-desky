@@ -40,7 +40,6 @@ COMMAND_GET_LIGHTING: Final = bytes([0xF1, 0xF1, 0xB5, 0x00, 0xB5, 0x7E])
 
 # Vibration commands
 COMMAND_GET_VIBRATION: Final = bytes([0xF1, 0xF1, 0xB3, 0x00, 0xB3, 0x7E])
-COMMAND_GET_VIBRATION_INTENSITY: Final = bytes([0xF1, 0xF1, 0xA4, 0x00, 0xA4, 0x7E])
 
 # Lock commands
 COMMAND_GET_LOCK_STATUS: Final = bytes([0xF1, 0xF1, 0xB2, 0x00, 0xB2, 0x7E])
@@ -105,11 +104,6 @@ UPDATE_INTERVAL_SECONDS: Final = 30
 RECONNECT_BACKOFF_MIN_SECONDS: Final = 5
 RECONNECT_BACKOFF_MAX_SECONDS: Final = 120
 
-# Entity attributes
-ATTR_HEIGHT_CM: Final = "height_cm"
-ATTR_COLLISION_DETECTED: Final = "collision_detected"
-ATTR_MOVING: Final = "moving"
-
 # Cover position constants
 COVER_CLOSED_POSITION: Final = 0  # Desk at minimum height
 COVER_OPEN_POSITION: Final = 100  # Desk at maximum height
@@ -119,7 +113,6 @@ LIGHT_COLOR_RESPONSE_HEADER: Final = bytes([0xF2, 0xF2, 0xB4, 0x01])
 BRIGHTNESS_RESPONSE_HEADER: Final = bytes([0xF2, 0xF2, 0xB6, 0x01])
 LIGHTING_RESPONSE_HEADER: Final = bytes([0xF2, 0xF2, 0xB5, 0x01])
 VIBRATION_RESPONSE_HEADER: Final = bytes([0xF2, 0xF2, 0xB3, 0x01])
-VIBRATION_INTENSITY_RESPONSE_HEADER: Final = bytes([0xF2, 0xF2, 0xA4, 0x01])
 LOCK_STATUS_RESPONSE_HEADER: Final = bytes([0xF2, 0xF2, 0xB2, 0x01])
 SENSITIVITY_RESPONSE_HEADER: Final = bytes([0xF2, 0xF2, 0x1D, 0x01])
 LIMIT_UPPER_RESPONSE_HEADER: Final = bytes([0xF2, 0xF2, 0x21, 0x02])
@@ -142,10 +135,15 @@ LIGHT_COLORS: Final = {
 }
 
 # Sensitivity levels
-SENSITIVITY_LEVELS: Final = {1: "High", 2: "Medium", 3: "Low"}
+SENSITIVITY_LEVELS: Final = {1: "high", 2: "medium", 3: "low"}
 
 # Touch modes
-TOUCH_MODES: Final = {0: "One press", 1: "Press and hold"}
+TOUCH_MODES: Final = {0: "one_press", 1: "press_and_hold"}
 
 # Display units, as reported in the unit response
 DISPLAY_UNITS: Final = {0: "cm", 1: "in"}
+
+
+def height_known(height_cm: float) -> bool:
+    """Return whether a height is a reading; 0 stands in until the desk reports one."""
+    return height_cm > 0

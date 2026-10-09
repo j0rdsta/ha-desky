@@ -82,13 +82,3 @@ class DeskSwitch(DeskEntity, SwitchEntity):
         elif self.entity_description.key == "lock":
             await self._device.set_lock_status(False)
             await self._device.get_lock_status()
-
-    @property
-    def extra_state_attributes(self) -> dict[str, Any] | None:
-        """Return entity specific state attributes."""
-        # The vibration switch reports the vibration intensity
-        if self.entity_description.key == "vibration":
-            intensity = self.coordinator.data.vibration_intensity
-            if intensity is not None:
-                return {"intensity": intensity}
-        return None

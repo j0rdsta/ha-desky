@@ -149,20 +149,6 @@ async def test_switch_state_follows_desk(
     assert hass.states.get(entity_id).state == after
 
 
-async def test_vibration_intensity_attribute(
-    hass: HomeAssistant, init_integration: MockConfigEntry
-) -> None:
-    """Test the vibration switch reports the intensity only when it is known."""
-    assert hass.states.get(VIBRATION).attributes["intensity"] == 75
-    assert "intensity" not in hass.states.get(LOCK).attributes
-
-    await set_desk_state(hass, init_integration, vibration_intensity=40)
-    assert hass.states.get(VIBRATION).attributes["intensity"] == 40
-
-    await set_desk_state(hass, init_integration, vibration_intensity=None)
-    assert "intensity" not in hass.states.get(VIBRATION).attributes
-
-
 async def test_switches_unavailable_when_disconnected(
     hass: HomeAssistant, init_integration: MockConfigEntry, mock_desk: MagicMock
 ) -> None:
@@ -192,7 +178,6 @@ async def test_switch_unknown_key(
     )
 
     assert entity.is_on is False
-    assert entity.extra_state_attributes is None
 
     await entity.async_turn_on()
     await entity.async_turn_off()

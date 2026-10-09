@@ -79,13 +79,6 @@ COMMANDS = [
         "set_height_limit",
     ),
     (
-        NUMBER_DOMAIN,
-        SERVICE_SET_VALUE,
-        "number.desky_desk_vibration_intensity",
-        {ATTR_VALUE: 50},
-        "set_vibration_intensity",
-    ),
-    (
         LIGHT_DOMAIN,
         SERVICE_TURN_ON,
         "light.desky_desk_led_strip",
@@ -118,14 +111,14 @@ COMMANDS = [
         SELECT_DOMAIN,
         SERVICE_SELECT_OPTION,
         "select.desky_desk_collision_sensitivity",
-        {ATTR_OPTION: "Low"},
+        {ATTR_OPTION: "low"},
         "set_sensitivity",
     ),
     (
         SELECT_DOMAIN,
         SERVICE_SELECT_OPTION,
         "select.desky_desk_touch_mode",
-        {ATTR_OPTION: "Press and hold"},
+        {ATTR_OPTION: "press_and_hold"},
         "set_touch_mode",
     ),
     (

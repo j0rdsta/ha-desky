@@ -42,7 +42,6 @@ from custom_components.desky_desk.const import (
     MIN_HEIGHT,
     NOTIFY_CHARACTERISTIC_UUID,
     SENSITIVITY_RESPONSE_HEADER,
-    VIBRATION_INTENSITY_RESPONSE_HEADER,
     VIBRATION_RESPONSE_HEADER,
     WRITE_CHARACTERISTIC_UUID,
     HeightLimit,
@@ -279,8 +278,8 @@ async def test_connect_waits_on_no_fixed_delays(
         assert await device.connect() is True
 
     mock_sleep.assert_not_awaited()
-    # Handshake, status and the eight capability queries
-    assert mock_bleak_client.write_gatt_char.await_count == 10
+    # Handshake, status and the seven capability queries
+    assert mock_bleak_client.write_gatt_char.await_count == 9
 
 
 async def test_capability_query_failure_is_not_an_unsupported_feature(
@@ -847,6 +846,19 @@ def test_handle_unknown_notification(mock_ble_device):
 
     # Height should not be updated, callback should not be called
     assert device.height_cm == 0.0  # Initial value
+    callback.assert_not_called()
+
+
+def test_vibration_intensity_reply_is_unrecognised(mock_ble_device):
+    """Test a vibration intensity reply, which the desk is never asked for, is ignored."""
+    device = DeskBLEDevice(mock_ble_device)
+    callback = MagicMock()
+    device.register_notification_callback(callback)
+
+    device._handle_notification(
+        0, bytearray([0xF2, 0xF2, 0xA4, 0x01, 0x32, 0xD7, 0x7E])
+    )
+
     callback.assert_not_called()
 
 
@@ -1869,10 +1881,6 @@ async def test_new_device_commands(mock_ble_device, mock_bleak_client):
     await device.set_vibration(False)
     expected_command = bytes([0xF1, 0xF1, 0xB3, 0x01, 0x00, 0xB4, 0x7E])
 
-    # Test vibration intensity
-    await device.set_vibration_intensity(50)
-    expected_command = bytes([0xF1, 0xF1, 0xA4, 0x01, 0x32, 0xD7, 0x7E])  # 50 = 0x32
-
     # Test lock status
     await device.set_lock_status(True)
     expected_command = bytes([0xF1, 0xF1, 0xB2, 0x01, 0x01, 0xB4, 0x7E])
@@ -1930,7 +1938,6 @@ async def test_device_capability_queries(mock_ble_device, mock_bleak_client):
         (device.get_brightness, bytes([0xF1, 0xF1, 0xB6, 0x00, 0xB6, 0x7E])),
         (device.get_lighting_status, bytes([0xF1, 0xF1, 0xB5, 0x00, 0xB5, 0x7E])),
         (device.get_vibration_status, bytes([0xF1, 0xF1, 0xB3, 0x00, 0xB3, 0x7E])),
-        (device.get_vibration_intensity, bytes([0xF1, 0xF1, 0xA4, 0x00, 0xA4, 0x7E])),
         (device.get_lock_status, bytes([0xF1, 0xF1, 0xB2, 0x00, 0xB2, 0x7E])),
         (device.get_sensitivity, bytes([0xF1, 0xF1, 0x1D, 0x00, 0x1D, 0x7E])),
         (device.get_limits, bytes([0xF1, 0xF1, 0x0C, 0x00, 0x0C, 0x7E])),
@@ -1953,7 +1960,6 @@ async def test_device_capability_queries(mock_ble_device, mock_bleak_client):
         (LIGHTING_RESPONSE_HEADER, 0x00, "lighting_enabled", False),
         (VIBRATION_RESPONSE_HEADER, 0x00, "vibration_enabled", False),
         (VIBRATION_RESPONSE_HEADER, 0x01, "vibration_enabled", True),
-        (VIBRATION_INTENSITY_RESPONSE_HEADER, 0x32, "vibration_intensity", 50),
         (LOCK_STATUS_RESPONSE_HEADER, 0x01, "lock_status", True),
         (LOCK_STATUS_RESPONSE_HEADER, 0x00, "lock_status", False),
         (SENSITIVITY_RESPONSE_HEADER, 0x01, "sensitivity_level", 1),
@@ -1978,7 +1984,6 @@ def test_parse_feature_responses(mock_ble_device, header, value, attribute, expe
         (BRIGHTNESS_RESPONSE_HEADER, "brightness"),
         (LIGHTING_RESPONSE_HEADER, "lighting_enabled"),
         (VIBRATION_RESPONSE_HEADER, "vibration_enabled"),
-        (VIBRATION_INTENSITY_RESPONSE_HEADER, "vibration_intensity"),
         (LOCK_STATUS_RESPONSE_HEADER, "lock_status"),
         (SENSITIVITY_RESPONSE_HEADER, "sensitivity_level"),
     ],
@@ -2110,7 +2115,6 @@ async def test_device_capability_detection(mock_ble_device, mock_bleak_client):
             bytes([0xF1, 0xF1, 0xB6, 0x00, 0xB6, 0x7E]),  # get_brightness
             bytes([0xF1, 0xF1, 0xB5, 0x00, 0xB5, 0x7E]),  # get_lighting_status
             bytes([0xF1, 0xF1, 0xB3, 0x00, 0xB3, 0x7E]),  # get_vibration_status
-            bytes([0xF1, 0xF1, 0xA4, 0x00, 0xA4, 0x7E]),  # get_vibration_intensity
             bytes([0xF1, 0xF1, 0xB2, 0x00, 0xB2, 0x7E]),  # get_lock_status
             bytes([0xF1, 0xF1, 0x1D, 0x00, 0x1D, 0x7E]),  # get_sensitivity
             bytes([0xF1, 0xF1, 0x0C, 0x00, 0x0C, 0x7E]),  # get_limits
@@ -2120,6 +2124,8 @@ async def test_device_capability_detection(mock_ble_device, mock_bleak_client):
         sent_commands = [call[0][1] for call in calls[2:]]
         for expected in expected_queries:
             assert expected in sent_commands
+        # The desk never answers the vibration intensity query, so it is not sent
+        assert not any(command[2] == 0xA4 for command in sent_commands)
 
 
 @pytest.mark.parametrize(
@@ -2129,8 +2135,6 @@ async def test_device_capability_detection(mock_ble_device, mock_bleak_client):
         ("set_light_color", 8),
         ("set_brightness", -1),
         ("set_brightness", 101),
-        ("set_vibration_intensity", -1),
-        ("set_vibration_intensity", 101),
         ("set_sensitivity", 0),
         ("set_sensitivity", 4),
         ("set_touch_mode", -1),
@@ -2933,7 +2937,6 @@ def test_disconnect_forgets_unit_and_touch_mode(mock_ble_device, mock_bleak_clie
         ("set_brightness", (50,)),
         ("set_lighting", (True,)),
         ("set_vibration", (False,)),
-        ("set_vibration_intensity", (40,)),
         ("set_lock_status", (True,)),
         ("set_sensitivity", (2,)),
         ("set_touch_mode", (1,)),

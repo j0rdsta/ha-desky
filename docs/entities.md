@@ -4,11 +4,15 @@ Every desk is one device in Home Assistant, and all its entities belong to that 
 names are translated and prefixed with the device name, which is the desk's Bluetooth name. The
 entity IDs on this page are for a desk named "Desky Desk"; yours follow your desk's name.
 Entities created by earlier versions of the integration keep their existing entity IDs.
+Version 2.0.0 removed the LED color and Vibration intensity display sensors, which repeated other
+entities, and the Vibration intensity number, which the desk does not support. Setting up the desk
+deletes them.
 
 All entities are enabled by default, and unavailable while the desk is not connected.
+Entities have no attributes of their own. Each value has its own entity.
 
-Heights are in centimetres, whatever unit the desk's display shows. The one exception is the
-Height display sensor, which follows the display unit.
+Heights are in centimetres, whatever unit the desk's display shows. To see the Height display
+sensor in inches, change its unit in the entity's settings.
 
 Not every desk has every feature, but the entities are created anyway. For a feature the desk
 does not report, the entity shows unknown or a default value (see
@@ -28,20 +32,17 @@ Category is the section of the device page that lists the entity: **Controls**, 
 | Move down | `button.desky_desk_move_down` | Button | | Controls |
 | LED strip | `light.desky_desk_led_strip` | Light | | Controls |
 | Lock | `switch.desky_desk_lock` | Switch | | Controls |
-| Height display | `sensor.desky_desk_height_display` | Sensor | cm or in | Sensors |
+| Height display | `sensor.desky_desk_height_display` | Sensor | cm | Sensors |
 | Posture | `sensor.desky_desk_posture` | Sensor | | Sensors |
 | Standing time today | `sensor.desky_desk_standing_time_today` | Sensor | min | Sensors |
 | Sitting time today | `sensor.desky_desk_sitting_time_today` | Sensor | min | Sensors |
 | Upper height limit | `number.desky_desk_upper_height_limit` | Number | cm | Configuration |
 | Lower height limit | `number.desky_desk_lower_height_limit` | Number | cm | Configuration |
-| Vibration intensity | `number.desky_desk_vibration_intensity` | Number | % | Configuration |
 | Vibration | `switch.desky_desk_vibration` | Switch | | Configuration |
 | Collision sensitivity | `select.desky_desk_collision_sensitivity` | Select | | Configuration |
 | Touch mode | `select.desky_desk_touch_mode` | Select | | Configuration |
 | Display unit | `select.desky_desk_display_unit` | Select | | Configuration |
 | Collision detected | `binary_sensor.desky_desk_collision_detected` | Binary sensor | | Diagnostic |
-| LED color | `sensor.desky_desk_led_color` | Sensor | | Diagnostic |
-| Vibration intensity display | `sensor.desky_desk_vibration_intensity_display` | Sensor | % | Diagnostic |
 
 ## Movement
 
@@ -91,12 +92,12 @@ Device class: problem.
 
 ### Height display
 
-The desk's height in the unit its display shows: centimetres or inches, to 0.1. Attributes:
+The desk's height, to 0.1 cm, whatever unit the desk's display shows. It is in centimetres unless
+you pick another unit in the entity's settings. If it showed inches before version 2.0.0, it keeps
+showing inches. On a new install where Home Assistant uses US customary units, it shows inches
+from the start. It is unknown until the desk has reported a height.
 
-| Attribute | Meaning |
-| --- | --- |
-| `height_cm` | The height in centimetres |
-| `upper_limit_cm`, `lower_limit_cm` | The height limits in centimetres, present while at least one limit is set; a limit that is not set is `null` |
+Device class: distance, state class: measurement. It is recorded in long-term statistics.
 
 ### Posture
 
@@ -133,21 +134,13 @@ The highest and lowest heights the desk will move to, stored on the desk's contr
 to 130 cm in steps of 1 cm. Setting a value writes the limit to the desk and reads the limits
 back. A limit that is not set shows as unknown.
 
-Attribute `limits_enabled`: true while at least one limit is set.
-
 If the other limit is set, the upper limit must be above it and the lower limit below it.
 Otherwise setting the value fails with an error, and nothing is sent to the desk. To set or clear
 limits from an automation, use the [actions](actions.md).
 
-### Vibration intensity
-
-The strength of the desk's vibration, from 0 to 100 %. Setting it reads the value back from the
-desk.
-
 ### Vibration
 
-Turns the desk's vibration on or off. Attribute `intensity`: the vibration intensity in %, when
-the desk has reported it.
+Turns the desk's vibration on or off.
 
 ### Lock
 
@@ -156,18 +149,20 @@ then confirms it, or switches it back.
 
 ### Collision sensitivity
 
-How sensitive the desk's own anti-collision system is: **High**, **Medium** or **Low**.
+How sensitive the desk's own anti-collision system is: **High**, **Medium** or **Low**. The states
+are `high`, `medium` and `low`. Use these values in automations.
 
 ### Touch mode
 
-The hand controller's touch mode: **One press** or **Press and hold**. The desk does not confirm
-the change, so the integration asks for its settings again after changing it.
+The hand controller's touch mode: **One press** or **Press and hold**. The states are `one_press`
+and `press_and_hold`. Use these values in automations. The desk does not confirm the change, so
+the integration asks for its settings again after changing it.
 
 ### Display unit
 
-The unit the desk's display shows: **cm** or **in**. Only the Height display sensor follows this
-setting. The integration asks for the desk's settings again after changing it, and also picks up a
-change made on the hand controller.
+The unit the desk's display shows: **cm** or **in**, with the states `cm` and `in`. It changes
+only the desk's own display; entities keep using centimetres. The integration asks for the desk's
+settings again after changing it, and also picks up a change made on the hand controller.
 
 ## LED strip
 
@@ -181,21 +176,4 @@ The desk takes brightness in whole percent. The brightness is rounded to the nea
 a light that is on is never sent as 0 %.
 
 If the desk reports its colour as off and you turn the light on without an effect, it goes back to
-the last colour you chose other than party mode. That colour is kept across restarts. Attribute
-`color_name`: the current colour.
-
-### LED color
-
-The LED strip's current colour as text: White, Red, Green, Blue, Yellow, Party mode or Off, and
-Unknown until the desk has reported it. Attributes:
-
-| Attribute | Meaning |
-| --- | --- |
-| `color_value` | The colour code the desk reports, 1-7 |
-| `brightness` | The brightness in %, as the desk reports it |
-| `lighting_enabled` | Whether the LED strip is on |
-
-### Vibration intensity display
-
-The vibration intensity in %, as a sensor, or 0 until the desk has reported it. Attribute
-`vibration_enabled`: whether vibration is on.
+the last colour you chose other than party mode. That colour is kept across restarts.

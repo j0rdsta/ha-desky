@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 from bleak.exc import BleakError
 from freezegun.api import FrozenDateTimeFactory
 from homeassistant.components.bluetooth import BluetoothScanningMode
-from homeassistant.config_entries import ConfigEntryState
+from homeassistant.config_entries import ConfigEntryDisabler, ConfigEntryState
 from homeassistant.const import STATE_UNAVAILABLE, Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr, entity_registry as er
@@ -24,6 +24,13 @@ from custom_components.desky_desk.coordinator import DeskUpdateCoordinator
 from . import BluetoothCallbacks, disconnect_desk
 
 ADDRESS = "AA:BB:CC:DD:EE:FF"
+
+# Entities earlier releases created that setup deletes, by platform and unique ID suffix
+RETIRED = (
+    (Platform.SENSOR, "led_color"),
+    (Platform.SENSOR, "vibration_intensity_display"),
+    (Platform.NUMBER, "vibration_intensity"),
+)
 
 
 def _desk_entity_states(hass: HomeAssistant, entry: MockConfigEntry) -> list[str]:
@@ -45,7 +52,7 @@ async def test_setup_entry(
     mock_desk.connect.assert_awaited_once()
 
     states = _desk_entity_states(hass, init_integration)
-    assert len(states) == 24
+    assert len(states) == 21
     assert STATE_UNAVAILABLE not in states
 
 
@@ -143,7 +150,7 @@ async def test_setup_retry_succeeds_when_desk_comes_into_range(
 
     assert mock_config_entry.state is ConfigEntryState.LOADED
     states = _desk_entity_states(hass, mock_config_entry)
-    assert len(states) == 24
+    assert len(states) == 21
     assert STATE_UNAVAILABLE not in states
 
 
@@ -313,3 +320,106 @@ async def test_upgrade_keeps_one_device(
     )
     assert [device.id for device in devices] == [existing.id]
     assert devices[0].connections == {(dr.CONNECTION_BLUETOOTH, ADDRESS)}
+
+
+async def test_setup_removes_retired_entities(
+    hass: HomeAssistant,
+    entity_registry: er.EntityRegistry,
+    mock_config_entry: MockConfigEntry,
+    mock_desk: MagicMock,
+) -> None:
+    """Test setup deletes the retired sensors and the Vibration intensity number."""
+    mock_config_entry.add_to_hass(hass)
+    for platform, key in (*RETIRED, (Platform.SENSOR, "height_display")):
+        entity_registry.async_get_or_create(
+            platform,
+            DOMAIN,
+            f"{ADDRESS}_{key}",
+            suggested_object_id=f"standing_desk_{key}",
+            config_entry=mock_config_entry,
+        )
+
+    with patch(
+        "homeassistant.components.bluetooth.async_ble_device_from_address",
+        return_value=MagicMock(address=ADDRESS),
+    ):
+        assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+
+    for platform, key in RETIRED:
+        assert (
+            entity_registry.async_get_entity_id(platform, DOMAIN, f"{ADDRESS}_{key}")
+            is None
+        )
+        assert hass.states.get(f"{platform}.standing_desk_{key}") is None
+    # Every other entity keeps its entity ID
+    assert (
+        entity_registry.async_get_entity_id(
+            Platform.SENSOR, DOMAIN, f"{ADDRESS}_height_display"
+        )
+        == "sensor.standing_desk_height_display"
+    )
+    assert hass.states.get("sensor.standing_desk_height_display") is not None
+
+
+async def test_retired_entities_removed_while_the_desk_is_away(
+    hass: HomeAssistant,
+    entity_registry: er.EntityRegistry,
+    mock_config_entry: MockConfigEntry,
+    mock_desk: MagicMock,
+) -> None:
+    """Test the retired entities go even when the desk is not in range at upgrade."""
+    mock_config_entry.add_to_hass(hass)
+    for platform, key in RETIRED:
+        entity_registry.async_get_or_create(
+            platform, DOMAIN, f"{ADDRESS}_{key}", config_entry=mock_config_entry
+        )
+
+    with patch(
+        "homeassistant.components.bluetooth.async_ble_device_from_address",
+        return_value=None,
+    ):
+        await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert mock_config_entry.state is ConfigEntryState.SETUP_RETRY
+    for platform, key in RETIRED:
+        assert (
+            entity_registry.async_get_entity_id(platform, DOMAIN, f"{ADDRESS}_{key}")
+            is None
+        )
+
+
+async def test_retired_sensor_cleanup_leaves_other_desks_alone(
+    hass: HomeAssistant,
+    entity_registry: er.EntityRegistry,
+    mock_config_entry: MockConfigEntry,
+    mock_desk: MagicMock,
+) -> None:
+    """Test setting up one desk does not delete another desk's registry entries."""
+    # Disabled, so only the first desk is set up
+    other_desk = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="11:22:33:44:55:66",
+        data={"address": "11:22:33:44:55:66"},
+        disabled_by=ConfigEntryDisabler.USER,
+    )
+    other_desk.add_to_hass(hass)
+    entity_registry.async_get_or_create(
+        Platform.SENSOR,
+        DOMAIN,
+        "11:22:33:44:55:66_led_color",
+        config_entry=other_desk,
+    )
+    mock_config_entry.add_to_hass(hass)
+
+    with patch(
+        "homeassistant.components.bluetooth.async_ble_device_from_address",
+        return_value=MagicMock(address=ADDRESS),
+    ):
+        assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert entity_registry.async_get_entity_id(
+        Platform.SENSOR, DOMAIN, "11:22:33:44:55:66_led_color"
+    )

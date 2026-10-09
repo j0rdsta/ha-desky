@@ -79,28 +79,35 @@
       },
       "height_limit_upper": {
         "name": "Upper height limit"
-      },
-      "vibration_intensity": {
-        "name": "Vibration intensity"
       }
     },
     "select": {
       "sensitivity": {
-        "name": "Collision sensitivity"
+        "name": "Collision sensitivity",
+        "state": {
+          "high": "High",
+          "low": "Low",
+          "medium": "Medium"
+        }
       },
       "touch_mode": {
-        "name": "Touch mode"
+        "name": "Touch mode",
+        "state": {
+          "one_press": "One press",
+          "press_and_hold": "Press and hold"
+        }
       },
       "unit": {
-        "name": "Display unit"
+        "name": "Display unit",
+        "state": {
+          "cm": "cm",
+          "in": "in"
+        }
       }
     },
     "sensor": {
       "height_display": {
         "name": "Height display"
-      },
-      "led_color": {
-        "name": "LED color"
       },
       "posture": {
         "name": "Posture",
@@ -114,9 +121,6 @@
       },
       "standing_time_today": {
         "name": "Standing time today"
-      },
-      "vibration_intensity_display": {
-        "name": "Vibration intensity display"
       }
     },
     "switch": {

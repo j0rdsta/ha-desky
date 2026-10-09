@@ -38,10 +38,13 @@ The checksum is the sum of the command, length and data bytes, `& 0xFF`.
 | Get collision sensitivity | `F1 F1 1D 00 1D 7E` |
 | Get lock status | `F1 F1 B2 00 B2 7E` |
 | Get vibration | `F1 F1 B3 00 B3 7E` |
-| Get vibration intensity | `F1 F1 A4 00 A4 7E` |
 | Get light colour | `F1 F1 B4 00 B4 7E` |
 | Get lighting on or off | `F1 F1 B5 00 B5 7E` |
 | Get brightness | `F1 F1 B6 00 B6 7E` |
+
+Versions before 2.0.0 also sent `F1 F1 A4 00 A4 7E` for the vibration intensity. The desk never
+answered it, and the official app neither sends it nor sets the intensity, so it is no longer
+sent.
 
 ### Commands with a value
 
@@ -56,7 +59,6 @@ F1 F1 <command> 01 <value> <checksum> 7E
 | `0x0E` | Display unit | 0 cm, 1 inches |
 | `0x19` | Touch mode | 0 one press, 1 press and hold |
 | `0x1D` | Collision sensitivity | 1 high, 2 medium, 3 low |
-| `0xA4` | Vibration intensity | 0-100 |
 | `0xB2` | Lock | 0 unlocked, 1 locked |
 | `0xB3` | Vibration | 0 off, 1 on |
 | `0xB4` | Light colour | 1-7, see below |
@@ -130,7 +132,6 @@ Setting responses start with `F2 F2 <command> <length>`:
 | `F2 F2 20 01` | Height limits set | `00` none, `01` upper only, `10` lower only, `11` both |
 | `F2 F2 21 02` | Upper limit | Two bytes, big-endian |
 | `F2 F2 22 02` | Lower limit | Two bytes, big-endian |
-| `F2 F2 A4 01` | Vibration intensity | 0-100 |
 | `F2 F2 B2 01` | Lock | 0 unlocked, 1 locked |
 | `F2 F2 B3 01` | Vibration | 0 off, 1 on |
 | `F2 F2 B4 01` | Light colour | 1 white, 2 red, 3 green, 4 blue, 5 yellow, 6 party mode, 7 off |

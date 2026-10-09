@@ -251,9 +251,7 @@ async def test_clear_height_limits(
     )
     await hass.async_block_till_done()
     for entity_id in (UPPER_LIMIT, LOWER_LIMIT):
-        state = hass.states.get(entity_id)
-        assert state.state == "unknown"
-        assert state.attributes["limits_enabled"] is False
+        assert hass.states.get(entity_id).state == "unknown"
 
 
 async def test_target_by_device(

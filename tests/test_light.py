@@ -89,7 +89,6 @@ async def test_light_state(
     assert state.state == STATE_ON
     assert state.attributes[ATTR_BRIGHTNESS] == 128  # 50%
     assert state.attributes[ATTR_EFFECT] == "White"
-    assert state.attributes["color_name"] == "White"
 
 
 async def test_light_effect_list(
@@ -113,13 +112,12 @@ async def test_light_reports_color(
     effect: str,
     color: int,
 ) -> None:
-    """Test each colour the desk reports is shown as an effect and colour name."""
+    """Test each colour the desk reports is shown as an effect."""
     await set_desk_state(hass, init_integration, light_color=color)
 
     state = hass.states.get(ENTITY_ID)
     assert state.state == STATE_ON
     assert state.attributes[ATTR_EFFECT] == effect
-    assert state.attributes["color_name"] == effect
 
 
 @pytest.mark.parametrize(
@@ -147,13 +145,12 @@ async def test_light_on_off_state(
 async def test_light_unknown_color(
     hass: HomeAssistant, init_integration: MockConfigEntry, light_color: int | None
 ) -> None:
-    """Test a missing or unknown colour has no effect and no colour name."""
+    """Test a missing or unknown colour has no effect."""
     await set_desk_state(hass, init_integration, light_color=light_color)
 
     state = hass.states.get(ENTITY_ID)
     assert state.state == STATE_ON
     assert state.attributes[ATTR_EFFECT] is None
-    assert "color_name" not in state.attributes
 
 
 async def test_light_brightness_unknown(
@@ -475,7 +472,6 @@ async def test_light_effect_follows_the_desk_reply(
     await hass.async_block_till_done()
     state = hass.states.get(ENTITY_ID)
     assert state.attributes[ATTR_EFFECT] == "Red"
-    assert state.attributes["color_name"] == "Red"
 
 
 async def test_light_off_by_color_turns_on_with_the_color_reply(
