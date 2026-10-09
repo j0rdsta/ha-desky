@@ -652,10 +652,13 @@ async def test_cancelled_drop_is_closed_before_disconnect_returns(
     await device.connect()
     closing = asyncio.Event()
     closed = asyncio.Event()
+    finished = False
 
     async def _disconnect() -> None:
+        nonlocal finished
         closing.set()
         await closed.wait()
+        finished = True  # await_count also counts a close that was cancelled
 
     mock_bleak_client.disconnect.side_effect = _disconnect
 
@@ -673,6 +676,7 @@ async def test_cancelled_drop_is_closed_before_disconnect_returns(
     closed.set()
     async with asyncio.timeout(1):
         await disconnect
+    assert finished
     mock_bleak_client.disconnect.assert_awaited_once()
     assert device._close_task is None
 
