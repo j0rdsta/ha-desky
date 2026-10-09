@@ -21,7 +21,6 @@ from pytest_homeassistant_custom_component.common import (
     async_fire_time_changed,
 )
 
-from custom_components.desky_desk.bluetooth import DeskCommandError
 from custom_components.desky_desk.const import (
     DOMAIN,
     RECONNECT_BACKOFF_MAX_SECONDS,
@@ -29,6 +28,7 @@ from custom_components.desky_desk.const import (
     UPDATE_INTERVAL_SECONDS,
 )
 from custom_components.desky_desk.coordinator import DeskData, DeskUpdateCoordinator
+from custom_components.desky_desk.errors import DeskCommandError
 
 from . import BluetoothCallbacks, desk_data, disconnect_desk, notify_desk
 

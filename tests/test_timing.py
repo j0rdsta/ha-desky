@@ -14,11 +14,7 @@ from homeassistant.core import HomeAssistant
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.desky_desk.bluetooth import (
-    DeskBLEDevice,
-    DeskCommandError,
-    DeskNotConnectedError,
-)
+from custom_components.desky_desk.bluetooth import DeskBLEDevice
 from custom_components.desky_desk.const import (
     COMMAND_CLEAR_LIMITS,
     COMMAND_GET_BRIGHTNESS,
@@ -39,6 +35,7 @@ from custom_components.desky_desk.const import (
     UNIT_RESPONSE_HEADER,
     HeightLimit,
 )
+from custom_components.desky_desk.errors import DeskCommandError, DeskNotConnectedError
 
 from . import FakeClock, deliver_frame, desk_response, record_frames
 

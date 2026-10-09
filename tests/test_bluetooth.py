@@ -14,8 +14,6 @@ from custom_components.desky_desk.bluetooth import (
     COMMAND_EXPIRY_SECONDS,
     RECENT_NOTIFICATION_HEADERS,
     DeskBLEDevice,
-    DeskCommandError,
-    DeskNotConnectedError,
     _Movement,
 )
 from custom_components.desky_desk.const import (
@@ -48,6 +46,7 @@ from custom_components.desky_desk.const import (
     WRITE_CHARACTERISTIC_UUID,
     HeightLimit,
 )
+from custom_components.desky_desk.errors import DeskCommandError, DeskNotConnectedError
 
 from . import desk_response
 

@@ -16,7 +16,7 @@ import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 import voluptuous as vol
 
-from custom_components.desky_desk.bluetooth import DeskCommandError, round_limit_to_unit
+from custom_components.desky_desk.bluetooth import round_limit_to_unit
 from custom_components.desky_desk.const import (
     COMMAND_GET_LIMITS,
     DOMAIN,
@@ -26,6 +26,7 @@ from custom_components.desky_desk.const import (
     WRITE_CHARACTERISTIC_UUID,
     HeightLimit,
 )
+from custom_components.desky_desk.errors import DeskCommandError
 
 from . import deliver_frame, desk_response, notify_desk, set_desk_state
 

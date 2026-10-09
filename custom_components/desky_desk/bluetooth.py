@@ -68,14 +68,6 @@ from .errors import DeskCommandError, DeskError, DeskNotConnectedError
 from .limits import HeightLimits, LimitValue
 from .sequencer import Clock, Sequencer, Step
 
-__all__ = [
-    "DeskBLEDevice",
-    "DeskCommandError",
-    "DeskError",
-    "DeskNotConnectedError",
-    "round_limit_to_unit",
-]
-
 _LOGGER = logging.getLogger(__name__)
 
 # Connection attempts bleak-retry-connector makes before giving up

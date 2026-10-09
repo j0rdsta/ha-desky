@@ -32,7 +32,6 @@ from pytest_homeassistant_custom_component.common import (
     mock_restore_cache_with_extra_data,
 )
 
-from custom_components.desky_desk.bluetooth import DeskCommandError
 from custom_components.desky_desk.const import (
     BRIGHTNESS_RESPONSE_HEADER,
     DOMAIN,
@@ -40,6 +39,7 @@ from custom_components.desky_desk.const import (
     LIGHTING_RESPONSE_HEADER,
     WRITE_CHARACTERISTIC_UUID,
 )
+from custom_components.desky_desk.errors import DeskCommandError
 from custom_components.desky_desk.light import DeskLight, _nearest_color
 
 from . import deliver_frame, desk_response, set_desk_state

@@ -36,11 +36,8 @@ from homeassistant.exceptions import HomeAssistantError
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.desky_desk.bluetooth import (
-    DeskCommandError,
-    DeskNotConnectedError,
-)
 from custom_components.desky_desk.const import DOMAIN
+from custom_components.desky_desk.errors import DeskCommandError, DeskNotConnectedError
 
 # (domain, service, entity ID, service data, desk method the command calls)
 COMMANDS = [

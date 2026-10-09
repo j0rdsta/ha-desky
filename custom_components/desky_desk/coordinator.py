@@ -26,7 +26,7 @@ from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.typing import UNDEFINED
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
-from .bluetooth import DeskBLEDevice, DeskError
+from .bluetooth import DeskBLEDevice
 from .const import (
     CONF_STANDING_THRESHOLD,
     DEFAULT_STANDING_THRESHOLD,
@@ -36,6 +36,7 @@ from .const import (
     UPDATE_INTERVAL_SECONDS,
     Posture,
 )
+from .errors import DeskError
 from .posture import PostureTracker
 
 _LOGGER = logging.getLogger(__name__)

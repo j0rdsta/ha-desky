@@ -10,9 +10,10 @@ from typing import Any, Concatenate
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .bluetooth import DeskBLEDevice, DeskCommandError, DeskNotConnectedError
+from .bluetooth import DeskBLEDevice
 from .const import DOMAIN
 from .coordinator import DeskUpdateCoordinator
+from .errors import DeskCommandError, DeskNotConnectedError
 
 
 class DeskEntity(CoordinatorEntity[DeskUpdateCoordinator]):
