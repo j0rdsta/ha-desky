@@ -81,7 +81,7 @@ This is a Home Assistant custom integration that follows the standard component 
    - Number entities: Direct height control (60-130cm range), height limits. There is no vibration intensity entity: the desk never answers the `A4` query, and the official app neither sends it nor sets it
    - Button entities: Four preset positions + manual Move Up/Down controls
    - Binary sensor: Collision detection
-   - Light entity: LED strip control with color, brightness, and effects
+   - Light entity: LED strip control with brightness, effects and a colour wheel (`ColorMode.HS`). `hs_color` reports the desk colour (White 0/0, Red 0, Yellow 60, Green 120, Blue 240, saturation 100) and `None` in Party mode; a requested colour snaps with `_nearest_color()` (saturation below 30 is White, otherwise the nearest hue, a tie going to the colour below). An effect wins over a colour
    - Switch entities: Vibration on/off, desk lock
    - Select entities: Collision sensitivity (`high`/`medium`/`low`), touch mode (`one_press`/`press_and_hold`), display unit (`cm`/`in`); states are keys with translated labels
    - Sensor entities: Height display (cm, device class distance), posture, standing/sitting time today
@@ -172,7 +172,7 @@ Additional device features send responses with specific headers:
 
 1. **Light Color Response** (0xF2 0xF2 0xB4 0x01):
    - Values: 1=White, 2=Red, 3=Green, 4=Blue, 5=Yellow, 6=Party mode, 7=Off
-   - 0 also means off: the official app turns the LED off by setting colour 0. `OFF_COLORS` (`const.py`) holds both; the light is off and turning it on restores a colour. The integration never sends 0; it turns the light off with the lighting command (`B5 00`)
+   - 0 also means off: the official app turns the LED off by setting colour 0. `OFF_COLORS` (`const.py`) holds both, and `LIGHT_COLORS` holds only the colours the LED shows, which are the effects; the light is off and turning it on restores a colour. The integration never sends 0; it turns the light off with the lighting command (`B5 00`)
 
 2. **Brightness Response** (0xF2 0xF2 0xB6 0x01):
    - Value: 0-100 (percentage)
