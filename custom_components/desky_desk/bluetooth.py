@@ -897,55 +897,46 @@ class DeskBLEDevice:
         elif len(data) >= 6 and bytes(data[:4]) == LIGHT_COLOR_RESPONSE_HEADER:
             self._light_color = data[4]
             _LOGGER.debug("Light color response: %s", self._light_color)
-            self._notify_callbacks()
 
         # Check for brightness response
         elif len(data) >= 6 and bytes(data[:4]) == BRIGHTNESS_RESPONSE_HEADER:
             self._brightness = data[4]
             _LOGGER.debug("Brightness response: %s", self._brightness)
-            self._notify_callbacks()
 
         # Check for lighting status response
         elif len(data) >= 6 and bytes(data[:4]) == LIGHTING_RESPONSE_HEADER:
             self._lighting_enabled = data[4] != 0
             _LOGGER.debug("Lighting enabled response: %s", self._lighting_enabled)
-            self._notify_callbacks()
 
         # Check for vibration status response
         elif len(data) >= 6 and bytes(data[:4]) == VIBRATION_RESPONSE_HEADER:
             self._vibration_enabled = data[4] != 0
             _LOGGER.debug("Vibration enabled response: %s", self._vibration_enabled)
-            self._notify_callbacks()
 
         # Check for vibration intensity response
         elif len(data) >= 6 and bytes(data[:4]) == VIBRATION_INTENSITY_RESPONSE_HEADER:
             self._vibration_intensity = data[4]
             _LOGGER.debug("Vibration intensity response: %s", self._vibration_intensity)
-            self._notify_callbacks()
 
         # Check for lock status response
         elif len(data) >= 6 and bytes(data[:4]) == LOCK_STATUS_RESPONSE_HEADER:
             self._lock_status = data[4] != 0
             _LOGGER.debug("Lock status response: %s", self._lock_status)
-            self._notify_callbacks()
 
         # Check for sensitivity response
         elif len(data) >= 6 and bytes(data[:4]) == SENSITIVITY_RESPONSE_HEADER:
             self._sensitivity_level = data[4]
             _LOGGER.debug("Sensitivity level response: %s", self._sensitivity_level)
-            self._notify_callbacks()
 
         # Check for display unit response
         elif len(data) >= 6 and bytes(data[:4]) == UNIT_RESPONSE_HEADER:
             self._unit_preference = DISPLAY_UNITS.get(data[4])
             _LOGGER.debug("Display unit response: %s", self._unit_preference)
-            self._notify_callbacks()
 
         # Check for touch mode response
         elif len(data) >= 6 and bytes(data[:4]) == TOUCH_MODE_RESPONSE_HEADER:
             self._touch_mode = data[4] if data[4] in TOUCH_MODES else None
             _LOGGER.debug("Touch mode response: %s", self._touch_mode)
-            self._notify_callbacks()
 
         # Check for upper limit response (in display units, like heights)
         elif len(data) >= 7 and bytes(data[:4]) == LIMIT_UPPER_RESPONSE_HEADER:
@@ -953,7 +944,6 @@ class DeskBLEDevice:
                 (data[4] << 8) | data[5], data
             )
             _LOGGER.debug("Upper limit response: %.1f cm", self._height_limit_upper)
-            self._notify_callbacks()
 
         # Check for lower limit response (in display units, like heights)
         elif len(data) >= 7 and bytes(data[:4]) == LIMIT_LOWER_RESPONSE_HEADER:
@@ -961,7 +951,6 @@ class DeskBLEDevice:
                 (data[4] << 8) | data[5], data
             )
             _LOGGER.debug("Lower limit response: %.1f cm", self._height_limit_lower)
-            self._notify_callbacks()
 
         # Check for limit status response (0xF2 0xF2 0x20 0x01):
         # 0x00 no limits, 0x01 upper only, 0x10 lower only, 0x11 both
@@ -977,10 +966,12 @@ class DeskBLEDevice:
                 "set" if self._height_limit_upper_set else "not set",
                 "set" if self._height_limit_lower_set else "not set",
             )
-            self._notify_callbacks()
 
         else:
             _LOGGER.debug("Unknown notification format: %s", data.hex())
+            return
+
+        self._notify_callbacks()
 
     def _decode_height(self, raw: int, data: bytearray) -> float:
         """Turn a height in tenths of the display unit into centimetres.
@@ -1014,7 +1005,7 @@ class DeskBLEDevice:
         return round(height_cm * 10)
 
     def _process_height(self, height_cm: float) -> None:
-        """Take a new height reading, track the movement in flight and notify."""
+        """Take a new height reading and track the movement in flight."""
         now = time.time()
         previous_height = self._height_cm
         previous_time = self._last_notification_time
@@ -1030,8 +1021,6 @@ class DeskBLEDevice:
                 self._check_movement_start(movement, now)
         elif movement is not None:
             self._track_movement(movement, previous_height, previous_time, now)
-
-        self._notify_callbacks()
 
     def _check_movement_start(self, movement: _Movement, now: float) -> None:
         """Start the movement once the height has left the jitter band."""

@@ -74,7 +74,7 @@ This is a Home Assistant custom integration that follows the standard component 
    - Handshake command (0xFE) must be sent after connection to enable movement
    - Height notifications can have different headers depending on firmware version
    - Height frames carry tenths of the desk's display unit (cm or inches); `_decode_height()` converts them to cm, so everything downstream works in cm (see BLE Notification Formats)
-   - Every reply branch in `_handle_notification()` that stores a value calls `_notify_callbacks()`, so its entities update at once. `set_lock_status()` also notifies after a successful write, because it shows the lock before the reply
+   - `_handle_notification()` notifies the entities after every recognised frame; an unrecognised or truncated frame notifies nothing. `set_lock_status()` also notifies after a successful write, because it shows the lock before the reply
 
 3. **Entity Implementation**:
    - Cover entity: Main control interface (0-100% position mapping) with proper direction tracking

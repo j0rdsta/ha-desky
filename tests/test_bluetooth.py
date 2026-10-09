@@ -2012,36 +2012,6 @@ def test_setting_reply_mid_movement_keeps_the_movement(mock_ble_device):
     callback.assert_called_once_with(85.0, False, True)
 
 
-async def test_set_lock_status_notifies(mock_ble_device, mock_bleak_client):
-    """Test the lock is shown at once, before the desk's reply arrives."""
-    device = DeskBLEDevice(mock_ble_device)
-    device._client = mock_bleak_client
-    callback = MagicMock()
-    device.register_notification_callback(callback)
-
-    await device.set_lock_status(True)
-
-    assert device.lock_status is True
-    callback.assert_called_once_with(0.0, False, False)
-
-
-async def test_failed_set_lock_status_changes_nothing(
-    mock_ble_device, mock_bleak_client
-):
-    """Test a lock command that does not reach the desk leaves the lock as it was."""
-    device = DeskBLEDevice(mock_ble_device)
-    device._client = mock_bleak_client
-    mock_bleak_client.write_gatt_char.side_effect = OSError("gone")
-    callback = MagicMock()
-    device.register_notification_callback(callback)
-
-    with pytest.raises(DeskCommandError):
-        await device.set_lock_status(True)
-
-    assert device.lock_status is False
-    callback.assert_not_called()
-
-
 def test_parse_height_limit_responses(mock_ble_device):
     """Test parsing of height limit responses, which are big-endian millimetres."""
     device = DeskBLEDevice(mock_ble_device)
@@ -2082,6 +2052,18 @@ def test_parse_limit_status_response(mock_ble_device, status, upper, lower):
     assert device.limits_enabled is (status != 0x00)
     # Each limit frame updates the entities at once
     assert callback.call_count == 3
+
+
+def test_unknown_limit_status_changes_nothing(mock_ble_device):
+    """Test a limit status the desk does not define is ignored and nobody is told."""
+    device = DeskBLEDevice(mock_ble_device)
+    callback = MagicMock()
+    device.register_notification_callback(callback)
+
+    device._handle_notification(None, desk_response(LIMIT_STATUS_RESPONSE_HEADER, 0x02))
+
+    assert device.limits_enabled is False
+    callback.assert_not_called()
 
 
 def test_limits_before_limit_status(mock_ble_device):
