@@ -181,7 +181,8 @@ you pick snaps to the nearest one:
   it: 30 is red, 90 yellow, 180 green and 300 blue.
 
 A colour given as RGB, XY or a colour name is converted to a hue and saturation first, so it snaps
-the same way. If you give both an effect and a colour, the effect wins.
+the same way. The desk has one white, so any colour temperature sets **White**. If you give both an
+effect and a colour, the effect wins.
 
 The light reports its colour as the desk's colour, not the one you picked: pick a light blue and it
 shows Blue, hue 240 and saturation 100 %. In Party mode the colours change on their own, so the

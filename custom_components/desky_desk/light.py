@@ -8,6 +8,7 @@ from typing import Any, Self
 
 from homeassistant.components.light import (
     ATTR_BRIGHTNESS,
+    ATTR_COLOR_TEMP_KELVIN,
     ATTR_EFFECT,
     ATTR_HS_COLOR,
     ColorMode,
@@ -110,7 +111,9 @@ class DeskLight(DeskEntity, LightEntity, RestoreEntity):
 
     _attr_translation_key = "desk_light"
     _attr_color_mode = ColorMode.HS
-    _attr_supported_color_modes = {ColorMode.HS}
+    # Colour temperature is supported only so that Home Assistant passes it on
+    # instead of converting it to a hue: the desk has one white
+    _attr_supported_color_modes = {ColorMode.HS, ColorMode.COLOR_TEMP}
     _attr_supported_features = LightEntityFeature.EFFECT
     _attr_effect_list = list(EFFECT_TO_COLOR)
 
@@ -192,6 +195,8 @@ class DeskLight(DeskEntity, LightEntity, RestoreEntity):
         # An effect wins over a colour, which snaps to the nearest desk colour
         if effect is not None:
             await self._async_set_color(EFFECT_TO_COLOR[effect])
+        elif ATTR_COLOR_TEMP_KELVIN in kwargs:
+            await self._async_set_color(COLOR_WHITE)
         elif ATTR_HS_COLOR in kwargs:
             await self._async_set_color(_nearest_color(kwargs[ATTR_HS_COLOR]))
         elif _visible_color(self.coordinator.data.light_color) is None:

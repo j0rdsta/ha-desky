@@ -10,6 +10,7 @@ from homeassistant.components.light import (
     ATTR_BRIGHTNESS_PCT,
     ATTR_COLOR_MODE,
     ATTR_COLOR_NAME,
+    ATTR_COLOR_TEMP_KELVIN,
     ATTR_EFFECT,
     ATTR_EFFECT_LIST,
     ATTR_HS_COLOR,
@@ -218,7 +219,10 @@ async def test_light_reports_hs_color(
 
     state = hass.states.get(ENTITY_ID)
     assert state.state == STATE_ON
-    assert state.attributes[ATTR_SUPPORTED_COLOR_MODES] == [ColorMode.HS]
+    assert state.attributes[ATTR_SUPPORTED_COLOR_MODES] == [
+        ColorMode.COLOR_TEMP,
+        ColorMode.HS,
+    ]
     assert state.attributes[ATTR_COLOR_MODE] == ColorMode.HS
     assert state.attributes[ATTR_HS_COLOR] == hs_color
 
@@ -386,6 +390,11 @@ async def test_light_turn_on_effect(
         ({ATTR_RGB_COLOR: (255, 255, 255)}, 1),
         ({ATTR_COLOR_NAME: "red"}, 2),
         ({ATTR_COLOR_NAME: "purple"}, 4),
+        # The desk has one white, so every colour temperature is White
+        ({ATTR_COLOR_TEMP_KELVIN: 2000}, 1),
+        ({ATTR_COLOR_TEMP_KELVIN: 2700}, 1),
+        ({ATTR_COLOR_TEMP_KELVIN: 4000}, 1),
+        ({ATTR_COLOR_TEMP_KELVIN: 6500}, 1),
     ],
 )
 async def test_light_turn_on_color_snaps(

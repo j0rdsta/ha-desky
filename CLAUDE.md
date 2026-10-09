@@ -81,7 +81,7 @@ This is a Home Assistant custom integration that follows the standard component 
    - Number entities: Direct height control (60-130cm range), height limits. There is no vibration intensity entity: the desk never answers the `A4` query, and the official app neither sends it nor sets it
    - Button entities: Four preset positions + manual Move Up/Down controls
    - Binary sensor: Collision detection
-   - Light entity: LED strip control with brightness, effects and a colour wheel (`ColorMode.HS`). `hs_color` reports the desk colour (White 0/0, Red 0, Yellow 60, Green 120, Blue 240, saturation 100) and `None` in Party mode; a requested colour snaps with `_nearest_color()` (saturation below 30 is White, otherwise the nearest hue, a tie going to the colour below). An effect wins over a colour
+   - Light entity: LED strip control with brightness, effects and a colour wheel (`ColorMode.HS`; `color_mode` is always `hs`). `hs_color` reports the desk colour (White 0/0, Red 0, Yellow 60, Green 120, Blue 240, saturation 100) and `None` in Party mode; a requested colour snaps with `_nearest_color()` (saturation below 30 is White, otherwise the nearest hue, a tie going to the colour below). `ColorMode.COLOR_TEMP` is supported only so HA passes a colour temperature on instead of converting it to a hue (2700 K would snap to red); any kelvin sets White. An effect wins over a colour
    - Switch entities: Vibration on/off, desk lock
    - Select entities: Collision sensitivity (`high`/`medium`/`low`), touch mode (`one_press`/`press_and_hold`), display unit (`cm`/`in`); states are keys with translated labels
    - Sensor entities: Height display (cm, device class distance), posture, standing/sitting time today
