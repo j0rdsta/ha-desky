@@ -1028,3 +1028,28 @@ async def test_disconnect_forgets_the_limits(
     await desk.set_height_limit(HeightLimit.UPPER, 120.0)
 
     assert [frame for _, frame in frames] == [H, UPPER_120, UPPER_120, GET_LIMITS]
+
+
+async def test_stop_waits_at_most_the_write_timeout_behind_a_hung_write(
+    desk: DeskBLEDevice, mock_bleak_client: MagicMock
+) -> None:
+    """A write the desk never confirms fails after the timeout, and the stop follows."""
+    sent: list[str] = []
+
+    async def _write(_uuid: str, data: bytes) -> None:
+        if data == COMMAND_MOVE_UP:
+            await asyncio.Event().wait()  # never confirmed
+        sent.append(bytes(data).hex())
+
+    mock_bleak_client.write_gatt_char.side_effect = _write
+    with patch("custom_components.desky_desk.bluetooth.WRITE_TIMEOUT_SECONDS", 0.01):
+        move = asyncio.create_task(desk.move_up())
+        await asyncio.sleep(0)
+        stop = asyncio.create_task(desk.stop())
+
+        with pytest.raises(DeskCommandError, match="TimeoutError"):
+            await move
+        await stop
+
+    assert sent == [H, STOP, STOP]
+    assert desk._movement is None

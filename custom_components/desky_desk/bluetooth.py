@@ -81,6 +81,12 @@ _LOGGER = logging.getLogger(__name__)
 # Connection attempts bleak-retry-connector makes before giving up
 CONNECT_MAX_ATTEMPTS = 3
 
+# A write the desk has not confirmed in this time fails. Writes take about
+# 70-130 ms through a proxy; without a bound, a hung write would hold up the
+# writes behind it, a stop included, for as long as the Bluetooth stack waits.
+# A cancelled write is waited for less (WRITE_SETTLE_SECONDS in sequencer.py).
+WRITE_TIMEOUT_SECONDS = 5.0
+
 # Headers of this many recent runs of notifications are kept for diagnostics. A
 # run is consecutive frames with the same header: an idle desk streams status
 # frames, which would otherwise push out the replies a bug report needs.
@@ -513,7 +519,8 @@ class DeskBLEDevice:
             raise DeskNotConnectedError("The desk is not connected")
         assert self._client is not None  # guaranteed by is_connected
         try:
-            await self._client.write_gatt_char(WRITE_CHARACTERISTIC_UUID, frame)
+            async with asyncio.timeout(WRITE_TIMEOUT_SECONDS):
+                await self._client.write_gatt_char(WRITE_CHARACTERISTIC_UUID, frame)
         except Exception as err:
             raise DeskCommandError(str(err) or type(err).__name__) from err
 
@@ -557,7 +564,10 @@ class DeskBLEDevice:
         try:
             await self._sequencer.write(COMMAND_HANDSHAKE, frame)
         except DeskError:
-            self._end_movement()
+            # Unless a stop or a newer command has taken over already: ending
+            # the movement would cancel the frames that replaced it
+            if self._movement is movement:
+                self._end_movement()
             raise
         if self._touch_mode == TOUCH_MODE_PRESS_AND_HOLD and self._movement is movement:
             self._sequencer.start_motion(_hold_steps(frame, movement))
