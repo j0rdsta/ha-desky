@@ -4,12 +4,10 @@ from __future__ import annotations
 
 import asyncio
 from collections import deque
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
-from itertools import groupby
 import logging
 import math
-from operator import itemgetter
 import time
 from typing import Any
 
@@ -65,6 +63,16 @@ from .const import (
     WRITE_CHARACTERISTIC_UUID,
     HeightLimit,
 )
+from .errors import DeskCommandError, DeskError, DeskNotConnectedError
+from .sequencer import Clock, Sequencer, Step
+
+__all__ = [
+    "DeskBLEDevice",
+    "DeskCommandError",
+    "DeskError",
+    "DeskNotConnectedError",
+    "round_limit_to_unit",
+]
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -101,9 +109,6 @@ PLAUSIBLE_HEIGHT_CM = (MIN_HEIGHT - 5.0, MAX_HEIGHT + 5.0)
 # The command byte that sets each height limit
 LIMIT_COMMANDS = {HeightLimit.UPPER: 0x21, HeightLimit.LOWER: 0x22}
 
-# A frame and when to write it, in seconds after its sequence starts
-type Step = tuple[float, bytes]
-
 # Frame timing, copied from the official Desky app. Times are seconds after a
 # sequence starts, as the app schedules its writes.
 SWITCH_SETTING_TIMES = (0.2, 0.4)  # lock, vibration, lighting
@@ -128,30 +133,6 @@ def _hold_steps(frame: bytes) -> Iterator[Step]:
     """Repeat a movement frame every 100 ms, up to the 60 s cap."""
     repeats = round(HOLD_REPEAT_MAX_SECONDS / HOLD_REPEAT_INTERVAL)
     return ((n * HOLD_REPEAT_INTERVAL, frame) for n in range(1, repeats + 1))
-
-
-class Clock:
-    """Monotonic time and pauses for timed frames; tests use a virtual one."""
-
-    def time(self) -> float:
-        """Return the monotonic time in seconds."""
-        return time.monotonic()
-
-    async def sleep(self, seconds: float) -> None:
-        """Wait the given number of seconds."""
-        await asyncio.sleep(seconds)
-
-
-class DeskError(Exception):
-    """A command could not be sent to the desk."""
-
-
-class DeskNotConnectedError(DeskError):
-    """The desk is not connected."""
-
-
-class DeskCommandError(DeskError):
-    """Writing a command to the desk failed."""
 
 
 @dataclass(slots=True)
@@ -205,19 +186,18 @@ class DeskBLEDevice:
     """Handle BLE communication with Desky desk."""
 
     def __init__(
-        self, ble_device: BLEDevice, advertisement_data: dict[str, Any] | None = None
+        self,
+        ble_device: BLEDevice,
+        advertisement_data: dict[str, Any] | None = None,
+        *,
+        clock: Clock | None = None,
     ) -> None:
         """Initialize the desk device."""
         self._ble_device = ble_device
         self._advertisement_data = advertisement_data
         self._client: BleakClient | None = None
-        # Commands go out one at a time, so concurrent callers never interleave
-        self._write_lock = asyncio.Lock()
-        self._clock = Clock()
-        # Timed sequences still sending; a disconnect cancels them all
-        self._sequences: set[asyncio.Task[None]] = set()
-        # The sequence sending movement or stop frames; the next command cancels it
-        self._motion_task: asyncio.Task[None] | None = None
+        # Writes go out one at a time; timed sequences pause without blocking them
+        self._sequencer = Sequencer(self._write_frame, clock)
         self._height_cm: float = 0.0
         self._collision_detected: bool = False
         self._collision_time: float | None = None  # When collision was detected
@@ -514,98 +494,29 @@ class DeskBLEDevice:
         # Closing the link ends the notification subscription too
         if client := self._client:
             await self._close(client)
-        sequences = list(self._sequences)
         self._reset_link_state()
         # Let cancelled sequences finish, so none outlives the connection
-        await asyncio.gather(*sequences, return_exceptions=True)
+        await self._sequencer.wait_cancelled()
 
-    async def _write(self, *commands: bytes) -> None:
-        """Write commands to the desk in order, with no other write in between.
-
-        The lock is held only for the writes, never while waiting on
-        notifications, so a stop is never held up behind a running move.
-        """
-        async with self._write_lock:
-            if not self.is_connected:
-                raise DeskNotConnectedError("The desk is not connected")
-            assert self._client is not None  # guaranteed by is_connected
-            for command in commands:
-                try:
-                    await self._client.write_gatt_char(
-                        WRITE_CHARACTERISTIC_UUID, command
-                    )
-                except Exception as err:
-                    raise DeskCommandError(str(err) or type(err).__name__) from err
+    async def _write_frame(self, frame: bytes) -> None:
+        """Write one frame to the desk."""
+        if not self.is_connected:
+            raise DeskNotConnectedError("The desk is not connected")
+        assert self._client is not None  # guaranteed by is_connected
+        try:
+            await self._client.write_gatt_char(WRITE_CHARACTERISTIC_UUID, frame)
+        except Exception as err:
+            raise DeskCommandError(str(err) or type(err).__name__) from err
 
     async def _send_command(self, command: bytes) -> None:
         """Send a command to the desk."""
-        await self._write(command)
-
-    def _start_sequence(
-        self, steps: Iterable[Step], *, motion: bool = False
-    ) -> asyncio.Task[None]:
-        """Start sending a timed sequence in the background."""
-        task = asyncio.create_task(self._send_steps(steps))
-        self._sequences.add(task)
-        task.add_done_callback(self._sequence_done)
-        if motion:
-            self._motion_task = task
-        return task
-
-    def _sequence_done(self, task: asyncio.Task[None]) -> None:
-        """Forget a finished sequence; a failure was already raised or is logged."""
-        self._sequences.discard(task)
-        if self._motion_task is task:
-            self._motion_task = None
-        if not task.cancelled() and (err := task.exception()) is not None:
-            _LOGGER.debug("Timed command sequence ended: %s", err)
-
-    async def _send_steps(self, steps: Iterable[Step]) -> None:
-        """Write each frame at its time, never holding the write lock in a pause.
-
-        Frames due at the same time go out together, so nothing else is written
-        between a handshake and the command it wakes the desk for.
-        """
-        start = self._clock.time()
-        for at, group in groupby(steps, key=itemgetter(0)):
-            wait = start + at - self._clock.time()
-            if wait > 0:
-                await self._clock.sleep(wait)
-            else:
-                # Running late, as after a slow write: move the rest of the
-                # sequence back rather than send its frames in a burst
-                start -= wait
-            await self._write(*(frame for _, frame in group))
-
-    async def _run_sequence(
-        self, steps: Iterable[Step], *, motion: bool = False
-    ) -> None:
-        """Send a timed sequence and wait for it to finish.
-
-        A motion sequence cut short by a stop or a new command returns quietly.
-        A sequence cut short by a disconnect raises DeskNotConnectedError.
-        """
-        task = self._start_sequence(steps, motion=motion)
-        try:
-            await task
-        except asyncio.CancelledError:
-            current = asyncio.current_task()
-            if current is not None and current.cancelling():
-                raise  # the caller itself is being cancelled
-            if not self.is_connected:
-                raise DeskNotConnectedError("The desk disconnected") from None
-
-    def _cancel_motion(self) -> None:
-        """Cancel the movement or stop frames still being sent."""
-        if (task := self._motion_task) is not None:
-            self._motion_task = None
-            task.cancel()
+        await self._sequencer.write(command)
 
     def _begin_movement(
         self, kind: str, direction: str | None, target_height: float | None = None
     ) -> None:
         """Record a movement command; the movement starts once the desk responds."""
-        self._cancel_motion()
+        self._sequencer.cancel_motion()
         self._movement = _Movement(
             kind=kind,
             direction=direction,
@@ -620,7 +531,7 @@ class DeskBLEDevice:
         No later reading is attributed to it.
         """
         self._movement = None
-        self._cancel_motion()
+        self._sequencer.cancel_motion()
 
     async def _start_movement(
         self, frame: bytes, kind: str, direction: str | None
@@ -635,12 +546,12 @@ class DeskBLEDevice:
         self._begin_movement(kind, direction)
         movement = self._movement
         try:
-            await self._write(COMMAND_HANDSHAKE, frame)
+            await self._sequencer.write(COMMAND_HANDSHAKE, frame)
         except DeskError:
             self._end_movement()
             raise
         if self._touch_mode == TOUCH_MODE_PRESS_AND_HOLD and self._movement is movement:
-            self._start_sequence(_hold_steps(frame), motion=True)
+            self._sequencer.start_motion(_hold_steps(frame))
 
     async def move_up(self) -> None:
         """Start moving the desk up."""
@@ -654,7 +565,7 @@ class DeskBLEDevice:
         """Stop desk movement."""
         self._end_movement()
         # Sent at once: a moving desk is awake, and a sleeping one has nothing to stop
-        await self._run_sequence([(at, COMMAND_STOP) for at in STOP_TIMES], motion=True)
+        await self._sequencer.run_motion([(at, COMMAND_STOP) for at in STOP_TIMES])
 
     async def get_status(self) -> None:
         """Request current desk status."""
@@ -666,7 +577,7 @@ class DeskBLEDevice:
         The desk sends its settings block for a status request that follows a
         handshake; it has no query for a single setting.
         """
-        await self._write(COMMAND_HANDSHAKE, COMMAND_GET_STATUS)
+        await self._sequencer.write(COMMAND_HANDSHAKE, COMMAND_GET_STATUS)
 
     async def move_to_preset(self, preset: int) -> None:
         """Move desk to a preset position (1-4)."""
@@ -686,7 +597,7 @@ class DeskBLEDevice:
 
     async def _send_setting(self, frame: bytes, times: tuple[float, ...]) -> None:
         """Wake the desk with the handshake, then send a setting at the app's times."""
-        await self._run_sequence(
+        await self._sequencer.run_setting(
             [(0.0, COMMAND_HANDSHAKE), *((at, frame) for at in times)]
         )
 
@@ -740,13 +651,12 @@ class DeskBLEDevice:
         self._begin_movement("targeted", direction, height_cm)
         # As the app: wake, stop whatever is moving, then the target twice
         try:
-            await self._run_sequence(
+            await self._sequencer.run_motion(
                 [
                     (0.0, COMMAND_HANDSHAKE),
                     (0.0, COMMAND_STOP),
                     *((at, command) for at in MOVE_TO_HEIGHT_TIMES),
-                ],
-                motion=True,
+                ]
             )
         except DeskError:
             self._end_movement()
@@ -821,7 +731,7 @@ class DeskBLEDevice:
         await self._send_setting(command, MODE_SETTING_TIMES)
         # The desk takes a moment to apply it, so the settings block asked for
         # next only reports the new level after this pause, as in the app
-        await self._clock.sleep(SENSITIVITY_READ_BACK_DELAY)
+        await self._sequencer.pause(SENSITIVITY_READ_BACK_DELAY)
 
     async def set_touch_mode(self, mode: int) -> None:
         """Set touch mode (0=One press, 1=Press and hold)."""
@@ -869,7 +779,7 @@ class DeskBLEDevice:
                     LIMIT_COMMANDS[each], self._encode_height(value)
                 )
                 frames += [frame] * 2
-        await self._run_sequence(
+        await self._sequencer.run_setting(
             [
                 (0.0, COMMAND_HANDSHAKE),
                 *((n * SET_LIMITS_SPACING, frame) for n, frame in enumerate(frames)),
@@ -898,7 +808,7 @@ class DeskBLEDevice:
             COMMAND_GET_LOCK_STATUS,
             COMMAND_GET_LIMITS,
         ]
-        await self._run_sequence(
+        await self._sequencer.run_setting(
             [
                 (0.0, COMMAND_HANDSHAKE),
                 (0.0, COMMAND_GET_STATUS),
@@ -1535,8 +1445,7 @@ class DeskBLEDevice:
         # The movement ends with the connection, and a collision from before the
         # drop is not shown again after reconnecting
         self._end_movement()
-        for task in list(self._sequences):
-            task.cancel()
+        self._sequencer.cancel_all()
         self._set_collision_detected(False)
 
         # Settings can change on the hand controller while disconnected, so they

@@ -28,10 +28,12 @@ from . import BluetoothCallbacks, FakeClock, desk_data
 def clock() -> Generator[FakeClock]:
     """Run the desk's frame timing on a virtual clock that passes pauses at once.
 
-    Set `clock.auto = False` to hold each pause until `clock.advance()`.
+    A desk built by a test can take it as `clock=`; the patch covers the desks
+    the integration builds itself. Set `clock.auto = False` to hold each pause
+    until `clock.advance()`.
     """
     fake = FakeClock()
-    with patch("custom_components.desky_desk.bluetooth.Clock", return_value=fake):
+    with patch("custom_components.desky_desk.sequencer.Clock", return_value=fake):
         yield fake
 
 
