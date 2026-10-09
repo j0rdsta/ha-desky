@@ -102,8 +102,9 @@ frame of the command.
 | Clear height limits | Handshake, then clear at 0 and 200 ms, then the limit query |
 | Set a height limit | Handshake, then clear, upper limit and lower limit, each twice, 50 ms apart, then the limit query |
 | Stop | Stop at 0 and 50 ms |
-| Move to height | Handshake and stop, then the target at 200 ms and 300 ms |
-| Move up, move down, presets | Handshake and the command. In press-and-hold touch mode, the command again every 100 ms |
+| Move to height | Handshake and stop, then the target at 200 ms and 300 ms. In press-and-hold touch mode, the target again every 100 ms until the desk is there |
+| Move up, move down | Handshake and the command, then the command again every 100 ms |
+| Presets | Handshake and the command. In press-and-hold touch mode, the command again every 100 ms |
 | Connecting | Handshake and status, then each settings query 200 ms apart |
 
 - The app sends colour, brightness, unit and limits without a handshake. The integration keeps
@@ -119,15 +120,25 @@ frame of the command.
   which limits are set and their values, nothing is cleared, so no limit is lost; a looser limit
   then needs another try once the desk has reported them. Limit changes go out one at a time,
   and the limits just sent count as known at once, so two changes in a row keep each other.
-- **Press-and-hold touch mode.** The desk moves only while the command keeps arriving, so the
-  integration repeats it every 100 ms. The repeats end when you stop the desk, when it stops
+- **Held commands.** Move up and Move down are held buttons in every touch mode, as in the app:
+  one command only nudges the desk, about 0.8 cm. In press-and-hold touch mode, presets and move
+  to height are held too: one command only nudges the desk there. The integration holds a
+  command by repeating it every 100 ms. The repeats end when you stop the desk, when it stops
   moving (three readings in a row at the same height), on a collision, when it has not moved
-  within 5 seconds, on a disconnect, or after 60 seconds. A move to height is not repeated. In
-  one-press mode, or while the touch mode is unknown, the command is sent once.
+  within 5 seconds, on a new command, on a disconnect, or after 60 seconds. A move to height
+  also stops repeating once the desk is within 0.5 cm of the target. In one-press mode, or while
+  the touch mode is unknown, a preset or a move to height is sent as in the table, and one
+  preset command runs the desk all the way.
+- **Repeats are not confirmed.** The desk takes a held command as released as soon as the
+  repeats arrive unevenly. Waiting for each write's confirmation through a Bluetooth proxy takes
+  70-700 ms, which made a held preset stop part way. So the repeats go out without waiting for
+  confirmation, evenly 100 ms apart, as the app writes them. The first command, the stops and
+  every setting still wait for it. While a command is held, the 30-second status poll sends
+  nothing, so it cannot hold up the repeats.
 - A pause never holds up a stop. A stop, a new movement command or a disconnect cancels the
   movement frames still due. A disconnect also cancels any setting still being sent.
-- Each write waits for the desk to confirm it, so a write that fails shows as an error. If a
-  write is slow, the frames after it move later and keep their spacing. Through a Bluetooth proxy
+- Every other write waits for the desk to confirm it, so a write that fails shows as an error.
+  If a write is slow, the frames after it move later and keep their spacing. Through a Bluetooth proxy
   a write takes about 70-130 ms, so frames 50 ms apart come out about 90 ms apart.
 - A write already on its way to the desk is never cut off: a stop waits for it to finish, since
   the Bluetooth stack rejects a write while another is in progress. A write the desk has not

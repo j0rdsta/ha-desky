@@ -40,7 +40,9 @@ a second of powering up ignores the settings request sent while connecting. If t
 touch mode or collision sensitivity is still unknown at the first poll after a connection, that
 poll asks for the settings again. It asks only once per connection, because asking wakes the display.
 
-A poll while the desk is disconnected sends nothing and is not reported as an error.
+A poll while the desk is disconnected sends nothing and is not reported as an error. A poll while
+a movement command is being held (repeated) sends nothing either, so it cannot hold up the repeats;
+the moving desk reports its height anyway.
 
 ## Connection loss and reconnecting
 

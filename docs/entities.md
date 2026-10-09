@@ -66,19 +66,22 @@ The main control, named after the desk.
 The desk's current height in centimetres, to 0.1 cm, from 60 to 130 cm. Setting a value moves
 the desk to that height. A height outside the desk's limits fails with an error, and the desk
 does not move. To move to a height in an automation, you can also use the
-[`move_to_height` action](actions.md#move-to-height).
+[`move_to_height` action](actions.md#move-to-height). In press-and-hold touch mode the target
+repeats until the desk gets there.
 
 ### Presets 1 to 4
 
 Moves the desk to the height saved in that preset. Presets are saved on the hand controller; the
-integration can only recall them. In press-and-hold touch mode the command repeats until the desk
-stops or you press stop.
+integration can only recall them. In one-press touch mode one command takes the desk all the
+way. In press-and-hold touch mode the integration holds the button: the command repeats until the
+desk arrives or you press stop.
 
 ### Move up and Move down
 
 Starts the desk moving up or down, the same as opening or closing the cover. Stop it with the
-cover's stop. The buttons stay available whatever the cover's state. In press-and-hold touch mode
-the command repeats until the desk stops or you press stop.
+cover's stop. The buttons stay available whatever the cover's state. In every touch mode the
+integration holds the button, as the official app does: the command repeats until you press stop,
+the desk reaches the end of its travel, or 60 seconds pass.
 
 ### Collision detected
 
@@ -166,8 +169,9 @@ the desk reports the new value.
 The hand controller's touch mode: **One press** or **Press and hold**. The states are `one_press`
 and `press_and_hold`. Use these values in automations. The desk does not confirm the change, so
 the integration asks for its settings again after changing it. In **Press and hold** mode the desk
-moves only while a command keeps arriving, so the integration repeats the movement and preset
-commands every 100 ms (see [Command timing](protocol.md#command-timing)).
+moves to a preset or a height only while the command keeps arriving, so the integration repeats
+those commands every 100 ms (see [Command timing](protocol.md#command-timing)). Move up and Move
+down repeat in both modes.
 
 ### Display unit
 
