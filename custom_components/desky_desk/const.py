@@ -133,8 +133,3 @@ TOUCH_MODE_PRESS_AND_HOLD: Final = 1
 
 # Display units, as reported in the unit response
 DISPLAY_UNITS: Final = {0: "cm", 1: "in"}
-
-
-def height_known(height_cm: float) -> bool:
-    """Return whether a height is a reading; 0 stands in until the desk reports one."""
-    return height_cm > 0

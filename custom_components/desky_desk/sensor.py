@@ -25,7 +25,8 @@ from homeassistant.helpers.event import (
 from homeassistant.helpers.typing import StateType
 from homeassistant.util import dt as dt_util
 
-from .const import Posture, height_known
+from .bluetooth import height_known
+from .const import Posture
 from .coordinator import DeskData, DeskUpdateCoordinator, DeskyConfigEntry
 from .entity import DeskEntity
 

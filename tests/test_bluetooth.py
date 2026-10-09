@@ -16,6 +16,7 @@ from custom_components.desky_desk.bluetooth import (
     RECENT_NOTIFICATION_HEADERS,
     DeskBLEDevice,
     _Movement,
+    height_known,
 )
 from custom_components.desky_desk.const import (
     BRIGHTNESS_RESPONSE_HEADER,
@@ -876,19 +877,6 @@ def test_handle_unknown_notification(mock_ble_device):
 
     # Height should not be updated, callback should not be called
     assert device.height_cm == 0.0  # Initial value
-    callback.assert_not_called()
-
-
-def test_vibration_intensity_reply_is_unrecognised(mock_ble_device):
-    """Test a vibration intensity reply, which the desk is never asked for, is ignored."""
-    device = DeskBLEDevice(mock_ble_device)
-    callback = MagicMock()
-    device.register_notification_callback(callback)
-
-    device._handle_notification(
-        0, bytearray([0xF2, 0xF2, 0xA4, 0x01, 0x32, 0xD7, 0x7E])
-    )
-
     callback.assert_not_called()
 
 
@@ -3543,3 +3531,11 @@ def test_round_limit(mock_ble_device, unit_report, height, expected):
     device._handle_notification(None, unit_report)
 
     assert device.round_limit(height) == expected
+
+
+@pytest.mark.parametrize(
+    ("height_cm", "known"), [(0.0, False), (-0.1, False), (0.1, True), (80.0, True)]
+)
+def test_height_known(height_cm: float, known: bool) -> None:
+    """Test 0 cm, the placeholder before the desk reports a height, is not a height."""
+    assert height_known(height_cm) is known

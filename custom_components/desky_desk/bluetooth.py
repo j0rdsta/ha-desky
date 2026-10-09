@@ -216,6 +216,11 @@ def _plausible(height_cm: float) -> bool:
     return low <= height_cm <= high
 
 
+def height_known(height_cm: float) -> bool:
+    """Return whether a height is a reading; 0 stands in until the desk reports one."""
+    return height_cm > 0
+
+
 class DeskBLEDevice:
     """Handle BLE communication with Desky desk."""
 

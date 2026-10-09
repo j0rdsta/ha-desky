@@ -17,7 +17,6 @@ from custom_components.desky_desk.const import (
     CONF_STANDING_THRESHOLD,
     POSTURE_SETTLE_SECONDS,
     Posture,
-    height_known,
 )
 
 from . import disconnect_desk, notify_desk
@@ -225,11 +224,3 @@ async def test_unload_cancels_a_pending_posture_check(
     await _settle(hass, freezer)
 
     assert coordinator.data.posture is None
-
-
-@pytest.mark.parametrize(
-    ("height_cm", "known"), [(0.0, False), (-0.1, False), (0.1, True), (80.0, True)]
-)
-def test_height_known(height_cm: float, known: bool) -> None:
-    """Test 0 cm, the placeholder before the desk reports a height, is not a height."""
-    assert height_known(height_cm) is known
