@@ -30,6 +30,8 @@ HACS tells you when a new release is available. Releases are listed on the
 To update a manual installation, replace the `desky_desk` folder with the one from the new
 release and restart Home Assistant.
 
+The integration's icon appears from Home Assistant 2026.3.
+
 ## Next step
 
 [Add the desk to Home Assistant](configuration.md).
