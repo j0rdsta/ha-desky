@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from functools import partial
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, call
 
 from homeassistant.config_entries import ConfigEntryDisabler
 from homeassistant.const import ATTR_DEVICE_ID, ATTR_ENTITY_ID
@@ -15,10 +16,18 @@ import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 import voluptuous as vol
 
-from custom_components.desky_desk.bluetooth import DeskCommandError
-from custom_components.desky_desk.const import DOMAIN, HeightLimit
+from custom_components.desky_desk.bluetooth import DeskCommandError, round_limit_to_unit
+from custom_components.desky_desk.const import (
+    COMMAND_GET_LIMITS,
+    DOMAIN,
+    LIMIT_RANGE_CM,
+    LIMIT_STATUS_RESPONSE_HEADER,
+    LIMIT_UPPER_RESPONSE_HEADER,
+    WRITE_CHARACTERISTIC_UUID,
+    HeightLimit,
+)
 
-from . import notify_desk, set_desk_state
+from . import deliver_frame, desk_response, notify_desk, set_desk_state
 
 COVER = "cover.desky_desk"
 UPPER_LIMIT = "number.desky_desk_upper_height_limit"
@@ -27,7 +36,7 @@ LOWER_LIMIT = "number.desky_desk_lower_height_limit"
 # (action, data, desk method the action calls)
 ACTIONS = [
     ("move_to_height", {"height": 100}, "move_to_height"),
-    ("set_height_limit", {"limit": "upper", "height": 125}, "set_height_limit"),
+    ("set_height_limit", {"limit": "upper", "height": 124}, "set_height_limit"),
     ("clear_height_limits", {}, "clear_height_limits"),
 ]
 COMMANDS = (
@@ -223,15 +232,90 @@ async def test_inverted_height_limit_rejected(
     _assert_nothing_sent(mock_desk)
 
 
+@pytest.mark.parametrize(
+    ("unit", "height", "sent", "low", "high"),
+    [
+        ("cm", 125, "125.0", "60.0", "124.0"),
+        ("cm", 127, "127.0", "60.0", "124.0"),
+        ("cm", 59, "59.0", "60.0", "124.0"),
+        # Rounded to a whole centimetre first
+        ("cm", 124.5, "125.0", "60.0", "124.0"),
+        # 24-48 in: 123.3 cm is 48.5 in, sent as 49 in; 59 cm as 23 in
+        ("in", 123.3, "124.5", "61.0", "121.9"),
+        ("in", 59, "58.4", "61.0", "121.9"),
+    ],
+)
 async def test_height_limit_out_of_range(
-    hass: HomeAssistant, init_integration: MockConfigEntry, mock_desk: MagicMock
+    hass: HomeAssistant,
+    init_integration: MockConfigEntry,
+    mock_desk: MagicMock,
+    unit: str,
+    height: float,
+    sent: str,
+    low: str,
+    high: str,
 ) -> None:
-    """Test a limit outside 60-130 cm is rejected."""
+    """Test a limit outside 60-124 cm, or 24-48 in on an inch desk, is rejected."""
+    mock_desk.round_limit.side_effect = partial(round_limit_to_unit, unit=unit)
+    await set_desk_state(
+        hass,
+        init_integration,
+        limit_range=LIMIT_RANGE_CM[unit],
+        height_limit_upper=None,
+        height_limit_lower=None,
+    )
+
     with pytest.raises(ServiceValidationError) as err:
-        await _call(hass, "set_height_limit", {"limit": "upper", "height": 135})
+        await _call(hass, "set_height_limit", {"limit": "upper", "height": height})
 
     assert err.value.translation_key == "limit_out_of_range"
+    assert err.value.translation_placeholders == {
+        "height": sent,
+        "min": low,
+        "max": high,
+    }
+    assert str(err.value) == (
+        f"{sent} cm is outside the range a limit can be set to, {low}-{high} cm"
+    )
     _assert_nothing_sent(mock_desk)
+
+
+@pytest.mark.parametrize(
+    ("unit", "limit", "height", "sent"),
+    [
+        ("cm", "upper", 124.0, 124.0),
+        ("cm", "upper", 124.4, 124.0),
+        ("cm", "lower", 60.0, 60.0),
+        ("cm", "lower", 59.5, 60.0),
+        # 48 in and 24 in
+        ("in", "upper", 121.9, 121.9),
+        ("in", "upper", 122.0, 121.9),
+        ("in", "lower", 61.0, 61.0),
+        ("in", "lower", 60.0, 61.0),
+    ],
+)
+async def test_height_limit_at_the_end_of_the_range(
+    hass: HomeAssistant,
+    init_integration: MockConfigEntry,
+    mock_desk: MagicMock,
+    unit: str,
+    limit: str,
+    height: float,
+    sent: float,
+) -> None:
+    """Test a limit that rounds to either end of the range is sent, rounded."""
+    mock_desk.round_limit.side_effect = partial(round_limit_to_unit, unit=unit)
+    await set_desk_state(
+        hass,
+        init_integration,
+        limit_range=LIMIT_RANGE_CM[unit],
+        height_limit_upper=None,
+        height_limit_lower=None,
+    )
+
+    await _call(hass, "set_height_limit", {"limit": limit, "height": height})
+
+    mock_desk.set_height_limit.assert_awaited_once_with(HeightLimit(limit), sent)
 
 
 async def test_clear_height_limits(
@@ -341,3 +425,93 @@ async def test_action_write_fails(
     assert err.value.translation_placeholders == {"error": "write failed"}
     mock_desk.get_limits.assert_not_awaited()
     assert {s.entity_id: s.state for s in hass.states.async_all()} == before
+
+
+async def test_upper_limit_reads_back_exactly(
+    hass: HomeAssistant, desk_client: MagicMock
+) -> None:
+    """Test an upper limit of 124 cm shows 124.0 cm, though the desk reports 1239."""
+    await _call(hass, "set_height_limit", {"limit": "upper", "height": 124})
+
+    # 1240 = 0x04D8; checksum (0x21 + 0x02 + 0x04 + 0xD8) & 0xFF = 0xFF
+    assert desk_client.write_gatt_char.call_args_list[-2:] == [
+        call(WRITE_CHARACTERISTIC_UUID, bytes.fromhex("f1f1210204d8ff7e")),
+        call(WRITE_CHARACTERISTIC_UUID, COMMAND_GET_LIMITS),
+    ]
+
+    # The desk answers the limit query: upper set, at 1239 tenths of a cm
+    deliver_frame(desk_client, desk_response(LIMIT_STATUS_RESPONSE_HEADER, 0x01))
+    deliver_frame(desk_client, desk_response(LIMIT_UPPER_RESPONSE_HEADER, 0x04, 0xD7))
+    await hass.async_block_till_done()
+
+    assert hass.states.get(UPPER_LIMIT).state == "124.0"
+
+
+async def test_limit_range_follows_the_unit_the_heights_arrive_in(
+    hass: HomeAssistant, desk_client: MagicMock
+) -> None:
+    """Test an inch desk that has not reported its unit gets the inch range.
+
+    A desk connected just after power-up reports its unit only at the next
+    poll, but its heights already show it uses inches, and a limit is sent in
+    inches. 124 cm is 48.8 in, which rounds to 49 in, so it is refused.
+    """
+    # 27.4 in, which is 69.6 cm
+    deliver_frame(desk_client, bytearray.fromhex("f2f201030112071e7e"))
+    await hass.async_block_till_done()
+    writes_before = len(desk_client.write_gatt_char.call_args_list)
+
+    with pytest.raises(ServiceValidationError) as err:
+        await _call(hass, "set_height_limit", {"limit": "upper", "height": 124})
+
+    assert err.value.translation_key == "limit_out_of_range"
+    assert err.value.translation_placeholders == {
+        "height": "124.5",
+        "min": "61.0",
+        "max": "121.9",
+    }
+    assert len(desk_client.write_gatt_char.call_args_list) == writes_before
+
+
+@pytest.mark.parametrize(
+    ("frames", "height", "sent", "reply", "shown"),
+    [
+        # cm: 110.2 cm is sent as 110 cm, reported as 1099
+        ([], 110.2, "f1f12102044c737e", (0x04, 0x4B), "110.0"),
+        # inches (heights at 27.4 in): 74 cm is sent as 29 in, reported as 289
+        (
+            ["f2f201030112071e7e"],
+            74,
+            "f1f121020122467e",
+            (0x01, 0x21),
+            "73.7",
+        ),
+    ],
+    ids=["cm", "inches"],
+)
+async def test_limit_is_set_in_whole_units(
+    hass: HomeAssistant,
+    desk_client: MagicMock,
+    frames: list[str],
+    height: float,
+    sent: str,
+    reply: tuple[int, int],
+    shown: str,
+) -> None:
+    """Test a limit is sent in whole units and shows what the desk stores."""
+    for frame in frames:
+        deliver_frame(desk_client, bytearray.fromhex(frame))
+    await hass.async_block_till_done()
+
+    await _call(hass, "set_height_limit", {"limit": "upper", "height": height})
+
+    assert desk_client.write_gatt_char.call_args_list[-2:] == [
+        call(WRITE_CHARACTERISTIC_UUID, bytes.fromhex(sent)),
+        call(WRITE_CHARACTERISTIC_UUID, COMMAND_GET_LIMITS),
+    ]
+
+    deliver_frame(desk_client, desk_response(LIMIT_STATUS_RESPONSE_HEADER, 0x01))
+    deliver_frame(desk_client, desk_response(LIMIT_UPPER_RESPONSE_HEADER, *reply))
+    await hass.async_block_till_done()
+
+    assert hass.states.get(UPPER_LIMIT).state == shown

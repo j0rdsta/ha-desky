@@ -44,6 +44,10 @@
       'is_moving': False,
       'light_color': 1,
       'lighting_enabled': True,
+      'limit_range': list([
+        60.0,
+        124.0,
+      ]),
       'limits_enabled': True,
       'lock_status': False,
       'movement_direction': None,
@@ -101,6 +105,10 @@
       'is_moving': False,
       'light_color': 1,
       'lighting_enabled': True,
+      'limit_range': list([
+        60.0,
+        124.0,
+      ]),
       'limits_enabled': True,
       'lock_status': False,
       'movement_direction': None,

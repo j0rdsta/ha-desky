@@ -16,7 +16,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .const import MAX_HEIGHT, MIN_HEIGHT, HeightLimit
 from .coordinator import DeskUpdateCoordinator, DeskyConfigEntry
 from .entity import DeskEntity, desk_command
-from .validation import validate_height_limit, validate_move_to_height
+from .validation import checked_height_limit, validate_move_to_height
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -29,8 +29,6 @@ HEIGHT_LIMIT_DESCRIPTIONS = {
         key="height_limit_upper",
         translation_key="height_limit_upper",
         native_unit_of_measurement=UnitOfLength.CENTIMETERS,
-        native_min_value=MIN_HEIGHT,
-        native_max_value=MAX_HEIGHT,
         native_step=1.0,
         mode=NumberMode.BOX,
         entity_category=EntityCategory.CONFIG,
@@ -39,8 +37,6 @@ HEIGHT_LIMIT_DESCRIPTIONS = {
         key="height_limit_lower",
         translation_key="height_limit_lower",
         native_unit_of_measurement=UnitOfLength.CENTIMETERS,
-        native_min_value=MIN_HEIGHT,
-        native_max_value=MAX_HEIGHT,
         native_step=1.0,
         mode=NumberMode.BOX,
         entity_category=EntityCategory.CONFIG,
@@ -104,6 +100,16 @@ class DeskHeightLimitNumber(DeskEntity, NumberEntity):
         self._limit = limit
 
     @property
+    def native_min_value(self) -> float:
+        """Return the lowest limit the desk accepts in its display unit, in cm."""
+        return self.coordinator.data.limit_range[0]
+
+    @property
+    def native_max_value(self) -> float:
+        """Return the highest limit the desk accepts in its display unit, in cm."""
+        return self.coordinator.data.limit_range[1]
+
+    @property
     def native_value(self) -> float | None:
         """Return the limit in cm, or None if it is not set."""
         data = self.coordinator.data
@@ -114,6 +120,8 @@ class DeskHeightLimitNumber(DeskEntity, NumberEntity):
     @desk_command
     async def async_set_native_value(self, value: float) -> None:
         """Set the limit, then show the limits the desk reports."""
-        validate_height_limit(self.coordinator.data, self._limit, value)
+        value = checked_height_limit(
+            self.coordinator.data, self._device, self._limit, value
+        )
         await self._device.set_height_limit(self._limit, value)
         await self._device.get_limits()

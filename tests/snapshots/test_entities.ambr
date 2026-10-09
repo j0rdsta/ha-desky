@@ -174,7 +174,7 @@
     'number.desky_desk_lower_height_limit': dict({
       'attributes': dict({
         'friendly_name': 'Desky Desk Lower height limit',
-        'max': 130.0,
+        'max': 124.0,
         'min': 60.0,
         'mode': 'box',
         'step': 1.0,
@@ -192,7 +192,7 @@
     'number.desky_desk_upper_height_limit': dict({
       'attributes': dict({
         'friendly_name': 'Desky Desk Upper height limit',
-        'max': 130.0,
+        'max': 124.0,
         'min': 60.0,
         'mode': 'box',
         'step': 1.0,

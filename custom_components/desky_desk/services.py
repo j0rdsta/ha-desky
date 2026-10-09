@@ -12,7 +12,7 @@ import voluptuous as vol
 from .const import DOMAIN, HeightLimit
 from .coordinator import DeskUpdateCoordinator, DeskyConfigEntry
 from .entity import translate_desk_errors
-from .validation import validate_height_limit, validate_move_to_height
+from .validation import checked_height_limit, validate_move_to_height
 
 SERVICE_MOVE_TO_HEIGHT = "move_to_height"
 SERVICE_SET_HEIGHT_LIMIT = "set_height_limit"
@@ -88,14 +88,18 @@ async def _async_set_height_limit(call: ServiceCall) -> None:
     """Set the upper or lower height limit of the targeted desks."""
     limit: HeightLimit = call.data[ATTR_LIMIT]
     height: float = call.data[ATTR_HEIGHT]
-    desks = await _async_get_desks(call)
     # Check every desk before sending to any
-    for coordinator in desks:
-        validate_height_limit(coordinator.data, limit, height)
-    for coordinator in desks:
+    limits = [
+        (
+            coordinator,
+            checked_height_limit(coordinator.data, coordinator.device, limit, height),
+        )
+        for coordinator in await _async_get_desks(call)
+    ]
+    for coordinator, rounded in limits:
         device = coordinator.device
         with translate_desk_errors():
-            await device.set_height_limit(limit, height)
+            await device.set_height_limit(limit, rounded)
             # The desk may adjust the limit, so show what it reports
             await device.get_limits()
 

@@ -34,6 +34,7 @@ CONNECTED_DESK = DeskData(
     limits_enabled=True,
     touch_mode=0,  # One press
     unit_preference="cm",
+    limit_range=(60.0, 124.0),
     manufacturer_name="Test Manufacturer",
     model_number="Test Model",
     serial_number="TEST123456",

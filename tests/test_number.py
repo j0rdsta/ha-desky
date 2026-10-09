@@ -29,6 +29,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.desky_desk.const import (
     DOMAIN,
+    LIMIT_RANGE_CM,
     MAX_HEIGHT,
     MIN_HEIGHT,
     HeightLimit,
@@ -133,8 +134,8 @@ async def test_desk_number_state(
 @pytest.mark.parametrize(
     ("entity_id", "minimum", "maximum"),
     [
-        (UPPER_LIMIT, MIN_HEIGHT, MAX_HEIGHT),
-        (LOWER_LIMIT, MIN_HEIGHT, MAX_HEIGHT),
+        (UPPER_LIMIT, *LIMIT_RANGE_CM["cm"]),
+        (LOWER_LIMIT, *LIMIT_RANGE_CM["cm"]),
     ],
 )
 async def test_desk_number_range(
@@ -144,10 +145,35 @@ async def test_desk_number_range(
     minimum: float,
     maximum: float,
 ) -> None:
-    """Test the setting numbers expose the range the desk accepts."""
+    """Test the limit numbers expose the range the desk accepts, 60-124 cm."""
     state = hass.states.get(entity_id)
     assert state.attributes[ATTR_MIN] == minimum
     assert state.attributes[ATTR_MAX] == maximum
+
+
+@pytest.mark.parametrize("entity_id", [UPPER_LIMIT, LOWER_LIMIT])
+async def test_limit_number_range_in_inches(
+    hass: HomeAssistant, init_integration: MockConfigEntry, entity_id: str
+) -> None:
+    """Test a desk showing inches accepts 24-48 in, shown as 61.0-121.9 cm."""
+    await set_desk_state(hass, init_integration, limit_range=LIMIT_RANGE_CM["in"])
+
+    state = hass.states.get(entity_id)
+    assert state.attributes[ATTR_MIN] == 61.0
+    assert state.attributes[ATTR_MAX] == 121.9
+
+
+async def test_limit_number_above_the_range_rejected(
+    hass: HomeAssistant, init_integration: MockConfigEntry, mock_desk: MagicMock
+) -> None:
+    """Test Home Assistant refuses an upper limit above 124 cm before it is sent."""
+    mock_desk.reset_mock()
+
+    with pytest.raises(ServiceValidationError) as err:
+        await _set_value(hass, UPPER_LIMIT, 125.0)
+
+    assert err.value.translation_key == "out_of_range"
+    assert mock_desk.method_calls == []
 
 
 @pytest.mark.parametrize(
@@ -155,14 +181,22 @@ async def test_desk_number_range(
     [
         (
             UPPER_LIMIT,
-            125.0,
+            124.0,
             "set_height_limit",
-            (HeightLimit.UPPER, 125.0),
+            (HeightLimit.UPPER, 124.0),
             "get_limits",
         ),
         (
             LOWER_LIMIT,
             70.0,
+            "set_height_limit",
+            (HeightLimit.LOWER, 70.0),
+            "get_limits",
+        ),
+        # Sent in whole centimetres, as the desk stores limits
+        (
+            LOWER_LIMIT,
+            70.4,
             "set_height_limit",
             (HeightLimit.LOWER, 70.0),
             "get_limits",
@@ -203,6 +237,14 @@ async def test_set_desk_number(
             "70.0",
             "The upper limit of 65.0 cm must be above the lower limit of 70.0 cm",
         ),
+        # Rounded to 70 cm first, so it is not above the lower limit
+        (
+            UPPER_LIMIT,
+            70.4,
+            "limit_inverted_upper",
+            "70.0",
+            "The upper limit of 70.0 cm must be above the lower limit of 70.0 cm",
+        ),
         (
             LOWER_LIMIT,
             110.0,
@@ -240,12 +282,11 @@ async def test_inverted_limit_rejected(
 
     assert err.value.translation_domain == DOMAIN
     assert err.value.translation_key == key
-    assert err.value.translation_placeholders == {
-        "height": f"{value:.1f}",
-        "other": other,
-    }
+    # The message shows the rounded height that would have been sent
+    assert err.value.translation_placeholders["other"] == other
     assert str(err.value) == message
-    assert mock_desk.method_calls == []
+    mock_desk.set_height_limit.assert_not_awaited()
+    mock_desk.get_limits.assert_not_awaited()
     assert hass.states.get(UPPER_LIMIT).state == "110.0"
     assert hass.states.get(LOWER_LIMIT).state == "70.0"
 
@@ -254,7 +295,7 @@ async def test_inverted_limit_rejected(
     ("entity_id", "value", "limit"),
     [
         (UPPER_LIMIT, 61.0, HeightLimit.UPPER),
-        (LOWER_LIMIT, 129.0, HeightLimit.LOWER),
+        (LOWER_LIMIT, 123.0, HeightLimit.LOWER),
     ],
 )
 async def test_limit_without_the_other_limit(

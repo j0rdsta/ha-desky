@@ -7,6 +7,7 @@ from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass, field
 import logging
+import math
 import time
 from typing import Any
 
@@ -42,6 +43,7 @@ from .const import (
     LIGHT_COLOR_RESPONSE_HEADER,
     LIGHTING_RESPONSE_HEADER,
     LIMIT_LOWER_RESPONSE_HEADER,
+    LIMIT_RANGE_CM,
     LIMIT_STATUS_RESPONSE_HEADER,
     LIMIT_UPPER_RESPONSE_HEADER,
     LOCK_STATUS_RESPONSE_HEADER,
@@ -137,6 +139,18 @@ class _Movement:
 def _to_cm(value: float, unit: str) -> float:
     """Convert a height in the given display unit to centimetres."""
     return round(value * CM_PER_INCH, 1) if unit == "in" else value
+
+
+def round_limit_to_unit(height_cm: float, unit: str | None) -> float:
+    """Round a limit in cm to a whole unit, half up, and return it in cm.
+
+    The desk stores limits in whole units of its display, so a fraction would
+    read back differently. A whole inch is given to 0.1 cm, like decoded
+    heights: 29 in is 73.7 cm.
+    """
+    if unit == "in":
+        return _to_cm(math.floor(height_cm / CM_PER_INCH + 0.5), unit)
+    return float(math.floor(height_cm + 0.5))
 
 
 def _plausible(height_cm: float) -> bool:
@@ -292,6 +306,28 @@ class DeskBLEDevice:
     def unit_preference(self) -> str | None:
         """Return unit preference (cm or in)."""
         return self._unit_preference
+
+    @property
+    def _limit_unit(self) -> str | None:
+        """Return the unit the desk takes limits in (cm or in), if known.
+
+        That is the unit its heights arrive in, which can be known before the
+        desk reports its unit, and changes first when the unit is switched.
+        """
+        return self._effective_unit or self._unit_preference
+
+    def round_limit(self, height_cm: float) -> float:
+        """Return a limit rounded to the whole unit it is sent in, in cm."""
+        return round_limit_to_unit(height_cm, self._limit_unit)
+
+    @property
+    def limit_range(self) -> tuple[float, float]:
+        """Return the lowest and highest limit the desk accepts, in cm.
+
+        60-124 cm, or 24-48 in when limits are sent in inches. A desk whose
+        unit is not known yet gets the cm range.
+        """
+        return LIMIT_RANGE_CM["in" if self._limit_unit == "in" else "cm"]
 
     @property
     def manufacturer_name(self) -> str | None:
@@ -667,11 +703,13 @@ class DeskBLEDevice:
         await self._send_awake_command(command)
 
     async def set_height_limit(self, limit: HeightLimit, height_cm: float) -> None:
-        """Set the upper or lower height limit in cm."""
-        if not MIN_HEIGHT <= height_cm <= MAX_HEIGHT:
+        """Set the upper or lower height limit in cm, rounded to a whole unit."""
+        height_cm = self.round_limit(height_cm)
+        low, high = self.limit_range
+        if not low <= height_cm <= high:
             raise ValueError(
                 f"Invalid {limit} height limit: {height_cm:.1f} "
-                f"(must be {MIN_HEIGHT:.1f}-{MAX_HEIGHT:.1f})"
+                f"(must be {low:.1f}-{high:.1f})"
             )
         # Limits are in the desk's display unit, unlike move-to-height targets
         command = self._create_command_with_word_param(
@@ -911,16 +949,12 @@ class DeskBLEDevice:
 
         # Check for upper limit response (in display units, like heights)
         elif len(data) >= 7 and bytes(data[:4]) == LIMIT_UPPER_RESPONSE_HEADER:
-            self._height_limit_upper = self._decode_height(
-                (data[4] << 8) | data[5], data
-            )
+            self._height_limit_upper = self._decode_limit(data)
             _LOGGER.debug("Upper limit response: %.1f cm", self._height_limit_upper)
 
         # Check for lower limit response (in display units, like heights)
         elif len(data) >= 7 and bytes(data[:4]) == LIMIT_LOWER_RESPONSE_HEADER:
-            self._height_limit_lower = self._decode_height(
-                (data[4] << 8) | data[5], data
-            )
+            self._height_limit_lower = self._decode_limit(data)
             _LOGGER.debug("Lower limit response: %.1f cm", self._height_limit_lower)
 
         # Check for limit status response (0xF2 0xF2 0x20 0x01):
@@ -969,9 +1003,21 @@ class DeskBLEDevice:
         self._effective_unit = unit
         return height_cm
 
+    def _decode_limit(self, data: bytearray) -> float:
+        """Turn a height limit reply into centimetres.
+
+        The desk reports a limit one tenth low: 124.0 cm as 1239. As the
+        official app does, a raw value that is not a multiple of 5 is rounded
+        up by one tenth. Height frames are never adjusted.
+        """
+        raw = (data[4] << 8) | data[5]
+        if raw % 5:
+            raw += 1
+        return self._decode_height(raw, data)
+
     def _encode_height(self, height_cm: float) -> int:
         """Turn centimetres into tenths of the unit the desk currently uses."""
-        if (self._effective_unit or self._unit_preference) == "in":
+        if self._limit_unit == "in":
             return round(height_cm / CM_PER_INCH * 10)
         return round(height_cm * 10)
 

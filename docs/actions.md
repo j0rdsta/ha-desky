@@ -49,7 +49,15 @@ the desk's control box.
 | Field | Required | Description |
 | --- | --- | --- |
 | `limit` | Yes | `upper` or `lower` |
-| `height` | Yes | The height of the limit, in cm, from 60 to 130 |
+| `height` | Yes | The height of the limit, in whole cm, from 60 to 124 |
+
+The desk stores limits in whole centimetres, or in whole inches if its display shows inches. The
+integration rounds the height to the nearest whole unit before it checks and sends it. On a desk
+that shows inches, 74 cm is 29.1 in, so the desk gets 29 in and the limit shows as 73.7 cm.
+
+The desk accepts limits from 60 to 124 cm. If its display shows inches, it accepts 24 to 48 in,
+which is 61.0 to 121.9 cm. It ignores a limit outside that range without an error, so the
+integration refuses a limit that rounds to outside it and sends nothing.
 
 If the other limit is set, the upper limit must be above the lower one. The
 [limit entities](entities.md#upper-height-limit-and-lower-height-limit) run the same check, with
@@ -86,7 +94,7 @@ the run unless the step uses `continue_on_error`.
 | *The action does not target a Desky desk* | The target contains no Desky desk |
 | *The desk … is not loaded* | The desk's entry is not set up, for example while setup is retrying |
 | *… cm is outside the desk's allowed range of …-… cm* | `move_to_height` or the Height entity, with a height outside the desk's limits |
-| *… cm is outside the range a limit can be set to, 60.0-130.0 cm* | `set_height_limit` with a height outside 60-130 cm |
+| *… cm is outside the range a limit can be set to, …-… cm* | `set_height_limit` with a height that rounds to outside 60-124 cm (61.0-121.9 cm on a desk that shows inches); the message shows the rounded height |
 | *The upper limit of … cm must be above the lower limit of … cm* | `set_height_limit` or the Upper height limit entity, with an upper limit at or below the lower limit |
 | *The lower limit of … cm must be below the upper limit of … cm* | `set_height_limit` or the Lower height limit entity, with a lower limit at or above the upper limit |
 | *The desk is not connected* | The desk is set up but not connected |

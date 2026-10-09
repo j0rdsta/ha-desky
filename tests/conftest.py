@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncGenerator, Generator
 from dataclasses import asdict
+from functools import partial
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from bleak import BleakClient
@@ -16,6 +17,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 from pytest_homeassistant_custom_component.syrupy import HomeAssistantSnapshotExtension
 from syrupy.assertion import SnapshotAssertion
 
+from custom_components.desky_desk.bluetooth import round_limit_to_unit
 from custom_components.desky_desk.const import DOMAIN
 from custom_components.desky_desk.coordinator import DeskData
 
@@ -198,6 +200,8 @@ def mock_desk(mock_bluetooth_callbacks: BluetoothCallbacks) -> Generator[MagicMo
         for key, value in asdict(desk_data()).items():
             setattr(desk, key, value)
         desk.settings_known = True
+        # A desk showing cm; set round_limit_to_unit(..., "in") for inches
+        desk.round_limit.side_effect = partial(round_limit_to_unit, unit="cm")
         yield desk
 
 

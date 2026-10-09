@@ -131,8 +131,11 @@ They are recorded in long-term statistics, so a statistics graph can show each d
 ### Upper height limit and Lower height limit
 
 The highest and lowest heights the desk will move to, stored on the desk's control box. From 60
-to 130 cm in steps of 1 cm. Setting a value writes the limit to the desk and reads the limits
-back. A limit that is not set shows as unknown.
+to 124 cm in steps of 1 cm, the range the desk accepts. On a desk whose display shows inches, the
+range is 24 to 48 in, shown as 61.0 to 121.9 cm. The desk stores whole centimetres, or whole
+inches, so a value is rounded to the nearest whole unit before it is sent: on a desk that shows
+inches, 74 cm is sent as 29 in and shows as 73.7 cm. Setting a value writes the limit to the desk
+and reads the limits back. A limit that is not set shows as unknown.
 
 If the other limit is set, the upper limit must be above it and the lower limit below it.
 Otherwise setting the value fails with an error, and nothing is sent to the desk. To set or clear
