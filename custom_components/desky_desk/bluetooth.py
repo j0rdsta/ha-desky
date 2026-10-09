@@ -568,7 +568,7 @@ class DeskBLEDevice:
 
         A new drop normally needs a reconnect, which waits for this close, but a
         backend can report the link down before its disconnect callback runs,
-        so a second drop's close may start first and must not be forgotten.
+        so a second drop's close may start before this one ends and must be kept.
         """
         if self._close_task is task:
             self._close_task = None
