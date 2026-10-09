@@ -100,6 +100,10 @@ class DeskSensor(DeskEntity, SensorEntity):
         data = self.coordinator.data
 
         if self.entity_description.key == "height_display":
+            # 0 is the placeholder before the desk reports a height; keep it
+            # out of the statistics
+            if data.height_cm <= 0:
+                return None
             return round(data.height_cm, 1)
 
         if self.entity_description.key == "posture":

@@ -107,6 +107,15 @@ async def test_height_display_precision(
     assert state.state == expected
 
 
+async def test_height_display_unknown_before_the_first_height(
+    hass: HomeAssistant, init_integration: MockConfigEntry
+) -> None:
+    """Test the 0 cm placeholder before the desk reports a height is not recorded."""
+    await set_desk_state(hass, init_integration, height_cm=0.0)
+
+    assert hass.states.get(HEIGHT_DISPLAY).state == STATE_UNKNOWN
+
+
 async def test_sensors_unavailable_when_disconnected(
     hass: HomeAssistant, init_integration: MockConfigEntry, mock_desk: MagicMock
 ) -> None:

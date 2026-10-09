@@ -94,7 +94,8 @@ Device class: problem.
 
 The desk's height in centimetres, to 0.1 cm, whatever unit the desk's display shows. To see
 inches, open the entity's settings and change its unit. On a new install where Home Assistant
-uses US customary units, it shows inches from the start.
+uses US customary units, it shows inches from the start. It is unknown until the desk has reported
+a height.
 
 Device class: distance, state class: measurement. It is recorded in long-term statistics.
 
