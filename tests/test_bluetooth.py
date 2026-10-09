@@ -1948,54 +1948,54 @@ async def test_collision_detection_away_from_limits(
         await device.disconnect()
 
 
-async def test_new_device_commands(mock_ble_device, mock_bleak_client):
-    """Test new device control commands."""
+@pytest.mark.parametrize(
+    ("method", "args", "frames"),
+    [
+        # Each set frame is f1 f1 CMD 01 VALUE CS 7e, CS = (CMD + 01 + VALUE) & 0xFF
+        ("set_light_color", (2,), ["f1f1b40102b77e"] * 2),
+        ("set_brightness", (75,), ["f1f1b6014b027e"] * 2),
+        ("set_lighting", (True,), ["f1f1b50101b77e"] * 2),
+        ("set_vibration", (False,), ["f1f1b30100b47e"] * 2),
+        ("set_lock_status", (True,), ["f1f1b20101b47e"] * 2),
+        # Sensitivity and touch mode ask for the settings block afterwards
+        ("set_sensitivity", (2,), ["f1f11d0102207e", "handshake", "status"]),
+        ("set_touch_mode", (1,), ["f1f11901011b7e", "handshake", "status"]),
+        # Clearing the limits reads them back
+        ("clear_height_limits", (), ["f1f12300237e"] * 2 + ["limits"]),
+    ],
+)
+async def test_new_device_commands(
+    mock_ble_device, mock_bleak_client, method, args, frames
+):
+    """Test each setting is sent as its own frame, after the handshake."""
+    device = DeskBLEDevice(mock_ble_device)
+    device._client = mock_bleak_client
+    named = {
+        "handshake": COMMAND_HANDSHAKE,
+        "status": COMMAND_GET_STATUS,
+        "limits": COMMAND_GET_LIMITS,
+    }
+
+    await getattr(device, method)(*args)
+
+    assert mock_bleak_client.write_gatt_char.call_args_list == [
+        call(WRITE_CHARACTERISTIC_UUID, frame, response=True)
+        for frame in [
+            COMMAND_HANDSHAKE,
+            *(named.get(frame) or bytes.fromhex(frame) for frame in frames),
+        ]
+    ]
+
+
+async def test_invalid_light_color(mock_ble_device, mock_bleak_client):
+    """Test a colour the desk does not have is refused before anything is sent."""
     device = DeskBLEDevice(mock_ble_device)
     device._client = mock_bleak_client
 
-    # Test light color commands
-    await device.set_light_color(2)  # Red
-    expected_command = bytes([0xF1, 0xF1, 0xB4, 0x01, 0x02, 0xB7, 0x7E])
-    mock_bleak_client.write_gatt_char.assert_called_with(
-        WRITE_CHARACTERISTIC_UUID, expected_command, response=True
-    )
-
-    # Test invalid light color
     with pytest.raises(ValueError):
         await device.set_light_color(8)
 
-    # Test brightness
-    await device.set_brightness(75)
-    expected_command = bytes([0xF1, 0xF1, 0xB6, 0x01, 0x4B, 0x02, 0x7E])  # 75 = 0x4B
-
-    # Test lighting enabled
-    await device.set_lighting(True)
-    expected_command = bytes([0xF1, 0xF1, 0xB5, 0x01, 0x01, 0xB7, 0x7E])
-
-    # Test vibration
-    await device.set_vibration(False)
-    expected_command = bytes([0xF1, 0xF1, 0xB3, 0x01, 0x00, 0xB4, 0x7E])
-
-    # Test lock status
-    await device.set_lock_status(True)
-    expected_command = bytes([0xF1, 0xF1, 0xB2, 0x01, 0x01, 0xB4, 0x7E])
-
-    # Test sensitivity level
-    await device.set_sensitivity(2)  # Medium
-    expected_command = bytes([0xF1, 0xF1, 0x1D, 0x01, 0x02, 0x20, 0x7E])
-
-    # Test clear limits
-    await device.clear_height_limits()
-    expected_command = bytes([0xF1, 0xF1, 0x23, 0x00, 0x23, 0x7E])
-
-    # Test touch mode
-    await device.set_touch_mode(1)  # Press and hold
-    expected_command = bytes([0xF1, 0xF1, 0x19, 0x01, 0x01, 0x1B, 0x7E])
-
-    # Test units - not implemented in device
-    # result = await device.set_unit("inch")
-    # assert result is True
-    # expected_command = bytes([0xF1, 0xF1, 0x00, 0x00, 0x00, 0x7E])  # Not implemented
+    mock_bleak_client.write_gatt_char.assert_not_called()
 
 
 @pytest.mark.parametrize(
