@@ -317,19 +317,10 @@ async def test_settings_are_read_again_after_reconnecting(
     assert hass.states.get(TOUCH_MODE).state == "One press"
 
 
-async def test_sensitivity_follows_the_desk_reply(
+async def test_sensitivity_follows_a_desk_report(
     hass: HomeAssistant, desk_client: MagicMock
 ) -> None:
-    """Test the sensitivity changes as soon as the desk confirms it."""
-    assert hass.states.get(SENSITIVITY).state == STATE_UNKNOWN
-
-    await hass.services.async_call(
-        SELECT_DOMAIN,
-        SERVICE_SELECT_OPTION,
-        {ATTR_ENTITY_ID: SENSITIVITY, ATTR_OPTION: "Low"},
-        blocking=True,
-    )
-    await hass.async_block_till_done()
+    """Test the select shows a sensitivity report from the desk at once."""
     assert hass.states.get(SENSITIVITY).state == STATE_UNKNOWN
 
     deliver_frame(desk_client, desk_response(SENSITIVITY_RESPONSE_HEADER, 0x03))
