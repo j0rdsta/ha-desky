@@ -2929,6 +2929,23 @@ def test_settings_block_after_connecting(mock_ble_device):
     assert device.sensitivity_level == 1
 
 
+@pytest.mark.parametrize(
+    "unknown", [None, "f2f20e01000f7e", "f2f21901001a7e", "f2f21d0102207e"]
+)
+def test_settings_known_needs_every_setting_of_the_block(
+    mock_ble_device, unknown: str | None
+):
+    """The settings are known once the unit, touch mode and sensitivity all are."""
+    device = DeskBLEDevice(mock_ble_device)
+    assert device.settings_known is False
+
+    for frame in ("f2f20e01000f7e", "f2f21901001a7e", "f2f21d0102207e"):
+        if frame != unknown:
+            device._handle_notification(None, bytearray.fromhex(frame))
+
+    assert device.settings_known is (unknown is None)
+
+
 def test_disconnect_forgets_settings(mock_ble_device, mock_bleak_client):
     """Settings are read again after reconnecting, so a disconnect clears them."""
     device = DeskBLEDevice(mock_ble_device)

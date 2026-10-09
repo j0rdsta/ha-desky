@@ -543,7 +543,7 @@ async def test_settings_missed_at_power_on_are_asked_for_again(
     await _lose_desk(hass, mock_desk)
     _reconnect_succeeds(mock_desk)
     # The disconnect forgot the settings, and the booting desk does not resend them
-    notify_desk(mock_desk, unit_preference=None, touch_mode=None)
+    notify_desk(mock_desk, settings_known=False)
     await _advance(hass, freezer, RECONNECT_BACKOFF_MIN_SECONDS)
     assert init_integration.runtime_data.data.is_connected
     status_requests = mock_desk.get_status.await_count
@@ -578,22 +578,17 @@ async def test_settings_reported_while_connecting_are_not_asked_for_again(
     assert mock_desk.get_status.await_count == status_requests + 1
 
 
-@pytest.mark.parametrize(
-    "setting", ["unit_preference", "touch_mode", "sensitivity_level"]
-)
 async def test_settings_missing_after_setup_are_asked_for_at_the_first_poll(
     hass: HomeAssistant,
     mock_config_entry: MockConfigEntry,
     mock_desk: MagicMock,
     freezer: FrozenDateTimeFactory,
-    setting: str,
 ) -> None:
     """Test the refresh right after setup does not ask, but the first poll does.
 
-    Each setting of the settings block counts, the collision sensitivity too.
     It is asked once per connection, so a desk that never reports it is left alone.
     """
-    setattr(mock_desk, setting, None)
+    mock_desk.settings_known = False
     mock_config_entry.add_to_hass(hass)
     with patch(
         "homeassistant.components.bluetooth.async_ble_device_from_address",

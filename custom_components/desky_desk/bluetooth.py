@@ -1301,6 +1301,15 @@ class DeskBLEDevice:
             self._auto_clear_task.cancel()
         self._auto_clear_task = None
 
+    @property
+    def settings_known(self) -> bool:
+        """Return whether the desk has reported every setting of its settings block."""
+        return None not in (
+            self._unit_preference,
+            self._touch_mode,
+            self._sensitivity_level,
+        )
+
     def _reset_link_state(self) -> None:
         """Forget everything that belongs to the current connection."""
         self._client = None

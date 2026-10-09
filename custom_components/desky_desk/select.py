@@ -31,25 +31,7 @@ class DeskSelectEntityDescription(SelectEntityDescription):
     """A desk select, how to read its option and how to set it on the desk."""
 
     current_fn: Callable[[DeskData], str | None]
-    select_fn: Callable[[DeskBLEDevice, str], Awaitable[None]]
-
-
-async def _set_sensitivity(device: DeskBLEDevice, option: str) -> None:
-    """Set the sensitivity; the desk does not confirm it, so read its settings back."""
-    await device.set_sensitivity(SENSITIVITY_BY_OPTION[option])
-    await device.get_settings()
-
-
-async def _set_touch_mode(device: DeskBLEDevice, option: str) -> None:
-    """Set the touch mode; the desk does not confirm it, so read its settings back."""
-    await device.set_touch_mode(TOUCH_MODE_BY_OPTION[option])
-    await device.get_settings()
-
-
-async def _set_unit(device: DeskBLEDevice, option: str) -> None:
-    """Set the display unit; the desk does not confirm it, so read its settings back."""
-    await device.set_unit(option)
-    await device.get_settings()
+    set_fn: Callable[[DeskBLEDevice, str], Awaitable[None]]
 
 
 SELECT_DESCRIPTIONS = [
@@ -63,7 +45,9 @@ SELECT_DESCRIPTIONS = [
             if data.sensitivity_level is None
             else SENSITIVITY_LEVELS.get(data.sensitivity_level)
         ),
-        select_fn=_set_sensitivity,
+        set_fn=lambda device, option: device.set_sensitivity(
+            SENSITIVITY_BY_OPTION[option]
+        ),
     ),
     DeskSelectEntityDescription(
         key="touch_mode",
@@ -73,7 +57,9 @@ SELECT_DESCRIPTIONS = [
         current_fn=lambda data: (
             None if data.touch_mode is None else TOUCH_MODES.get(data.touch_mode)
         ),
-        select_fn=_set_touch_mode,
+        set_fn=lambda device, option: device.set_touch_mode(
+            TOUCH_MODE_BY_OPTION[option]
+        ),
     ),
     DeskSelectEntityDescription(
         key="unit",
@@ -81,7 +67,7 @@ SELECT_DESCRIPTIONS = [
         options=list(DISPLAY_UNITS.values()),
         entity_category=EntityCategory.CONFIG,
         current_fn=lambda data: data.unit_preference,
-        select_fn=_set_unit,
+        set_fn=lambda device, option: device.set_unit(option),
     ),
 ]
 
@@ -119,5 +105,11 @@ class DeskSelect(DeskEntity, SelectEntity):
 
     @desk_command
     async def async_select_option(self, option: str) -> None:
-        """Select an option; Home Assistant only passes one of the options."""
-        await self.entity_description.select_fn(self._device, option)
+        """Set an option, then ask the desk for its settings.
+
+        The desk confirms none of these settings, so the option changes only
+        when its settings block reports the new value. Home Assistant only
+        passes one of the options.
+        """
+        await self.entity_description.set_fn(self._device, option)
+        await self._device.get_settings()

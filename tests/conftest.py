@@ -197,6 +197,7 @@ def mock_desk(mock_bluetooth_callbacks: BluetoothCallbacks) -> Generator[MagicMo
         desk.connect.return_value = True
         for key, value in asdict(desk_data()).items():
             setattr(desk, key, value)
+        desk.settings_known = True
         yield desk
 
 
