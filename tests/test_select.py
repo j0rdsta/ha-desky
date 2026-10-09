@@ -25,9 +25,10 @@ import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.desky_desk.bluetooth import DeskCommandError
+from custom_components.desky_desk.const import SENSITIVITY_RESPONSE_HEADER
 from custom_components.desky_desk.select import SELECT_DESCRIPTIONS, DeskSelect
 
-from . import disconnect_desk, notify_desk, set_desk_state
+from . import deliver_frame, desk_response, disconnect_desk, notify_desk, set_desk_state
 
 SENSITIVITY = "select.desky_desk_collision_sensitivity"
 TOUCH_MODE = "select.desky_desk_touch_mode"
@@ -314,3 +315,23 @@ async def test_settings_are_read_again_after_reconnecting(
 
     assert hass.states.get(UNIT).state == "in"
     assert hass.states.get(TOUCH_MODE).state == "One press"
+
+
+async def test_sensitivity_follows_the_desk_reply(
+    hass: HomeAssistant, desk_client: MagicMock
+) -> None:
+    """Test the sensitivity changes as soon as the desk confirms it."""
+    assert hass.states.get(SENSITIVITY).state == STATE_UNKNOWN
+
+    await hass.services.async_call(
+        SELECT_DOMAIN,
+        SERVICE_SELECT_OPTION,
+        {ATTR_ENTITY_ID: SENSITIVITY, ATTR_OPTION: "Low"},
+        blocking=True,
+    )
+    await hass.async_block_till_done()
+    assert hass.states.get(SENSITIVITY).state == STATE_UNKNOWN
+
+    deliver_frame(desk_client, desk_response(SENSITIVITY_RESPONSE_HEADER, 0x03))
+    await hass.async_block_till_done()
+    assert hass.states.get(SENSITIVITY).state == "Low"

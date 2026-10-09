@@ -23,10 +23,15 @@ from pytest_homeassistant_custom_component.common import (
 )
 
 from custom_components.desky_desk.bluetooth import DeskCommandError
-from custom_components.desky_desk.const import DOMAIN
+from custom_components.desky_desk.const import (
+    BRIGHTNESS_RESPONSE_HEADER,
+    DOMAIN,
+    LIGHT_COLOR_RESPONSE_HEADER,
+    LIGHTING_RESPONSE_HEADER,
+)
 from custom_components.desky_desk.light import DeskLight
 
-from . import set_desk_state
+from . import deliver_frame, desk_response, set_desk_state
 
 ENTITY_ID = "light.desky_desk_led_strip"
 
@@ -375,3 +380,76 @@ async def test_light_keeps_static_color_across_reload(
     await _turn_on(hass)
 
     mock_desk.set_light_color.assert_awaited_once_with(5)
+
+
+async def test_light_turns_on_when_the_desk_confirms(
+    hass: HomeAssistant, desk_client: MagicMock
+) -> None:
+    """Test the light shows on as soon as the desk confirms it, and not before."""
+    assert hass.states.get(ENTITY_ID).state == STATE_OFF
+
+    await _turn_on(hass)
+    await hass.async_block_till_done()
+    assert hass.states.get(ENTITY_ID).state == STATE_OFF
+
+    deliver_frame(desk_client, desk_response(LIGHTING_RESPONSE_HEADER, 0x01))
+    await hass.async_block_till_done()
+    assert hass.states.get(ENTITY_ID).state == STATE_ON
+
+    deliver_frame(desk_client, desk_response(LIGHTING_RESPONSE_HEADER, 0x00))
+    await hass.async_block_till_done()
+    assert hass.states.get(ENTITY_ID).state == STATE_OFF
+
+
+async def test_light_brightness_follows_the_desk_reply(
+    hass: HomeAssistant, desk_client: MagicMock
+) -> None:
+    """Test the brightness changes only when the desk reports it."""
+    deliver_frame(desk_client, desk_response(LIGHTING_RESPONSE_HEADER, 0x01))
+    await hass.async_block_till_done()
+
+    await _turn_on(hass, **{ATTR_BRIGHTNESS: 255})
+    await hass.async_block_till_done()
+    assert hass.states.get(ENTITY_ID).attributes[ATTR_BRIGHTNESS] is None
+
+    deliver_frame(desk_client, desk_response(BRIGHTNESS_RESPONSE_HEADER, 100))
+    await hass.async_block_till_done()
+    assert hass.states.get(ENTITY_ID).attributes[ATTR_BRIGHTNESS] == 255
+
+
+async def test_light_effect_follows_the_desk_reply(
+    hass: HomeAssistant, desk_client: MagicMock
+) -> None:
+    """Test the colour changes only when the desk reports it."""
+    deliver_frame(desk_client, desk_response(LIGHTING_RESPONSE_HEADER, 0x01))
+    await hass.async_block_till_done()
+
+    await _turn_on(hass, **{ATTR_EFFECT: "Red"})
+    await hass.async_block_till_done()
+    assert hass.states.get(ENTITY_ID).attributes[ATTR_EFFECT] is None
+
+    deliver_frame(desk_client, desk_response(LIGHT_COLOR_RESPONSE_HEADER, 0x02))
+    await hass.async_block_till_done()
+    state = hass.states.get(ENTITY_ID)
+    assert state.attributes[ATTR_EFFECT] == "Red"
+    assert state.attributes["color_name"] == "Red"
+
+
+async def test_light_off_by_color_turns_on_with_the_color_reply(
+    hass: HomeAssistant, desk_client: MagicMock
+) -> None:
+    """Test a light whose colour is Off shows on only once the colour is back."""
+    deliver_frame(desk_client, desk_response(LIGHT_COLOR_RESPONSE_HEADER, COLOR_OFF))
+    deliver_frame(desk_client, desk_response(LIGHTING_RESPONSE_HEADER, 0x01))
+    await hass.async_block_till_done()
+    assert hass.states.get(ENTITY_ID).state == STATE_OFF
+
+    await _turn_on(hass)
+    await hass.async_block_till_done()
+    assert hass.states.get(ENTITY_ID).state == STATE_OFF
+
+    deliver_frame(desk_client, desk_response(LIGHT_COLOR_RESPONSE_HEADER, 0x01))
+    await hass.async_block_till_done()
+    state = hass.states.get(ENTITY_ID)
+    assert state.state == STATE_ON
+    assert state.attributes[ATTR_EFFECT] == "White"

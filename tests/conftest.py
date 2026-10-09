@@ -200,6 +200,36 @@ def mock_desk(mock_bluetooth_callbacks: BluetoothCallbacks) -> Generator[MagicMo
 
 
 @pytest.fixture
+async def desk_client(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_bluetooth_callbacks: BluetoothCallbacks,
+    mock_bleak_client: MagicMock,
+) -> AsyncGenerator[MagicMock]:
+    """Set the integration up with the real desk code and return the Bleak client.
+
+    Only Bleak is mocked, so a frame passed to `deliver_frame()` takes the path
+    a notification from a real desk takes. The desk has reported nothing yet.
+    """
+    ble_device = MagicMock(address="AA:BB:CC:DD:EE:FF")
+    ble_device.name = "Desky Desk"
+    mock_config_entry.add_to_hass(hass)
+    with (
+        patch(
+            "homeassistant.components.bluetooth.async_ble_device_from_address",
+            return_value=ble_device,
+        ),
+        patch(
+            "custom_components.desky_desk.bluetooth.establish_connection",
+            return_value=mock_bleak_client,
+        ),
+    ):
+        assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+        yield mock_bleak_client
+
+
+@pytest.fixture
 def mock_coordinator_data() -> DeskData:
     """Return coordinator data for a connected desk."""
     return desk_data()

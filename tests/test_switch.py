@@ -19,13 +19,18 @@ from homeassistant.const import (
     EntityCategory,
 )
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
+from custom_components.desky_desk.const import (
+    LOCK_STATUS_RESPONSE_HEADER,
+    VIBRATION_RESPONSE_HEADER,
+)
 from custom_components.desky_desk.switch import SWITCH_DESCRIPTIONS, DeskSwitch
 
-from . import disconnect_desk, notify_desk, set_desk_state
+from . import deliver_frame, desk_response, disconnect_desk, notify_desk, set_desk_state
 
 VIBRATION = "switch.desky_desk_vibration"
 LOCK = "switch.desky_desk_lock"
@@ -196,3 +201,70 @@ async def test_switch_unknown_key(
     mock_desk.set_lock_status.assert_not_awaited()
     mock_desk.get_vibration_status.assert_not_awaited()
     mock_desk.get_lock_status.assert_not_awaited()
+
+
+async def test_vibration_switch_follows_the_desk_reply(
+    hass: HomeAssistant, desk_client: MagicMock
+) -> None:
+    """Test the vibration switch changes as soon as the desk confirms it."""
+    deliver_frame(desk_client, desk_response(VIBRATION_RESPONSE_HEADER, 0x01))
+    await hass.async_block_till_done()
+    assert hass.states.get(VIBRATION).state == STATE_ON
+
+    await hass.services.async_call(
+        SWITCH_DOMAIN, SERVICE_TURN_OFF, {ATTR_ENTITY_ID: VIBRATION}, blocking=True
+    )
+    await hass.async_block_till_done()
+    assert hass.states.get(VIBRATION).state == STATE_ON
+
+    deliver_frame(desk_client, desk_response(VIBRATION_RESPONSE_HEADER, 0x00))
+    await hass.async_block_till_done()
+    assert hass.states.get(VIBRATION).state == STATE_OFF
+
+
+async def test_lock_switch_follows_the_desk_reply(
+    hass: HomeAssistant, desk_client: MagicMock
+) -> None:
+    """Test the lock switch changes as soon as the desk reports the lock."""
+    assert hass.states.get(LOCK).state == STATE_OFF
+
+    deliver_frame(desk_client, desk_response(LOCK_STATUS_RESPONSE_HEADER, 0x01))
+    await hass.async_block_till_done()
+    assert hass.states.get(LOCK).state == STATE_ON
+
+    deliver_frame(desk_client, desk_response(LOCK_STATUS_RESPONSE_HEADER, 0x00))
+    await hass.async_block_till_done()
+    assert hass.states.get(LOCK).state == STATE_OFF
+
+
+async def test_lock_switch_shows_the_command_at_once(
+    hass: HomeAssistant, desk_client: MagicMock
+) -> None:
+    """Test the lock shows locked once the command is sent, before the reply.
+
+    A reply that says otherwise wins.
+    """
+    await hass.services.async_call(
+        SWITCH_DOMAIN, SERVICE_TURN_ON, {ATTR_ENTITY_ID: LOCK}, blocking=True
+    )
+    await hass.async_block_till_done()
+    assert hass.states.get(LOCK).state == STATE_ON
+
+    deliver_frame(desk_client, desk_response(LOCK_STATUS_RESPONSE_HEADER, 0x00))
+    await hass.async_block_till_done()
+    assert hass.states.get(LOCK).state == STATE_OFF
+
+
+async def test_failed_lock_command_leaves_the_switch(
+    hass: HomeAssistant, desk_client: MagicMock
+) -> None:
+    """Test a lock command that does not reach the desk changes nothing."""
+    desk_client.write_gatt_char.side_effect = OSError("gone")
+
+    with pytest.raises(HomeAssistantError):
+        await hass.services.async_call(
+            SWITCH_DOMAIN, SERVICE_TURN_ON, {ATTR_ENTITY_ID: LOCK}, blocking=True
+        )
+    await hass.async_block_till_done()
+
+    assert hass.states.get(LOCK).state == STATE_OFF

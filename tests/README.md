@@ -93,6 +93,8 @@ In `conftest.py`:
 - `mock_ble_device`: discovery input
 - `mock_bleak_client`: a Bleak client mock specced to the real `BleakClient`
 - `mock_bleak_client_with_device_info`: the same client with the Device Information Service
+- `desk_client`: sets the integration up with the real desk code over `mock_bleak_client` and
+  returns the client; the desk has reported nothing yet
 
 Custom integrations are enabled for every test automatically.
 
@@ -102,6 +104,9 @@ Helpers in `__init__.py` change the desk's state:
 - `notify_desk(desk, **changes)`: changes `mock_desk` and sends a notification, as the desk does
 - `disconnect_desk(desk)`: disconnects `mock_desk`
 - `desk_data(**changes)`: builds a `DeskData` for a connected desk
+- `desk_response(header, *payload)`: builds a desk reply frame with its checksum
+- `deliver_frame(client, frame)`: passes a frame to the real desk code, for tests using
+  `desk_client`
 
 ## Writing tests
 
@@ -109,4 +114,6 @@ Helpers in `__init__.py` change the desk's state:
   integration's own classes.
 - Drive platforms through `hass.services.async_call` and assert on `hass.states`, as users and
   automations do.
+- To test that a desk reply reaches the entities, use `desk_client` and `deliver_frame()`.
+  `mock_desk` replaces the desk code, so it cannot catch a reply that never reaches them.
 - Cover failure paths as well as the happy path.
