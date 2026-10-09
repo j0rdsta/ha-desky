@@ -172,6 +172,7 @@ Additional device features send responses with specific headers:
 
 1. **Light Color Response** (0xF2 0xF2 0xB4 0x01):
    - Values: 1=White, 2=Red, 3=Green, 4=Blue, 5=Yellow, 6=Party mode, 7=Off
+   - 0 also means off: the official app turns the LED off by setting colour 0. `OFF_COLORS` (`const.py`) holds both; the light is off and turning it on restores a colour. The integration never sends 0; it turns the light off with the lighting command (`B5 00`)
 
 2. **Brightness Response** (0xF2 0xF2 0xB6 0x01):
    - Value: 0-100 (percentage)

@@ -175,5 +175,6 @@ and nothing is sent to the desk.
 The desk takes brightness in whole percent. The brightness is rounded to the nearest percent, and
 a light that is on is never sent as 0 %.
 
-If the desk reports its colour as off and you turn the light on without an effect, it goes back to
+The desk reports an LED that is off as colour 7, or as colour 0 once the Desky app has turned it
+off. Both show the light as off. If you then turn the light on without an effect, it goes back to
 the last colour you chose other than party mode. That colour is kept across restarts.
