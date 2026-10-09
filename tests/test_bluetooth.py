@@ -1035,7 +1035,7 @@ async def test_move_to_height_edge_cases(mock_ble_device, mock_bleak_client):
 
 
 @patch("time.time")
-def test_auto_stop_detection(mock_time, mock_ble_device):
+async def test_auto_stop_detection(mock_time, mock_ble_device):
     """Test auto-stop detection when height stops changing."""
     device = DeskBLEDevice(mock_ble_device)
     _started_movement(
@@ -1070,6 +1070,8 @@ def test_auto_stop_detection(mock_time, mock_ble_device):
     assert callback.call_count == 3
     # Verify last callback includes collision state
     callback.assert_called_with(85.0, True, False)
+    assert device._auto_clear_task is not None
+    await device.disconnect()
 
 
 def test_auto_stop_detection_reset_on_movement(mock_ble_device):
@@ -1617,7 +1619,9 @@ async def test_collision_when_stopping_away_from_target(
 
 
 @patch("time.time")
-def test_continuous_movement_collision_minimal_movement(mock_time, mock_ble_device):
+async def test_continuous_movement_collision_minimal_movement(
+    mock_time, mock_ble_device
+):
     """Test that continuous movement detects collision for minimal distance moved."""
     device = DeskBLEDevice(mock_ble_device)
     _started_movement(
@@ -1637,6 +1641,8 @@ def test_continuous_movement_collision_minimal_movement(mock_time, mock_ble_devi
     # Should detect collision due to minimal movement (< 0.5cm)
     assert device.is_moving is False
     assert device.collision_detected is True
+    assert device._auto_clear_task is not None
+    await device.disconnect()
 
 
 @patch("time.time")
@@ -1686,7 +1692,7 @@ def test_continuous_movement_no_collision_short_duration(mock_time, mock_ble_dev
 
 
 @patch("time.time")
-def test_continuous_movement_collision_slow_speed(mock_time, mock_ble_device):
+async def test_continuous_movement_collision_slow_speed(mock_time, mock_ble_device):
     """Test that continuous movement detects collision for abnormally slow speed."""
     device = DeskBLEDevice(mock_ble_device)
     _started_movement(
@@ -1706,6 +1712,8 @@ def test_continuous_movement_collision_slow_speed(mock_time, mock_ble_device):
     # Should detect collision - 0.4 cm in 2.0 s is abnormally slow
     assert device.is_moving is False
     assert device.collision_detected is True
+    assert device._auto_clear_task is not None
+    await device.disconnect()
 
 
 @patch("time.time")
@@ -1769,7 +1777,7 @@ def test_preset_movement_no_collision_normal_movement(mock_time, mock_ble_device
 
 
 @patch("time.time")
-def test_preset_movement_collision_minimal_distance(mock_time, mock_ble_device):
+async def test_preset_movement_collision_minimal_distance(mock_time, mock_ble_device):
     """Test that preset movement triggers collision for minimal movement distance."""
     device = DeskBLEDevice(mock_ble_device)
     _started_movement(
@@ -1788,10 +1796,12 @@ def test_preset_movement_collision_minimal_distance(mock_time, mock_ble_device):
     # Should detect collision - minimal movement distance
     assert device.is_moving is False
     assert device.collision_detected is True
+    assert device._auto_clear_task is not None
+    await device.disconnect()
 
 
 @patch("time.time")
-def test_preset_movement_collision_slow_overall_speed(mock_time, mock_ble_device):
+async def test_preset_movement_collision_slow_overall_speed(mock_time, mock_ble_device):
     """Test that preset movement triggers collision for abnormally slow overall speed."""
     device = DeskBLEDevice(mock_ble_device)
     _started_movement(
@@ -1810,6 +1820,8 @@ def test_preset_movement_collision_slow_overall_speed(mock_time, mock_ble_device
     # Should detect collision - 0.2 cm in 10 s is very slow
     assert device.is_moving is False
     assert device.collision_detected is True
+    assert device._auto_clear_task is not None
+    await device.disconnect()
 
 
 @patch("time.time")

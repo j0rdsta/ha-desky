@@ -1659,13 +1659,7 @@ class DeskBLEDevice:
                 # Notify callbacks about the state change
                 self._notify_callbacks()
 
-        # Schedule the task only if there's a running event loop
-        try:
-            asyncio.get_running_loop()
-            self._auto_clear_task = asyncio.create_task(auto_clear())
-        except RuntimeError:
-            # No event loop running (e.g., in sync tests)
-            _LOGGER.debug("No event loop available for auto-clear scheduling")
+        self._auto_clear_task = asyncio.create_task(auto_clear())
 
     def _cancel_collision_auto_clear(self) -> None:
         """Cancel any pending collision auto-clear task."""
