@@ -16,6 +16,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .const import COVER_CLOSED_POSITION, MAX_HEIGHT, MIN_HEIGHT
 from .coordinator import DeskUpdateCoordinator, DeskyConfigEntry
 from .entity import DeskEntity, desk_command
+from .validation import allowed_move_range
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -99,11 +100,15 @@ class DeskyCover(DeskEntity, CoverEntity):
     @desk_command
     async def async_set_cover_position(self, **kwargs: Any) -> None:
         """Move the cover to a specific position."""
-        # Convert position (0-100) to height (MIN_HEIGHT-MAX_HEIGHT)
+        # Convert position (0-100) to height (MIN_HEIGHT-MAX_HEIGHT), to 0.1 cm
         position = kwargs[ATTR_POSITION]
-        target_height = MIN_HEIGHT + (position / 100) * (MAX_HEIGHT - MIN_HEIGHT)
+        target_height = round(
+            MIN_HEIGHT + (position / 100) * (MAX_HEIGHT - MIN_HEIGHT), 1
+        )
+        # A position outside the desk's limits moves to the nearest limit
+        low, high = allowed_move_range(self.coordinator.data)
+        target_height = min(max(target_height, low), high)
 
-        # Use the move_to_height method for precise positioning
         await self._device.move_to_height(target_height)
 
         # Request coordinator update to track movement

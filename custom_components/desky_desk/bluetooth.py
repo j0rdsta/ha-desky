@@ -62,6 +62,7 @@ from .const import (
     VIBRATION_INTENSITY_RESPONSE_HEADER,
     VIBRATION_RESPONSE_HEADER,
     WRITE_CHARACTERISTIC_UUID,
+    HeightLimit,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -95,6 +96,9 @@ UNCHANGED_READINGS_TO_STOP = 3
 UNIT_SPLIT = 55.0
 # A decoded height outside this range fits neither unit
 PLAUSIBLE_HEIGHT_CM = (MIN_HEIGHT - 5.0, MAX_HEIGHT + 5.0)
+
+# The command byte that sets each height limit
+LIMIT_COMMANDS = {HeightLimit.UPPER: 0x21, HeightLimit.LOWER: 0x22}
 
 
 class DeskError(Exception):
@@ -555,7 +559,7 @@ class DeskBLEDevice:
     async def move_to_height(self, height_cm: float) -> None:
         """Move desk to a specific height in cm."""
         # The target is always in mm, whatever the desk's display unit
-        height_mm = int(height_cm * 10)
+        height_mm = round(height_cm * 10)
 
         # Ensure height is within valid range
 
@@ -686,29 +690,16 @@ class DeskBLEDevice:
         command = self._create_command_with_byte_param(0x0E, value)
         await self._send_awake_command(command)
 
-    async def set_height_limit_upper(self, height_cm: float) -> None:
-        """Set upper height limit in cm."""
+    async def set_height_limit(self, limit: HeightLimit, height_cm: float) -> None:
+        """Set the upper or lower height limit in cm."""
         if not MIN_HEIGHT <= height_cm <= MAX_HEIGHT:
             raise ValueError(
-                f"Invalid upper height limit: {height_cm:.1f} "
+                f"Invalid {limit} height limit: {height_cm:.1f} "
                 f"(must be {MIN_HEIGHT:.1f}-{MAX_HEIGHT:.1f})"
             )
         # Limits are in the desk's display unit, unlike move-to-height targets
         command = self._create_command_with_word_param(
-            0x21, self._encode_height(height_cm)
-        )
-        await self._send_awake_command(command)
-
-    async def set_height_limit_lower(self, height_cm: float) -> None:
-        """Set lower height limit in cm."""
-        if not MIN_HEIGHT <= height_cm <= MAX_HEIGHT:
-            raise ValueError(
-                f"Invalid lower height limit: {height_cm:.1f} "
-                f"(must be {MIN_HEIGHT:.1f}-{MAX_HEIGHT:.1f})"
-            )
-        # Limits are in the desk's display unit, unlike move-to-height targets
-        command = self._create_command_with_word_param(
-            0x22, self._encode_height(height_cm)
+            LIMIT_COMMANDS[limit], self._encode_height(height_cm)
         )
         await self._send_awake_command(command)
 

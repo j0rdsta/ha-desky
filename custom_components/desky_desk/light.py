@@ -14,10 +14,12 @@ from homeassistant.components.light import (
     LightEntityFeature,
 )
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import ExtraStoredData, RestoreEntity
+from homeassistant.util.color import brightness_to_value, value_to_brightness
 
-from .const import LIGHT_COLORS
+from .const import DOMAIN, LIGHT_COLORS
 from .coordinator import DeskUpdateCoordinator, DeskyConfigEntry
 from .entity import DeskEntity, desk_command
 
@@ -26,37 +28,16 @@ _LOGGER = logging.getLogger(__name__)
 # Commands go to one BLE connection, so send them one at a time
 PARALLEL_UPDATES = 1
 
+# The desk takes brightness in % from 1 to 100
+BRIGHTNESS_SCALE = (1, 100)
+
 COLOR_WHITE = 1
 COLOR_PARTY = 6
 COLOR_OFF = 7
 
-# Map color names to simple colors for Home Assistant
-COLOR_MAP = {
-    1: "white",  # White
-    2: "red",  # Red
-    3: "green",  # Green
-    4: "blue",  # Blue
-    5: "yellow",  # Yellow
-    6: None,  # Party mode (effect)
-    7: None,  # Off
-}
-
-# Effects list
-EFFECT_PARTY = "Party mode"
-EFFECT_WHITE = "White"
-EFFECT_RED = "Red"
-EFFECT_GREEN = "Green"
-EFFECT_BLUE = "Blue"
-EFFECT_YELLOW = "Yellow"
-
-# Map effect names to color codes
+# Map effect names to colour codes; every colour except Off is an effect
 EFFECT_TO_COLOR = {
-    EFFECT_WHITE: 1,
-    EFFECT_RED: 2,
-    EFFECT_GREEN: 3,
-    EFFECT_BLUE: 4,
-    EFFECT_YELLOW: 5,
-    EFFECT_PARTY: 6,
+    name: code for code, name in LIGHT_COLORS.items() if code != COLOR_OFF
 }
 
 # Map color codes to effect names
@@ -101,14 +82,7 @@ class DeskLight(DeskEntity, LightEntity, RestoreEntity):
     _attr_color_mode = ColorMode.BRIGHTNESS
     _attr_supported_color_modes = {ColorMode.BRIGHTNESS}
     _attr_supported_features = LightEntityFeature.EFFECT
-    _attr_effect_list = [
-        EFFECT_WHITE,
-        EFFECT_RED,
-        EFFECT_GREEN,
-        EFFECT_BLUE,
-        EFFECT_YELLOW,
-        EFFECT_PARTY,
-    ]
+    _attr_effect_list = list(EFFECT_TO_COLOR)
 
     def __init__(self, coordinator: DeskUpdateCoordinator) -> None:
         """Initialize the light."""
@@ -143,8 +117,7 @@ class DeskLight(DeskEntity, LightEntity, RestoreEntity):
         if brightness_percent is None:
             return None
 
-        # Convert percentage (0-100) to Home Assistant brightness (0-255)
-        return int((brightness_percent / 100) * 255)
+        return value_to_brightness(BRIGHTNESS_SCALE, brightness_percent)
 
     @property
     def effect(self) -> str | None:
@@ -161,17 +134,27 @@ class DeskLight(DeskEntity, LightEntity, RestoreEntity):
     @desk_command
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn on the light."""
-        # Handle brightness change
+        effect = kwargs.get(ATTR_EFFECT)
+        # Home Assistant does not check the effect against the effect list
+        if effect is not None and effect not in EFFECT_TO_COLOR:
+            raise ServiceValidationError(
+                translation_domain=DOMAIN,
+                translation_key="unknown_effect",
+                translation_placeholders={
+                    "effect": effect,
+                    "effects": ", ".join(EFFECT_TO_COLOR),
+                },
+            )
+
         if ATTR_BRIGHTNESS in kwargs:
-            # Convert Home Assistant brightness (0-255) to percentage (0-100)
-            brightness_percent = int((kwargs[ATTR_BRIGHTNESS] / 255) * 100)
+            # Round to the nearest %, but never send a light that is on as 0 %
+            brightness_percent = max(
+                1, round(brightness_to_value(BRIGHTNESS_SCALE, kwargs[ATTR_BRIGHTNESS]))
+            )
             await self._device.set_brightness(brightness_percent)
 
-        # Handle effect (color selection)
-        if ATTR_EFFECT in kwargs:
-            effect_name = kwargs[ATTR_EFFECT]
-            if effect_name in EFFECT_TO_COLOR:
-                await self._async_set_color(EFFECT_TO_COLOR[effect_name])
+        if effect is not None:
+            await self._async_set_color(EFFECT_TO_COLOR[effect])
         else:
             # If no specific effect requested and light is off, turn on with the
             # last static colour
@@ -196,13 +179,6 @@ class DeskLight(DeskEntity, LightEntity, RestoreEntity):
 
         # Request status update
         await self._device.get_lighting_status()
-
-    @desk_command
-    async def async_set_effect(self, effect: str) -> None:
-        """Set the effect."""
-        if effect in EFFECT_TO_COLOR:
-            await self._async_set_color(EFFECT_TO_COLOR[effect])
-            await self._device.get_light_color()
 
     @property
     def extra_state_attributes(self) -> dict[str, Any] | None:

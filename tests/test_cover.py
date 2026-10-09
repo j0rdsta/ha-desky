@@ -31,7 +31,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.desky_desk.const import MAX_HEIGHT, MIN_HEIGHT
 
-from . import disconnect_desk, notify_desk
+from . import disconnect_desk, notify_desk, set_desk_state
 
 ENTITY_ID = "cover.desky_desk"
 
@@ -166,6 +166,10 @@ async def test_cover_set_position(
     height: float,
 ) -> None:
     """Test setting a position moves the desk to the matching height."""
+    # Without limits every position is allowed
+    await set_desk_state(
+        hass, init_integration, height_limit_upper=None, height_limit_lower=None
+    )
     mock_desk.get_status.reset_mock()
 
     await _call(hass, SERVICE_SET_COVER_POSITION, **{ATTR_POSITION: position})
@@ -192,3 +196,36 @@ async def test_cover_availability(
     state = hass.states.get(ENTITY_ID)
     assert state.state == STATE_OPEN
     assert state.attributes[ATTR_CURRENT_POSITION] == 100
+
+
+@pytest.mark.parametrize(("position", "height"), [(10, 70.0), (100, 110.0)])
+async def test_set_position_outside_limits_clamped(
+    hass: HomeAssistant,
+    init_integration: MockConfigEntry,
+    mock_desk: MagicMock,
+    position: int,
+    height: float,
+) -> None:
+    """Test a position outside the desk's limits moves to the nearest limit."""
+    await set_desk_state(
+        hass, init_integration, height_limit_upper=110.0, height_limit_lower=70.0
+    )
+
+    # Position 10 is 67 cm, below the lower limit; 100 is 130 cm, above the upper
+    await _call(hass, SERVICE_SET_COVER_POSITION, **{ATTR_POSITION: position})
+
+    mock_desk.move_to_height.assert_awaited_once_with(height)
+
+
+async def test_set_position_at_a_limit_allowed(
+    hass: HomeAssistant, init_integration: MockConfigEntry, mock_desk: MagicMock
+) -> None:
+    """Test a position whose height equals a limit moves the desk there."""
+    await set_desk_state(
+        hass, init_integration, height_limit_upper=97.8, height_limit_lower=65.0
+    )
+
+    # Position 54 is 97.8 cm, which floating point puts just above 97.8
+    await _call(hass, SERVICE_SET_COVER_POSITION, **{ATTR_POSITION: 54})
+
+    mock_desk.move_to_height.assert_awaited_once_with(97.8)

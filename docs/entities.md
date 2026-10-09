@@ -51,7 +51,8 @@ The main control, named after the desk.
 
 - **Open** raises the desk, **close** lowers it and **stop** stops it.
 - **Position** maps 60-130 cm to 0-100 %, whatever the desk's own range or height limits.
-  Setting a position moves the desk to the matching height.
+  Setting a position moves the desk to the matching height. Positions outside the desk's limits
+  move the desk to the nearest allowed height.
 - The cover is **closed** when its position is 0 %, that is below about 60.7 cm, since the
   position is rounded down to a whole percent.
 - While a movement commanded from Home Assistant is under way, it shows **opening** or
@@ -62,8 +63,9 @@ The main control, named after the desk.
 ### Height
 
 The desk's current height in centimetres, to 0.1 cm, from 60 to 130 cm. Setting a value moves
-the desk to that height. To move to a height in an automation and get an error for a height
-outside the desk's limits, use the [`move_to_height` action](actions.md#move-to-height).
+the desk to that height. A height outside the desk's limits fails with an error, and the desk
+does not move. To move to a height in an automation, you can also use the
+[`move_to_height` action](actions.md#move-to-height).
 
 ### Presets 1 to 4
 
@@ -133,8 +135,9 @@ back. A limit that is not set shows as unknown.
 
 Attribute `limits_enabled`: true while at least one limit is set.
 
-To set or clear limits from an automation, use the [actions](actions.md), which also check that
-the upper limit stays above the lower one.
+If the other limit is set, the upper limit must be above it and the lower limit below it.
+Otherwise setting the value fails with an error, and nothing is sent to the desk. To set or clear
+limits from an automation, use the [actions](actions.md).
 
 ### Vibration intensity
 
@@ -171,7 +174,11 @@ change made on the hand controller.
 ### LED strip (light)
 
 Turns the desk's LED strip on or off and sets its brightness. The colours are effects: **White**,
-**Red**, **Green**, **Blue**, **Yellow** and **Party mode**.
+**Red**, **Green**, **Blue**, **Yellow** and **Party mode**. Any other effect fails with an error,
+and nothing is sent to the desk.
+
+The desk takes brightness in whole percent. The brightness is rounded to the nearest percent, and
+a light that is on is never sent as 0 %.
 
 If the desk reports its colour as off and you turn the light on without an effect, it goes back to
 the last colour you chose other than party mode. That colour is kept across restarts. Attribute

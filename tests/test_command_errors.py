@@ -69,14 +69,14 @@ COMMANDS = [
         SERVICE_SET_VALUE,
         "number.desky_desk_upper_height_limit",
         {ATTR_VALUE: 110.0},
-        "set_height_limit_upper",
+        "set_height_limit",
     ),
     (
         NUMBER_DOMAIN,
         SERVICE_SET_VALUE,
         "number.desky_desk_lower_height_limit",
         {ATTR_VALUE: 70.0},
-        "set_height_limit_lower",
+        "set_height_limit",
     ),
     (
         NUMBER_DOMAIN,
