@@ -24,8 +24,9 @@ from custom_components.desky_desk.const import DOMAIN
 
 from . import disconnect_desk, notify_desk
 
-# State attributes Home Assistant added within the supported version range
-VERSION_DEPENDENT_ATTRIBUTES = {"is_closed"}
+# State attributes Home Assistant added or removed within the supported version
+# range; the mired colour temperature attributes are gone after 2025.10
+VERSION_DEPENDENT_ATTRIBUTES = {"is_closed", "color_temp", "min_mireds", "max_mireds"}
 
 
 def _plain(value: Any) -> Any:
