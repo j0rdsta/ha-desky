@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-import logging
 
 from homeassistant.components.select import SelectEntity, SelectEntityDescription
 from homeassistant.const import EntityCategory
@@ -15,8 +14,6 @@ from .bluetooth import DeskBLEDevice
 from .const import DISPLAY_UNITS, SENSITIVITY_LEVELS, TOUCH_MODES
 from .coordinator import DeskData, DeskUpdateCoordinator, DeskyConfigEntry
 from .entity import DeskEntity, desk_command
-
-_LOGGER = logging.getLogger(__name__)
 
 # Commands go to one BLE connection, so send them one at a time
 PARALLEL_UPDATES = 1

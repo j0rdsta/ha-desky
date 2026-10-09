@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import logging
 from typing import Any, Self
 
 from homeassistant.components.light import (
@@ -24,8 +23,6 @@ from homeassistant.util.color import brightness_to_value, value_to_brightness
 from .const import DOMAIN, OFF_COLORS
 from .coordinator import DeskUpdateCoordinator, DeskyConfigEntry
 from .entity import DeskEntity, desk_command
-
-_LOGGER = logging.getLogger(__name__)
 
 # Commands go to one BLE connection, so send them one at a time
 PARALLEL_UPDATES = 1

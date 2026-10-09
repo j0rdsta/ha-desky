@@ -6,7 +6,6 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from decimal import Decimal
-import logging
 import time
 
 from homeassistant.components.sensor import (
@@ -29,8 +28,6 @@ from homeassistant.util import dt as dt_util
 from .const import Posture, height_known
 from .coordinator import DeskData, DeskUpdateCoordinator, DeskyConfigEntry
 from .entity import DeskEntity
-
-_LOGGER = logging.getLogger(__name__)
 
 # State comes from the coordinator, so there are no updates to limit
 PARALLEL_UPDATES = 0

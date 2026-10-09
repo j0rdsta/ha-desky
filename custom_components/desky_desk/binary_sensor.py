@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import logging
-
 from homeassistant.components.binary_sensor import (
     BinarySensorDeviceClass,
     BinarySensorEntity,
@@ -14,8 +12,6 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .coordinator import DeskUpdateCoordinator, DeskyConfigEntry
 from .entity import DeskEntity
-
-_LOGGER = logging.getLogger(__name__)
 
 # State comes from the coordinator, so there are no updates to limit
 PARALLEL_UPDATES = 0
