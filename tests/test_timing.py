@@ -1378,3 +1378,44 @@ async def test_checked_setting_without_a_report_is_sent_once(
     await task
 
     assert frames == attempt
+
+
+@pytest.mark.parametrize("touch_mode", [ONE_PRESS, PRESS_AND_HOLD])
+async def test_move_to_height_waits_for_the_first_reading(
+    desk: DeskBLEDevice,
+    clock: FakeClock,
+    mock_bleak_client: MagicMock,
+    touch_mode: bytearray,
+) -> None:
+    """Before the desk has reported a height, it is asked for one first.
+
+    The direction comes from the reply, not from the 0.0 height before it.
+    """
+    desk._handle_notification(None, touch_mode)
+    desk._height_cm = 0.0  # no reading since connecting
+    sent: list[str] = []
+
+    async def _write(_uuid: str, data: bytes, *, response: bool) -> None:
+        sent.append(bytes(data).hex())
+        if bytes(data) == COMMAND_GET_STATUS:
+            desk._handle_notification(None, _status_frame(80.0))
+
+    mock_bleak_client.write_gatt_char.side_effect = _write
+
+    await desk.move_to_height(75.0)
+
+    assert sent[:5] == [STATUS, H, STOP, "f1f11b0202ee0d7e", "f1f11b0202ee0d7e"]
+    assert desk.movement_direction == "down"
+
+
+async def test_move_to_height_without_a_reading_fails(
+    desk: DeskBLEDevice, frames: Frames
+) -> None:
+    """A desk that does not report its height is not moved blind."""
+    desk._height_cm = 0.0
+
+    with pytest.raises(DeskCommandError, match="has not reported its height"):
+        await desk.move_to_height(75.0)
+
+    assert frames == [(0.0, STATUS)]
+    assert desk._movement is None

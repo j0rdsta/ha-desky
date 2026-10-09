@@ -690,6 +690,7 @@ class DeskBLEDevice:
                 f"({MIN_HEIGHT:.1f}-{MAX_HEIGHT:.1f} cm)"
             )
 
+        await self._await_height()
         if height_cm == self._height_cm:
             # Already at target height
             self._end_movement()
@@ -735,6 +736,25 @@ class DeskBLEDevice:
                     lambda: self._readings_stopped(movement) or self._reached(movement),
                 )
             )
+
+    async def _await_height(self) -> None:
+        """Make sure the desk has reported a height, asking for one if not.
+
+        The direction of a move to height, and when a held one has arrived,
+        come from the current height. Before the first reading it is 0.0, so
+        the desk is asked for its status and the reply waited for. A desk
+        that does not answer fails the move rather than moving it blind.
+        """
+        if self._height_cm > 0:
+            return
+        report = self._expect_report(STATUS_NOTIFICATION_HEADER)
+        try:
+            await self._sequencer.write(COMMAND_GET_STATUS)
+            await self._sequencer.wait_for(report, READ_BACK_TIMEOUT_SECONDS)
+        finally:
+            self._stop_expecting(STATUS_NOTIFICATION_HEADER, report)
+        if self._height_cm <= 0:
+            raise DeskCommandError("The desk has not reported its height yet")
 
     def _readings_stopped(self, movement: _Movement) -> bool:
         """End a started, held movement once its height readings have stopped.

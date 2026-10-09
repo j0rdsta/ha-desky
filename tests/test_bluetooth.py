@@ -993,6 +993,7 @@ async def test_move_to_height_edge_cases(mock_ble_device, mock_bleak_client):
     """Test move_to_height with edge case values."""
     device = DeskBLEDevice(mock_ble_device)
     device._client = mock_bleak_client
+    device._height_cm = 80.0  # the desk has reported its height
 
     # Test minimum height (60.0 cm = 600 mm = 0x0258)
     await device.move_to_height(MIN_HEIGHT)
@@ -1796,6 +1797,7 @@ async def test_move_commands_set_movement_type(mock_ble_device, mock_bleak_clien
     """Test that movement commands set the correct movement type."""
     device = DeskBLEDevice(mock_ble_device)
     device._client = mock_bleak_client
+    device._height_cm = 80.0  # the desk has reported its height
 
     # Test move_up
     await device.move_up()
