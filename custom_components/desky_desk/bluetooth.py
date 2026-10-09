@@ -112,6 +112,8 @@ LIGHT_SETTING_TIMES = (0.0, 0.1)  # LED colour, brightness
 UNIT_SETTING_TIMES = (0.0, 0.1, 0.2)
 CLEAR_LIMITS_TIMES = (0.0, 0.2)
 SET_LIMITS_SPACING = 0.05  # clear, upper and lower limit, each twice
+STOP_TIMES = (0.0, 0.05)
+MOVE_TO_HEIGHT_TIMES = (0.2, 0.3)  # after one stop at 0
 # The app asks for the settings this long after setting the sensitivity
 SENSITIVITY_READ_BACK_DELAY = 0.5
 
@@ -593,6 +595,7 @@ class DeskBLEDevice:
         self, kind: str, direction: str | None, target_height: float | None = None
     ) -> None:
         """Record a movement command; the movement starts once the desk responds."""
+        self._cancel_motion()
         self._movement = _Movement(
             kind=kind,
             direction=direction,
@@ -602,8 +605,12 @@ class DeskBLEDevice:
         )
 
     def _end_movement(self) -> None:
-        """Forget the current movement, so no later reading is attributed to it."""
+        """Forget the current movement and stop sending its frames.
+
+        No later reading is attributed to it.
+        """
         self._movement = None
+        self._cancel_motion()
 
     async def _send_awake_command(self, command: bytes) -> None:
         """Wake the desk with the handshake, then send a command.
@@ -634,7 +641,7 @@ class DeskBLEDevice:
         """Stop desk movement."""
         self._end_movement()
         # Sent at once: a moving desk is awake, and a sleeping one has nothing to stop
-        await self._send_command(COMMAND_STOP)
+        await self._run_sequence([(at, COMMAND_STOP) for at in STOP_TIMES], motion=True)
 
     async def get_status(self) -> None:
         """Request current desk status."""
@@ -719,7 +726,19 @@ class DeskBLEDevice:
 
         direction = "up" if height_cm > self._height_cm else "down"
         self._begin_movement("targeted", direction, height_cm)
-        await self._send_movement_command(command)
+        # As the app: wake, stop whatever is moving, then the target twice
+        try:
+            await self._run_sequence(
+                [
+                    (0.0, COMMAND_HANDSHAKE),
+                    (0.0, COMMAND_STOP),
+                    *((at, command) for at in MOVE_TO_HEIGHT_TIMES),
+                ],
+                motion=True,
+            )
+        except DeskError:
+            self._end_movement()
+            raise
 
     # Get device status methods
     async def get_light_color(self) -> None:

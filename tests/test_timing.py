@@ -466,3 +466,94 @@ async def test_limit_not_cleared_while_the_other_is_unread(
     await desk.set_height_limit(HeightLimit.UPPER, 120.0)
 
     assert frames == [(0.0, H), (0.0, UPPER_120), (0.05, UPPER_120)]
+
+
+# Stop and move to height
+
+
+async def test_stop_is_sent_twice(desk: DeskBLEDevice, frames: Frames) -> None:
+    """Stop goes out twice, 50 ms apart, without waking the desk."""
+    await desk.stop()
+
+    assert frames == [(0.0, STOP), (0.05, STOP)]
+
+
+async def test_move_to_height_follows_the_app_timing(
+    desk: DeskBLEDevice, frames: Frames
+) -> None:
+    """Move to height wakes the desk, stops it, then sends the target twice."""
+    await desk.move_to_height(85.0)
+
+    assert frames == [(0.0, H), (0.0, STOP), (0.2, TO_85_CM), (0.3, TO_85_CM)]
+
+
+async def test_stop_cuts_into_a_move_to_height(
+    desk: DeskBLEDevice, frames: Frames, clock: FakeClock
+) -> None:
+    """A stop during the pause goes out at once, and the target never follows."""
+    clock.auto = False
+    move = asyncio.create_task(desk.move_to_height(85.0))
+    await clock.advance(0.1)
+
+    await _run(clock, desk.stop())
+
+    await move  # cut short quietly
+    assert frames == [(0.0, H), (0.0, STOP), (0.1, STOP), (0.15, STOP)]
+    assert desk._movement is None
+
+
+async def test_new_command_cuts_into_a_move_to_height(
+    desk: DeskBLEDevice, frames: Frames, clock: FakeClock
+) -> None:
+    """A new movement command cancels what a move to height still has to send."""
+    clock.auto = False
+    move = asyncio.create_task(desk.move_to_height(85.0))
+    await clock.advance(0.1)
+
+    await desk.move_down()
+    await clock.advance(1.0)
+
+    await move
+    assert frames == [(0.0, H), (0.0, STOP), (0.1, H), (0.1, DOWN)]
+    assert desk.movement_direction == "down"
+
+
+async def test_stop_does_not_wait_for_a_setting(
+    desk: DeskBLEDevice, frames: Frames, clock: FakeClock
+) -> None:
+    """A stop goes out during a setting's pause, and the setting still completes."""
+    clock.auto = False
+    lock = asyncio.create_task(desk.set_lock_status(True))
+    await clock.advance(0.1)
+
+    await _run(clock, desk.stop())
+
+    await lock
+    assert frames == [
+        (0.0, H),
+        (0.1, STOP),
+        (0.15, STOP),
+        (0.2, LOCKED),
+        (0.4, LOCKED),
+    ]
+
+
+async def test_disconnect_during_a_move_to_height(
+    desk: DeskBLEDevice,
+    frames: Frames,
+    clock: FakeClock,
+    mock_bleak_client: MagicMock,
+) -> None:
+    """A move to height cut short by a disconnect fails and sends nothing more."""
+    clock.auto = False
+    move = asyncio.create_task(desk.move_to_height(85.0))
+    await clock.advance(0.1)
+
+    mock_bleak_client.is_connected = False
+    desk._handle_disconnect(mock_bleak_client)
+    with pytest.raises(DeskNotConnectedError):
+        await move
+    await clock.advance(1.0)
+
+    assert frames == [(0.0, H), (0.0, STOP)]
+    assert desk._movement is None

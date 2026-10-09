@@ -936,9 +936,11 @@ async def test_move_to_height_success(mock_ble_device, mock_bleak_client):
     # checksum = (0x1B + 0x02 + 0x03 + 0x52) & 0xFF = 0x72
     expected_command = bytes([0xF1, 0xF1, 0x1B, 0x02, 0x03, 0x52, 0x72, 0x7E])
 
-    # The handshake wakes the desk first
+    # As the app: wake, stop, then the target twice
     assert mock_bleak_client.write_gatt_char.call_args_list == [
         call(WRITE_CHARACTERISTIC_UUID, COMMAND_HANDSHAKE),
+        call(WRITE_CHARACTERISTIC_UUID, COMMAND_STOP),
+        call(WRITE_CHARACTERISTIC_UUID, expected_command),
         call(WRITE_CHARACTERISTIC_UUID, expected_command),
     ]
 
@@ -994,8 +996,12 @@ async def test_move_to_height_edge_cases(mock_ble_device, mock_bleak_client):
 
     expected_calls = [
         call(WRITE_CHARACTERISTIC_UUID, COMMAND_HANDSHAKE),
+        call(WRITE_CHARACTERISTIC_UUID, COMMAND_STOP),
+        call(WRITE_CHARACTERISTIC_UUID, expected_min),
         call(WRITE_CHARACTERISTIC_UUID, expected_min),
         call(WRITE_CHARACTERISTIC_UUID, COMMAND_HANDSHAKE),
+        call(WRITE_CHARACTERISTIC_UUID, COMMAND_STOP),
+        call(WRITE_CHARACTERISTIC_UUID, expected_max),
         call(WRITE_CHARACTERISTIC_UUID, expected_max),
     ]
     mock_bleak_client.write_gatt_char.assert_has_calls(expected_calls)
@@ -1076,7 +1082,7 @@ async def test_move_to_height_direction_detection(mock_ble_device, mock_bleak_cl
     await device.move_to_height(80.0)
     assert device.movement_direction is None
     # Nothing is sent for a move to where the desk already is
-    assert mock_bleak_client.write_gatt_char.call_count == 4
+    assert mock_bleak_client.write_gatt_char.call_count == 8
 
 
 async def test_collision_state_persists(mock_ble_device, mock_bleak_client):
@@ -3066,9 +3072,10 @@ async def test_stop_is_sent_without_waking(mock_ble_device, mock_bleak_client):
 
     await device.stop()
 
-    mock_bleak_client.write_gatt_char.assert_called_once_with(
-        WRITE_CHARACTERISTIC_UUID, COMMAND_STOP
-    )
+    assert mock_bleak_client.write_gatt_char.call_args_list == [
+        call(WRITE_CHARACTERISTIC_UUID, COMMAND_STOP),
+        call(WRITE_CHARACTERISTIC_UUID, COMMAND_STOP),
+    ]
 
 
 async def test_get_settings_requests_status_after_handshake(
