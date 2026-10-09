@@ -129,9 +129,10 @@ frame of the command.
   (three readings in a row at the same height), on a collision, when it has not moved within 5
   seconds, on a new command, on a disconnect, or after 60 seconds. A move to height also stops
   repeating once the desk is within 0.5 cm of the target. A held command that has started also
-  ends if the desk sends no height reading for a second (a moving desk reports about every 200
-  ms), because collisions cannot be seen without readings. A move to height sent before the desk
-  has reported its height asks for it first, and fails if no reading comes. In one-press mode, or
+  ends if the desk sends no height reading for three seconds (a moving desk reports about every
+  200 ms, but through a proxy the reports can bunch up), because collisions cannot be seen without
+  readings. A move to height sent before the desk has reported its height asks for it first, gives
+  way to a stop or a newer command meanwhile, and fails if no reading comes. In one-press mode, or
   while the touch mode is unknown, a preset or a move to height is sent as in the table, and one
   preset command runs the desk all the way.
 - **Repeats are not confirmed.** The desk takes a held command as released as soon as the
