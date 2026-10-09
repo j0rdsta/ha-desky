@@ -799,19 +799,16 @@ class DeskBLEDevice:
         unit = self._limit_unit or "cm"
         new = LimitValue(self._encode_height(height_cm), unit, height_cm)
         if known.fully_known:
+            # Clear both, then set both, upper first: the new one and the other
             frames = [COMMAND_CLEAR_LIMITS] * 2
-            sending = list(HeightLimit)
             sent = HeightLimits(upper_set=False, lower_set=False)
             for each in HeightLimit:
                 if (value := new if each is limit else known.value(each)) is not None:
+                    frames += [self._limit_frame(each, value)] * 2
                     sent = sent.with_limit(each, value)
         else:
-            frames = []
-            sending = [limit]
+            frames = [self._limit_frame(limit, new)] * 2
             sent = known.with_limit(limit, new)
-        for each in sending:
-            if (value := sent.value(each)) is not None:
-                frames += [self._limit_frame(each, value)] * 2
         await self._sequencer.run_setting(
             [
                 (0.0, COMMAND_HANDSHAKE),
