@@ -35,7 +35,6 @@ The checksum is the sum of the command, length and data bytes, `& 0xFF`.
 | Preset 4 | `F1 F1 28 00 28 7E` |
 | Get height limits | `F1 F1 0C 00 0C 7E` |
 | Clear height limits | `F1 F1 23 00 23 7E` |
-| Get collision sensitivity | `F1 F1 1D 00 1D 7E` |
 | Get lock status | `F1 F1 B2 00 B2 7E` |
 | Get vibration | `F1 F1 B3 00 B3 7E` |
 | Get light colour | `F1 F1 B4 00 B4 7E` |
@@ -45,6 +44,10 @@ The checksum is the sum of the command, length and data bytes, `& 0xFF`.
 Versions before 2.0.0 also sent `F1 F1 A4 00 A4 7E` for the vibration intensity. The desk never
 answered it, and the official app neither sends it nor sets the intensity, so it is no longer
 sent.
+
+Versions before 2.0.0 also sent `F1 F1 1D 00 1D 7E` for the collision sensitivity. On a real desk
+its reply disagreed with the settings block, and the official app never sends it. The
+integration now reads the sensitivity from the settings block only.
 
 ### Commands with a value
 
@@ -143,8 +146,8 @@ Setting responses start with `F2 F2 <command> <length>`:
 The desk has no query for the display unit or touch mode on their own. It sends a block of settings
 (presets `0x25`-`0x28`, unit `0x0E`, touch mode `0x19`, an unknown `0x17`, sensitivity `0x1D`) in
 reply to a status request that follows a handshake. It also sends the block unprompted when the unit
-is changed on the hand controller. It does not confirm a unit or touch mode change on its own, so
-the integration asks for the block after changing either.
+is changed on the hand controller. It does not confirm a change to the unit, touch mode or
+collision sensitivity, so the integration asks for the block after changing any of them.
 
 A desk connected within about a second of powering up ignores the settings request, and sends
 `F2 F2 10 02 02 51` and `F2 F2 0F 02 00 07` instead. Their meaning is unknown.
