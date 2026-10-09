@@ -274,28 +274,23 @@ class DeskUpdateCoordinator(DataUpdateCoordinator[DeskData]):
         if not (update_kwargs := self._device_registry_fields()):
             return
 
-        try:
-            # async_get_or_create() matches on identifiers, so no separate
-            # lookup is needed. device_registry.async_get_device() is
-            # deprecated and stops working in HA 2027.8.
-            dr.async_get(self.hass).async_get_or_create(
-                config_entry_id=self.config_entry.entry_id,
-                identifiers={(DOMAIN, cast(str, self.config_entry.unique_id))},
-                connections={(dr.CONNECTION_BLUETOOTH, self._address)},
-                name=self._device.name,
-                manufacturer=update_kwargs.get("manufacturer", UNDEFINED),
-                model=update_kwargs.get("model", UNDEFINED),
-                serial_number=update_kwargs.get("serial_number", UNDEFINED),
-                hw_version=update_kwargs.get("hw_version", UNDEFINED),
-                sw_version=update_kwargs.get("sw_version", UNDEFINED),
-            )
-            _LOGGER.debug(
-                "Updated device registry with BLE device information: %s",
-                update_kwargs,
-            )
-
-        except Exception as err:
-            _LOGGER.error("Failed to update device registry: %s", err)
+        # async_get_or_create() matches on identifiers, so no separate
+        # lookup is needed. device_registry.async_get_device() is
+        # deprecated and stops working in HA 2027.8.
+        dr.async_get(self.hass).async_get_or_create(
+            config_entry_id=self.config_entry.entry_id,
+            identifiers={(DOMAIN, cast(str, self.config_entry.unique_id))},
+            connections={(dr.CONNECTION_BLUETOOTH, self._address)},
+            name=self._device.name,
+            manufacturer=update_kwargs.get("manufacturer", UNDEFINED),
+            model=update_kwargs.get("model", UNDEFINED),
+            serial_number=update_kwargs.get("serial_number", UNDEFINED),
+            hw_version=update_kwargs.get("hw_version", UNDEFINED),
+            sw_version=update_kwargs.get("sw_version", UNDEFINED),
+        )
+        _LOGGER.debug(
+            "Updated device registry with BLE device information: %s", update_kwargs
+        )
 
     async def _async_update_data(self) -> DeskData:
         """Update data via BLE.

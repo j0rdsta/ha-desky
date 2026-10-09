@@ -913,19 +913,21 @@ async def test_update_device_registry_only_placeholders(
     assert _desk_device(hass, init_integration) == device
 
 
-async def test_update_device_registry_error_is_logged(
+async def test_update_device_registry_error_is_raised(
     hass: HomeAssistant,
     device_registry: dr.DeviceRegistry,
     init_integration: MockConfigEntry,
-    caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """Test a registry failure is logged rather than raised."""
-    with patch.object(
-        device_registry, "async_get_or_create", side_effect=ValueError("registry boom")
+    """Test a registry failure, which would be a bug, is not hidden in the log."""
+    with (
+        patch.object(
+            device_registry,
+            "async_get_or_create",
+            side_effect=ValueError("registry boom"),
+        ),
+        pytest.raises(ValueError, match="registry boom"),
     ):
         await init_integration.runtime_data.async_update_device_registry()
-
-    assert "Failed to update device registry: registry boom" in caplog.text
 
 
 async def test_update_device_registry_before_connecting(
