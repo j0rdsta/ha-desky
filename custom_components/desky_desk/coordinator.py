@@ -483,7 +483,7 @@ class DeskUpdateCoordinator(DataUpdateCoordinator[DeskData]):
         if not self._expected_connected:
             return
         if not self._unavailable_logged:
-            _LOGGER.warning("The desk at %s is unavailable", self._address)
+            _LOGGER.info("The desk at %s is unavailable", self._address)
             self._unavailable_logged = True
         # The desk usually advertises again at once, but do not wait for it
         self._async_request_reconnect()

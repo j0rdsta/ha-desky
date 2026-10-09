@@ -77,6 +77,15 @@ def _desk_device(hass: HomeAssistant, entry: MockConfigEntry) -> dr.DeviceEntry:
     return device
 
 
+def _logged(caplog: pytest.LogCaptureFixture) -> list[tuple[int, str]]:
+    """Return the integration's log lines at info level or above."""
+    return [
+        (record.levelno, record.getMessage())
+        for record in caplog.records
+        if record.name.startswith(INTEGRATION_LOGGER) and record.levelno >= logging.INFO
+    ]
+
+
 async def _lose_desk(hass: HomeAssistant, desk: MagicMock) -> None:
     """Drop the connection to a desk that then refuses to reconnect."""
     desk.connect.side_effect = None
@@ -263,7 +272,7 @@ async def _stop_home_assistant(hass: HomeAssistant) -> None:
     hass.set_state(CoreState.not_running)
 
 
-async def test_disconnect_during_startup_warns_and_reconnects(
+async def test_disconnect_during_startup_logs_and_reconnects(
     hass: HomeAssistant,
     init_integration: MockConfigEntry,
     mock_desk: MagicMock,
@@ -276,7 +285,10 @@ async def test_disconnect_during_startup_warns_and_reconnects(
     disconnect_desk(mock_desk)
     await hass.async_block_till_done(wait_background_tasks=True)
 
-    assert "is unavailable" in caplog.text
+    assert _logged(caplog) == [
+        (logging.INFO, f"The desk at {ADDRESS} is unavailable"),
+        (logging.INFO, f"The desk at {ADDRESS} is available again"),
+    ]
     assert mock_desk.connect.await_count == 2
 
 
@@ -287,7 +299,7 @@ async def test_no_reconnect_after_home_assistant_stops(
     mock_bluetooth_callbacks: BluetoothCallbacks,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """Test a disconnect late in shutdown neither reconnects nor warns."""
+    """Test a disconnect late in shutdown neither reconnects nor logs the outage."""
     await _stop_home_assistant(hass)
     _reconnect_succeeds(mock_desk)
 
@@ -629,7 +641,7 @@ async def test_dropped_connection_is_logged_once(
     freezer: FrozenDateTimeFactory,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """Test closing a dead connection, which Bleak also reports, logs one warning."""
+    """Test closing a dead connection, which Bleak also reports, logs one info line."""
     _desk_stops_answering(mock_desk)
     disconnected = mock_desk.register_disconnect_callback.call_args.args[0]
 
@@ -642,7 +654,7 @@ async def test_dropped_connection_is_logged_once(
 
     await _poll(hass, freezer)
 
-    assert caplog.text.count("is unavailable") == 1
+    assert _logged(caplog) == [(logging.INFO, f"The desk at {ADDRESS} is unavailable")]
     # The second report does not start a second attempt before the backoff
     assert mock_desk.connect.await_count == 2
 
@@ -664,7 +676,7 @@ async def test_poll_while_disconnected_reports_unavailable(
     mock_desk.get_status.assert_awaited_once()
 
 
-async def test_extended_outage_logs_one_warning(
+async def test_extended_outage_logs_one_info_message(
     hass: HomeAssistant,
     init_integration: MockConfigEntry,
     mock_desk: MagicMock,
@@ -672,7 +684,7 @@ async def test_extended_outage_logs_one_warning(
     freezer: FrozenDateTimeFactory,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """Test an hour of failing retries logs the outage once, at warning level."""
+    """Test an hour of failing retries logs the outage once, at info level."""
     caplog.set_level(logging.DEBUG, logger=INTEGRATION_LOGGER)
     await _lose_desk(hass, mock_desk)
 
@@ -682,15 +694,7 @@ async def test_extended_outage_logs_one_warning(
         await _poll(hass, freezer)
     assert mock_desk.connect.await_count > 30
 
-    problems = [
-        record
-        for record in caplog.records
-        if record.name.startswith(INTEGRATION_LOGGER)
-        and record.levelno >= logging.WARNING
-    ]
-    assert [(record.levelno, record.getMessage()) for record in problems] == [
-        (logging.WARNING, f"The desk at {ADDRESS} is unavailable")
-    ]
+    assert _logged(caplog) == [(logging.INFO, f"The desk at {ADDRESS} is unavailable")]
     assert f"Could not reconnect to the desk at {ADDRESS}" in caplog.text
 
 
@@ -711,16 +715,14 @@ async def test_recovery_logs_one_info_message(
     await _advance(hass, freezer, 2 * RECONNECT_BACKOFF_MIN_SECONDS)
     await _poll(hass, freezer)
 
-    messages = [
-        record.getMessage()
-        for record in caplog.records
-        if record.name.startswith(INTEGRATION_LOGGER) and record.levelno >= logging.INFO
+    assert _logged(caplog) == [
+        (logging.INFO, f"The desk at {ADDRESS} is available again")
     ]
-    assert messages == [f"The desk at {ADDRESS} is available again"]
 
     # The next outage is logged again
+    caplog.clear()
     await _lose_desk(hass, mock_desk)
-    assert f"The desk at {ADDRESS} is unavailable" in caplog.text
+    assert _logged(caplog) == [(logging.INFO, f"The desk at {ADDRESS} is unavailable")]
 
 
 async def test_shutdown_stops_reconnecting_and_disconnects(

@@ -29,7 +29,7 @@ keeps retrying in the background. Check the points above, then:
 ## The desk becomes unavailable
 
 When the connection drops, every entity of the desk becomes unavailable and the log gets one
-warning:
+info line:
 
 ```text
 The desk at AA:BB:CC:DD:EE:FF is unavailable
@@ -43,6 +43,9 @@ back, the log gets one info line:
 ```text
 The desk at AA:BB:CC:DD:EE:FF is available again
 ```
+
+Home Assistant logs only warnings and errors by default. To see these two lines, set the
+integration's log level to `info` or `debug`, as in [Debug logging](#debug-logging).
 
 If the desk stays unavailable, work through [Setup keeps retrying](#setup-keeps-retrying).
 
