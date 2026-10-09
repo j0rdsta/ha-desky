@@ -672,7 +672,7 @@ class DeskBLEDevice:
         )
 
         direction = "up" if height_cm > self._height_cm else "down"
-        self._begin_movement("targeted", direction, height_cm)
+        movement = self._begin_movement("targeted", direction, height_cm)
         # As the app: wake, stop whatever is moving, then the target twice
         try:
             await self._sequencer.run_motion(
@@ -683,7 +683,9 @@ class DeskBLEDevice:
                 ]
             )
         except DeskError:
-            self._end_movement()
+            # As in _start_movement: never cancel a stop that has taken over
+            if self._movement is movement:
+                self._end_movement()
             raise
 
     # Get device status methods

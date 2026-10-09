@@ -37,7 +37,7 @@ from custom_components.desky_desk.const import (
 )
 from custom_components.desky_desk.errors import DeskCommandError, DeskNotConnectedError
 
-from . import FakeClock, deliver_frame, desk_response, record_frames
+from . import FakeClock, deliver_frame, desk_response, record_frames, settle
 
 H = COMMAND_HANDSHAKE.hex()
 STATUS = COMMAND_GET_STATUS.hex()
@@ -1049,4 +1049,37 @@ async def test_stop_waits_at_most_the_write_timeout_behind_a_hung_write(
         await stop
 
     assert sent == [H, STOP, STOP]
+    assert desk._movement is None
+
+
+async def test_failed_move_to_height_leaves_a_stop_that_took_over(
+    desk: DeskBLEDevice, frames: Frames
+) -> None:
+    """A move to height whose write fails after a stop took over keeps that stop."""
+
+    async def _stopped_then_failed(steps: Any) -> None:
+        # The target write fails just as a stop replaces the movement
+        desk._end_movement()
+        desk._sequencer.start_motion([(0.0, COMMAND_STOP), (0.05, COMMAND_STOP)])
+        raise DeskCommandError("busy")
+
+    with (
+        patch.object(desk._sequencer, "run_motion", side_effect=_stopped_then_failed),
+        pytest.raises(DeskCommandError),
+    ):
+        await desk.move_to_height(85.0)
+    await settle()
+
+    assert frames == [(0.0, STOP), (0.05, STOP)]
+
+
+async def test_failed_move_to_height_ends_its_movement(
+    desk: DeskBLEDevice, mock_bleak_client: MagicMock
+) -> None:
+    """A move to height whose write fails is no longer tracked as a movement."""
+    mock_bleak_client.write_gatt_char.side_effect = [None, None, Exception("busy")]
+
+    with pytest.raises(DeskCommandError, match="busy"):
+        await desk.move_to_height(85.0)
+
     assert desk._movement is None
