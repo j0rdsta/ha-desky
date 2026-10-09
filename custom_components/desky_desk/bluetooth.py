@@ -842,7 +842,7 @@ class DeskBLEDevice:
         """Release a held movement whose repeat ended as its readings stopped."""
         if task.cancelled() or self._movement is not movement or not stalled:
             return
-        _LOGGER.info(
+        _LOGGER.debug(
             "No height reading from the desk for %.1f seconds; releasing the held "
             "command",
             self._sequencer.now() - self._last_reading_at,
