@@ -1504,12 +1504,13 @@ class DeskBLEDevice:
         self._sequencer.cancel_all()
         self._set_collision_detected(False)
 
-        # Settings can change on the hand controller while disconnected, so they
-        # are read from the desk again on reconnecting
+        # Settings and limits can change on the hand controller while
+        # disconnected, so they are read from the desk again on reconnecting
         self._unit_preference = None
         self._effective_unit = None
         self._touch_mode = None
         self._sensitivity_level = None
+        self._limits = HeightLimits()
 
     def _handle_disconnect(self, client: BleakClient) -> None:
         """Handle disconnection from the desk."""

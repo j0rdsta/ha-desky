@@ -1006,3 +1006,25 @@ async def test_late_limit_reply_does_not_undo_a_newer_change(
         "f1f1220202bce27e",
         GET_LIMITS,
     ]
+
+
+async def test_disconnect_forgets_the_limits(
+    desk: DeskBLEDevice, frames: Frames, mock_bleak_client: MagicMock
+) -> None:
+    """After a reconnect, limits from the last connection are not relied on.
+
+    They can change on the hand controller meanwhile, so until the desk
+    reports them again nothing is cleared and only the new limit is sent.
+    """
+    _report_limits(desk, upper=1100, lower=650)
+
+    desk._handle_disconnect(mock_bleak_client)
+    assert (desk.height_limit_upper, desk.height_limit_lower) == (None, None)
+    assert desk.limits_enabled is False
+
+    desk._client = mock_bleak_client  # connected again
+    desk._handle_notification(None, desk_response(UNIT_RESPONSE_HEADER, 0x00))
+    frames.clear()
+    await desk.set_height_limit(HeightLimit.UPPER, 120.0)
+
+    assert [frame for _, frame in frames] == [H, UPPER_120, UPPER_120, GET_LIMITS]
