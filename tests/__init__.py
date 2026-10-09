@@ -149,6 +149,11 @@ class FakeClock:
     tests that do not look at timing never wait. With auto off, a pause lasts
     until advance() moves the clock past it, so a test decides exactly when
     each timed frame goes out.
+
+    With auto set, the sequencer's settle cap (WRITE_SETTLE_SECONDS) passes at
+    once too, so a write cancelled mid-flight is given up straight away. A
+    test that cancels during a write and expects it to finish must turn auto
+    off.
     """
 
     def __init__(self) -> None:
