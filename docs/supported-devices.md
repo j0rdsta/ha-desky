@@ -29,8 +29,9 @@ These are not supported:
 - **A desk with an Upsy Desky connected.** The Upsy Desky and this integration cannot control the
   desk at the same time. See [Upsy Desky](#upsy-desky).
 - **Desks from other brands.** They are not tested. A desk that uses the same Bluetooth controller
-  may work, but Home Assistant only discovers it if its Bluetooth name starts with `Desky`. If you
-  try one, [open an issue](https://github.com/j0rdsta/ha-desky/issues) with the result.
+  may work, but Home Assistant only discovers it if its Bluetooth name starts with `Desky`. A desk
+  that is not discovered can still be added by its Bluetooth address. If you try one,
+  [open an issue](https://github.com/j0rdsta/ha-desky/issues) with the result.
 
 ## Upsy Desky
 

@@ -46,8 +46,9 @@ touch mode or collision sensitivity is still unknown at the first poll after a c
 poll asks for the settings again. It asks only once per connection, because asking wakes the display.
 
 A poll while the desk is disconnected sends nothing and is not reported as an error. A poll while
-a movement command is being held (repeated) sends nothing either, so it cannot hold up the repeats;
-the moving desk reports its height anyway.
+a movement command is being held (repeated), for example before the desk starts moving, sends
+nothing either, so it cannot hold up the repeats. Once the desk moves, it reports its height
+anyway.
 
 ## Connection loss and reconnecting
 

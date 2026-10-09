@@ -54,7 +54,7 @@ rules:
     status: exempt
     comment: |
       Bluetooth only, no IP discovery. The address is the unique ID and the
-      only stored data, and each advertisement refreshes the BLEDevice.
+      only connection data, and each advertisement refreshes the BLEDevice.
   docs-data-update: done
   docs-examples: done
   docs-known-limitations: done

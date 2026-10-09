@@ -51,7 +51,7 @@ close the Desky app on your phone.
    **Add**. If it is not discovered, select **Add integration**, search for **Desky Standing
    Desk** and pick the desk or enter its Bluetooth address.
 
-The integration's icon appears from Home Assistant 2026.3.
+Home Assistant 2026.3 and later show the integration's icon.
 
 ## Documentation
 

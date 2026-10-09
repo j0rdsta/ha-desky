@@ -6,6 +6,8 @@ also copy it into your configuration directory by hand.
 Before you start, check the [requirements](index.md#requirements). If an
 [Upsy Desky](supported-devices.md#upsy-desky) is fitted to the desk, disconnect it first.
 
+Home Assistant 2026.3 and later show the integration's icon, whichever way you install it.
+
 ## HACS (recommended)
 
 1. In Home Assistant, open **HACS**.
@@ -29,8 +31,6 @@ HACS tells you when a new release is available. Releases are listed on the
 
 To update a manual installation, replace the `desky_desk` folder with the one from the new
 release and restart Home Assistant.
-
-The integration's icon appears from Home Assistant 2026.3.
 
 ## Next step
 

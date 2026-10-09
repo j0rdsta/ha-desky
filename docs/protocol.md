@@ -6,8 +6,8 @@ observation and may not hold for every controller.
 
 ## Sources
 
-- **The official Desky app.** The command timings, the brightness steps and the meaning of
-  colour 0 were read from the decompiled Desky Android app, version 4.5.4.
+- **The official Desky app.** Statements about what the app does were read from the decompiled
+  Desky Android app, version 4.5.4.
 - **[vakintosh/ha-desky-ble](https://github.com/vakintosh/ha-desky-ble)** (MIT licence), another
   Desky integration. Its notes were used to cross-check the GATT layout and the frame format.
 - **A real desk.** What is described as observed was seen on a desk with an L-BTMEB95
@@ -75,7 +75,7 @@ F1 F1 <command> 01 <value> <checksum> 7E
 | `0xB3` | Vibration | 0 off, 1 on |
 | `0xB4` | Light colour | 1-7, see below |
 | `0xB5` | Lighting | 0 off, 1 on |
-| `0xB6` | Brightness | 0-100. The app offers 20-100 in steps of 20; other values work too |
+| `0xB6` | Brightness | 0-100. The app offers 20-100 in steps of 20; other values were observed to work |
 
 Heights take two data bytes, big-endian:
 
@@ -96,8 +96,8 @@ commands once its display sleeps, about a minute after the last touch. The hands
 the integration writes a handshake in front of every command that moves the desk or changes a
 setting. Stop is sent on its own: a moving desk is awake, and a sleeping one has nothing to stop.
 
-This was observed on the L-BTMEB95 controller. The official app does not send a handshake before
-movement commands, only before some settings.
+This was observed on the L-BTMEB95 controller. For the commands the official app sends without a
+handshake, see [Command timing](#command-timing).
 
 ## Command timing
 
@@ -119,8 +119,9 @@ frame of the command.
 | Presets | Handshake and the command. In press-and-hold touch mode, the command again every 100 ms |
 | Connecting | Handshake and status, then each settings query 200 ms apart |
 
-- The app sends colour, brightness, unit and limits without a handshake. The integration keeps
-  the handshake in front of them, because the desk ignores commands while its display sleeps.
+- The app sends movement commands (move up and down, presets, move to height), colour,
+  brightness, unit and limits without a handshake. The integration keeps the handshake in front
+  of them, because the desk ignores commands while its display sleeps.
 - The desk does not confirm a unit, touch mode or sensitivity change, so the integration asks
   for its settings 500 ms after the change, as the app does for the sensitivity. Asked any
   sooner, the desk can still report the old value.
@@ -151,13 +152,13 @@ frame of the command.
   repeats arrive unevenly. Waiting for each write's confirmation through a Bluetooth proxy takes
   70-700 ms, which made a held preset stop part way. So the repeats go out without waiting for
   confirmation, evenly 100 ms apart, as the app writes them. The first command, the stops and
-  every setting still wait for it. While a command is held, the status poll sends
-  nothing, so it cannot hold up the repeats.
+  every setting still wait for it. While a command is held, the status poll sends nothing, so it
+  cannot hold up the repeats.
 - A pause never holds up a stop. A stop, a new movement command or a disconnect cancels the
   movement frames still due. A disconnect also cancels any setting still being sent.
 - Every other write waits for the desk to confirm it, so a write that fails shows as an error.
-  If a write is slow, the frames after it move later and keep their spacing. Through a Bluetooth proxy
-  a write takes about 70-130 ms, so frames 50 ms apart come out about 90 ms apart.
+  If a write is slow, the frames after it move later and keep their spacing. Through a Bluetooth
+  proxy a write takes about 70-130 ms, so frames 50 ms apart come out about 90 ms apart.
 - A write already on its way to the desk is never cut off: a stop waits for it to finish, since
   the Bluetooth stack rejects a write while another is in progress. A write the desk has not
   confirmed within 5 seconds fails, so a stop never waits longer than that behind it.
@@ -204,12 +205,12 @@ unit, a value below 55.0 is read as inches.
 
 The limit query (`0x0C`) is answered with the limit status (`0x20`) and the limits that are set
 (`0x21`, `0x22`). With no limits set, the desk was observed to answer `F2 F2 07 04 04 E2 02 58`:
-1250 and 600, so 125.0 and 60.0 cm. This is probably the desk's physical range. The
-integration does not read this frame.
+1250 and 600, so 125.0 and 60.0 cm. It may be this desk's travel range; the integration doesn't
+read it and keeps its fixed 60-130 cm range.
 
 Height limit responses are decoded the same way as height frames, after one correction. The desk
-reports a limit a tenth low: 124.0 cm comes back as 1239. Like the official app, the integration adds one tenth to a
-limit value that is not a multiple of 5. Height frames are not corrected.
+reports a limit a tenth low: 124.0 cm comes back as 1239. Like the official app, the integration
+adds one tenth to a limit value that is not a multiple of 5. Height frames are not corrected.
 
 ### Setting responses
 
