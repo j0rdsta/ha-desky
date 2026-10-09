@@ -390,11 +390,13 @@ class DeskUpdateCoordinator(DataUpdateCoordinator[DeskData]):
             await self._async_drop_connection()
 
     async def _async_drop_connection(self) -> None:
-        """Close a connection the desk no longer answers on."""
+        """Give up on a connection the desk no longer answers on.
+
+        The device reports the drop through _handle_disconnect() before it
+        closes the link, so the entities go unavailable at once.
+        """
         _LOGGER.debug("The desk at %s stopped responding", self._address)
-        device = self.device
-        await device.disconnect()
-        self._handle_disconnect(device)
+        await self.device.drop_connection()
 
     @callback
     def _async_request_reconnect(self) -> None:

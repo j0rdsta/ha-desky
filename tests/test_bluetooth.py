@@ -532,6 +532,83 @@ async def test_release_closes_then_reports_the_drop_once(
     assert device._client is None
 
 
+async def test_drop_reports_the_disconnect_before_closing(
+    mock_ble_device, mock_establish_connection, mock_bleak_client
+):
+    """Test a dropped link is reported at once, and a close that hangs is given up.
+
+    Through a proxy, closing a link the desk no longer answers on can take 20 s.
+    """
+    device = DeskBLEDevice(mock_ble_device)
+    await device.connect()
+    callback = MagicMock()
+    device.register_disconnect_callback(callback)
+    reports_before_close: list[int] = []
+
+    async def _disconnect() -> None:
+        reports_before_close.append(callback.call_count)
+        # Bleak also reports the drop of the link being closed
+        mock_establish_connection.call_args.kwargs["disconnected_callback"](
+            mock_bleak_client
+        )
+        await asyncio.Event().wait()  # the proxy never answers
+
+    mock_bleak_client.disconnect.side_effect = _disconnect
+
+    with patch("custom_components.desky_desk.bluetooth.CLOSE_TIMEOUT_SECONDS", 0.01):
+        await device.drop_connection()
+
+    assert reports_before_close == [1]
+    callback.assert_called_once_with()
+    mock_bleak_client.disconnect.assert_awaited_once()
+    assert not device.is_connected
+
+
+async def test_drop_without_a_connection_does_nothing(mock_ble_device):
+    """Test a drop after the link already went reports nothing more."""
+    device = DeskBLEDevice(mock_ble_device)
+    callback = MagicMock()
+    device.register_disconnect_callback(callback)
+
+    await device.drop_connection()
+
+    callback.assert_not_called()
+
+
+async def test_reconnect_waits_for_a_dropped_link_to_close(
+    mock_ble_device, mock_establish_connection, mock_bleak_client
+):
+    """Test a reconnect does not race the close of the link it replaces."""
+    device = DeskBLEDevice(mock_ble_device)
+    await device.connect()
+    mock_establish_connection.reset_mock()
+    closing = asyncio.Event()
+    closed = asyncio.Event()
+
+    async def _disconnect() -> None:
+        closing.set()
+        await closed.wait()
+
+    mock_bleak_client.disconnect.side_effect = _disconnect
+    reconnects: list[asyncio.Task[bool]] = []
+
+    def _reconnect() -> None:
+        # As the coordinator does, from the disconnect callback
+        reconnects.append(asyncio.create_task(device.connect()))
+
+    device.register_disconnect_callback(_reconnect)
+
+    drop = asyncio.create_task(device.drop_connection())
+    await closing.wait()
+    await asyncio.sleep(0)
+    mock_establish_connection.assert_not_called()
+
+    closed.set()
+    await drop
+    assert await reconnects[0] is True
+    mock_establish_connection.assert_called_once()
+
+
 async def test_cancelled_release_is_closed_on_disconnect(
     mock_ble_device, mock_establish_connection, mock_bleak_client
 ):

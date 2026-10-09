@@ -84,6 +84,11 @@ CONNECT_MAX_ATTEMPTS = 3
 # A cancelled write is waited for less (WRITE_SETTLE_SECONDS in sequencer.py).
 WRITE_TIMEOUT_SECONDS = 5.0
 
+# A link the desk stopped answering on is reported lost at once, then given this
+# long to close. Through a proxy the close can wait 20 s for an answer, and a
+# reconnect waits for it.
+CLOSE_TIMEOUT_SECONDS = 5.0
+
 # Headers of this many recent runs of notifications are kept for diagnostics. A
 # run is consecutive frames with the same header: an idle desk streams status
 # frames, which would otherwise push out the replies a bug report needs.
@@ -235,6 +240,8 @@ class DeskBLEDevice:
         self._ble_device = ble_device
         self._advertisement_data = advertisement_data
         self._client: BleakClient | None = None
+        # Held while a dropped link closes, so a reconnect does not race it
+        self._closing = asyncio.Lock()
         # Writes go out one at a time; timed sequences pause without blocking them
         self._sequencer = Sequencer(self._write_frame, clock)
         # Counts movement commands and stops, so a command that waited can tell
@@ -461,6 +468,9 @@ class DeskBLEDevice:
         if self.is_connected:
             return True
 
+        async with self._closing:
+            pass
+
         _LOGGER.debug("Connecting to Desky desk at %s", self.address)
 
         try:
@@ -525,6 +535,29 @@ class DeskBLEDevice:
             _LOGGER.debug(
                 "Error closing the connection to desk at %s: %s", self.address, err
             )
+
+    async def drop_connection(self) -> None:
+        """Report a link the desk no longer answers on as lost, then close it.
+
+        The drop is reported first, so the entities go unavailable at once and
+        commands fail as not connected, rather than waiting for a close that a
+        proxy can take 20 s to give up on. The close is bounded, and a reconnect
+        waits for it. A failed setup closes before reporting instead
+        (_release_client), so a cancel during the close leaves the link in
+        self._client for disconnect() to close.
+        """
+        if (client := self._client) is None:
+            return
+        # Taken before reporting, as the report can start a reconnect at once
+        async with self._closing:
+            self._handle_disconnect(client)
+            try:
+                async with asyncio.timeout(CLOSE_TIMEOUT_SECONDS):
+                    await self._close(client)
+            except TimeoutError:
+                _LOGGER.debug(
+                    "Gave up closing the connection to desk at %s", self.address
+                )
 
     def _get_ble_device(self) -> BLEDevice:
         """Return the latest BLE device, for retries during a connection attempt."""

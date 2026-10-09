@@ -11,6 +11,7 @@ from datetime import timedelta
 import logging
 from unittest.mock import ANY, MagicMock, patch
 
+from bleak.exc import BleakError
 from freezegun.api import FrozenDateTimeFactory
 from homeassistant.const import EVENT_HOMEASSISTANT_STOP, STATE_UNAVAILABLE
 from homeassistant.core import CoreState, HomeAssistant
@@ -21,6 +22,7 @@ from pytest_homeassistant_custom_component.common import (
     async_fire_time_changed,
 )
 
+from custom_components.desky_desk.bluetooth import CLOSE_TIMEOUT_SECONDS
 from custom_components.desky_desk.const import (
     DOMAIN,
     RECONNECT_BACKOFF_MAX_SECONDS,
@@ -28,7 +30,7 @@ from custom_components.desky_desk.const import (
     UPDATE_INTERVAL_SECONDS,
 )
 from custom_components.desky_desk.coordinator import DeskData, DeskUpdateCoordinator
-from custom_components.desky_desk.errors import DeskCommandError
+from custom_components.desky_desk.errors import DeskCommandError, DeskNotConnectedError
 
 from . import BluetoothCallbacks, desk_data, disconnect_desk, notify_desk
 
@@ -99,10 +101,10 @@ def _desk_stops_answering(desk: MagicMock) -> None:
     desk.get_status.side_effect = DeskCommandError("Not connected")
     desk.connect.return_value = False
 
-    async def _disconnect() -> None:
-        desk.is_connected = False
+    async def _drop() -> None:
+        disconnect_desk(desk)
 
-    desk.disconnect.side_effect = _disconnect
+    desk.drop_connection.side_effect = _drop
 
 
 def _reconnect_succeeds(desk: MagicMock) -> None:
@@ -519,7 +521,7 @@ async def test_desk_powered_off(
     mock_bluetooth_callbacks.lose_sight()
     await hass.async_block_till_done(wait_background_tasks=True)
 
-    mock_desk.disconnect.assert_awaited_once()
+    mock_desk.drop_connection.assert_awaited_once()
     assert not init_integration.runtime_data.data.is_connected
     assert all(
         state == STATE_UNAVAILABLE for state in _entity_states(hass, init_integration)
@@ -537,7 +539,7 @@ async def test_stack_loses_sight_of_a_desk_that_still_answers(
     await hass.async_block_till_done(wait_background_tasks=True)
 
     assert mock_desk.get_status.await_count == 2
-    mock_desk.disconnect.assert_not_called()
+    mock_desk.drop_connection.assert_not_called()
     assert STATE_UNAVAILABLE not in _entity_states(hass, init_integration)
 
 
@@ -623,12 +625,12 @@ async def test_poll_drops_a_connection_the_desk_no_longer_answers(
     mock_desk: MagicMock,
     freezer: FrozenDateTimeFactory,
 ) -> None:
-    """Test a failed status request closes the connection and marks it unavailable."""
+    """Test a failed status request drops the connection and marks it unavailable."""
     _desk_stops_answering(mock_desk)
 
     await _poll(hass, freezer)
 
-    mock_desk.disconnect.assert_awaited_once()
+    mock_desk.drop_connection.assert_awaited_once()
     assert all(
         state == STATE_UNAVAILABLE for state in _entity_states(hass, init_integration)
     )
@@ -641,22 +643,64 @@ async def test_dropped_connection_is_logged_once(
     freezer: FrozenDateTimeFactory,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """Test closing a dead connection, which Bleak also reports, logs one info line."""
+    """Test a dead connection that Bleak reports as well logs one info line."""
     _desk_stops_answering(mock_desk)
-    disconnected = mock_desk.register_disconnect_callback.call_args.args[0]
 
-    async def _disconnect() -> None:
-        mock_desk.is_connected = False
-        # Bleak reports the disconnect it was asked for as well
-        disconnected()
+    async def _get_status() -> None:
+        # Bleak notices the link is gone as the status request fails
+        disconnect_desk(mock_desk)
+        raise DeskCommandError("Not connected")
 
-    mock_desk.disconnect.side_effect = _disconnect
+    mock_desk.get_status.side_effect = _get_status
 
     await _poll(hass, freezer)
 
     assert _logged(caplog) == [(logging.INFO, f"The desk at {ADDRESS} is unavailable")]
     # The second report does not start a second attempt before the backoff
     assert mock_desk.connect.await_count == 2
+
+
+async def test_dead_link_is_unavailable_before_it_closes(
+    hass: HomeAssistant,
+    desk_client: MagicMock,
+    mock_config_entry: MockConfigEntry,
+    mock_establish_connection: MagicMock,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """Test a desk that stops answering is unavailable at once, though closing hangs.
+
+    Through a proxy, closing a link the desk no longer answers on can wait 20 s.
+    Until the entities are unavailable, commands fail with Bluetooth errors
+    instead of as not connected.
+    """
+    closing = asyncio.Event()
+
+    async def _close_never_returns() -> None:
+        closing.set()
+        await asyncio.Event().wait()
+
+    desk_client.disconnect.side_effect = _close_never_returns
+    desk_client.write_gatt_char.side_effect = BleakError("no answer")
+    mock_establish_connection.side_effect = BleakError("out of range")
+    device = mock_config_entry.runtime_data.device
+
+    freezer.tick(timedelta(seconds=UPDATE_INTERVAL_SECONDS))
+    async_fire_time_changed(hass)
+    await closing.wait()
+
+    assert all(
+        state == STATE_UNAVAILABLE for state in _entity_states(hass, mock_config_entry)
+    )
+    with pytest.raises(DeskNotConnectedError):
+        await device.stop()
+    # The reconnect waits for the close
+    assert mock_establish_connection.call_count == 1
+
+    # The close is given up, and the reconnect goes ahead
+    await _advance(hass, freezer, CLOSE_TIMEOUT_SECONDS)
+
+    assert not mock_config_entry.runtime_data.data.is_connected
+    assert mock_establish_connection.call_count == 2
 
 
 async def test_poll_while_disconnected_reports_unavailable(
