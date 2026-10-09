@@ -51,16 +51,11 @@ COLOR_TO_HS: dict[int, tuple[float, float]] = {
 # A picked colour less saturated than this is White
 MIN_SATURATION = 30
 
-# Map effect names to colour codes; every colour except Off is an effect
-EFFECT_TO_COLOR = {
-    name: code for code, name in LIGHT_COLORS.items() if code not in OFF_COLORS
-}
-
-# Map color codes to effect names
-COLOR_TO_EFFECT = {v: k for k, v in EFFECT_TO_COLOR.items()}
+# Every colour the desk shows is an effect
+EFFECT_TO_COLOR = {name: code for code, name in LIGHT_COLORS.items()}
 
 # Colours that can be restored when the light turns on; party mode is an effect
-STATIC_COLORS = frozenset(EFFECT_TO_COLOR.values()) - {COLOR_PARTY}
+STATIC_COLORS = frozenset(COLOR_TO_HS)
 
 
 def _nearest_color(hs_color: tuple[float, float]) -> int:
@@ -79,7 +74,7 @@ def _nearest_color(hs_color: tuple[float, float]) -> int:
 
 def _visible_color(color: int | None) -> int | None:
     """Return the colour the LED shows, or None for an off or unknown code."""
-    return color if color in COLOR_TO_EFFECT else None
+    return color if color in LIGHT_COLORS else None
 
 
 async def async_setup_entry(
@@ -158,7 +153,7 @@ class DeskLight(DeskEntity, LightEntity, RestoreEntity):
     def effect(self) -> str | None:
         """Return the current effect."""
         color = _visible_color(self.coordinator.data.light_color)
-        return None if color is None else COLOR_TO_EFFECT[color]
+        return None if color is None else LIGHT_COLORS[color]
 
     @property
     def hs_color(self) -> tuple[float, float] | None:

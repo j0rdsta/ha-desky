@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from typing import Any
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 from homeassistant.components.light import (
     ATTR_BRIGHTNESS,
@@ -739,7 +739,14 @@ async def test_light_off_by_colour_0_turns_on_white(
 
     await _turn_on(hass)
 
-    # Handshake, then set colour 1 (White): checksum 0xB4 + 0x01 + 0x01 = 0xB6
-    assert call(WRITE_CHARACTERISTIC_UUID, bytes.fromhex("f1f1b40101b67e")) in (
-        desk_client.write_gatt_char.call_args_list
-    )
+    frames = [
+        frame
+        for uuid, frame in (c.args for c in desk_client.write_gatt_char.call_args_list)
+        if uuid == WRITE_CHARACTERISTIC_UUID
+    ]
+    # One colour frame, colour 1 (White): checksum 0xB4 + 0x01 + 0x01 = 0xB6
+    assert [f for f in frames if f.startswith(bytes.fromhex("f1f1b401"))] == [
+        bytes.fromhex("f1f1b40101b67e")
+    ]
+    # Lighting is already enabled, so it is not turned on again
+    assert not [f for f in frames if f.startswith(bytes.fromhex("f1f1b501"))]

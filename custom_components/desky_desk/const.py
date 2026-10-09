@@ -131,10 +131,9 @@ LIGHT_COLORS: Final = {
     4: "Blue",
     5: "Yellow",
     6: "Party mode",
-    7: "Off",
 }
 
-# Colours that mean the LED is off: the desk lists 7 as Off, and the official
+# Colours that mean the LED is off: the desk reports 7 as Off, and the official
 # app turns the LED off by setting 0
 OFF_COLORS: Final = frozenset({0, 7})
 
