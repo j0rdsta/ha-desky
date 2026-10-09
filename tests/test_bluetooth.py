@@ -681,6 +681,38 @@ async def test_cancelled_drop_is_closed_before_disconnect_returns(
     assert device._close_task is None
 
 
+async def test_overlapping_drop_close_is_kept(
+    mock_ble_device, mock_establish_connection, mock_bleak_client
+):
+    """Test a drop's close finishing after a newer one does not forget the newer."""
+    device = DeskBLEDevice(mock_ble_device)
+    await device.connect()
+    first_closed = asyncio.Event()
+    second_closed = asyncio.Event()
+    mock_bleak_client.disconnect.side_effect = first_closed.wait
+    first = asyncio.create_task(device.drop_connection())
+    await asyncio.sleep(0)
+    first_close = device._close_task
+
+    # A second link dropped before the first close finished
+    device._client = second_client = MagicMock()
+    second_client.disconnect = AsyncMock(side_effect=second_closed.wait)
+    second = asyncio.create_task(device.drop_connection())
+    await asyncio.sleep(0)
+    second_close = device._close_task
+    assert second_close is not first_close
+
+    first_closed.set()
+    async with asyncio.timeout(1):
+        await first
+    assert device._close_task is second_close
+
+    second_closed.set()
+    async with asyncio.timeout(1):
+        await second
+    assert device._close_task is None
+
+
 async def test_cancelled_drop_close_is_bounded_on_disconnect(
     mock_ble_device, mock_establish_connection, mock_bleak_client
 ):
