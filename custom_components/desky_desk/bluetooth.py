@@ -121,8 +121,11 @@ SET_LIMITS_SPACING = 0.05  # clear, upper and lower limit, each twice
 STOP_TIMES = (0.0, 0.05)
 MOVE_TO_HEIGHT_TIMES = (0.2, 0.3)  # after one stop at 0
 CONNECT_QUERY_SPACING = 0.2
-# The app asks for the settings this long after setting the sensitivity
-SENSITIVITY_READ_BACK_DELAY = 0.5
+# The app asks for the settings 500 ms after setting the sensitivity, which
+# the desk needs to apply it
+SENSITIVITY_READ_BACK_AT = 1.0
+# The desk sends its settings block for a status request after a handshake
+SETTINGS_REQUEST = (COMMAND_HANDSHAKE, COMMAND_GET_STATUS)
 # In press-and-hold touch mode the desk moves only while frames keep coming,
 # and the app repeats a held button's frame this often
 HOLD_REPEAT_INTERVAL = 0.1
@@ -575,7 +578,7 @@ class DeskBLEDevice:
         The desk sends its settings block for a status request that follows a
         handshake; it has no query for a single setting.
         """
-        await self._sequencer.write(COMMAND_HANDSHAKE, COMMAND_GET_STATUS)
+        await self._sequencer.write(*SETTINGS_REQUEST)
 
     async def move_to_preset(self, preset: int) -> None:
         """Move desk to a preset position (1-4)."""
@@ -593,11 +596,23 @@ class DeskBLEDevice:
         # The preset height is unknown, so the direction is too
         await self._start_movement(command, "preset", None)
 
-    async def _send_setting(self, frame: bytes, times: tuple[float, ...]) -> None:
-        """Wake the desk with the handshake, then send a setting at the app's times."""
-        await self._sequencer.run_setting(
-            [(0.0, COMMAND_HANDSHAKE), *((at, frame) for at in times)]
-        )
+    async def _send_setting(
+        self,
+        frame: bytes,
+        times: tuple[float, ...],
+        *,
+        read_back_at: float | None = None,
+    ) -> None:
+        """Wake the desk with the handshake, then send a setting at the app's times.
+
+        The desk does not confirm the unit, touch mode or sensitivity, so those
+        ask for the settings block at read_back_at. A sequence cut short by a
+        failed write is not read back.
+        """
+        steps = [(0.0, COMMAND_HANDSHAKE), *((at, frame) for at in times)]
+        if read_back_at is not None:
+            steps += [(read_back_at, request) for request in SETTINGS_REQUEST]
+        await self._sequencer.run_setting(steps)
 
     def _create_command_with_byte_param(self, command_byte: int, param: int) -> bytes:
         """Create a command with a single byte parameter."""
@@ -726,17 +741,18 @@ class DeskBLEDevice:
         if level < 1 or level > 3:
             raise ValueError(f"Invalid sensitivity level: {level} (must be 1-3)")
         command = self._create_command_with_byte_param(0x1D, level)
-        await self._send_setting(command, MODE_SETTING_TIMES)
-        # The desk takes a moment to apply it, so the settings block asked for
-        # next only reports the new level after this pause, as in the app
-        await self._sequencer.pause(SENSITIVITY_READ_BACK_DELAY)
+        await self._send_setting(
+            command, MODE_SETTING_TIMES, read_back_at=SENSITIVITY_READ_BACK_AT
+        )
 
     async def set_touch_mode(self, mode: int) -> None:
         """Set touch mode (0=One press, 1=Press and hold)."""
         if mode not in [0, 1]:
             raise ValueError(f"Invalid touch mode: {mode} (must be 0 or 1)")
         command = self._create_command_with_byte_param(0x19, mode)
-        await self._send_setting(command, MODE_SETTING_TIMES)
+        await self._send_setting(
+            command, MODE_SETTING_TIMES, read_back_at=MODE_SETTING_TIMES[-1]
+        )
 
     async def set_unit(self, unit: str) -> None:
         """Set display unit preference."""
@@ -744,7 +760,9 @@ class DeskBLEDevice:
             raise ValueError(f"Invalid unit: {unit} (must be 'cm' or 'in')")
         value = 0 if unit == "cm" else 1
         command = self._create_command_with_byte_param(0x0E, value)
-        await self._send_setting(command, UNIT_SETTING_TIMES)
+        await self._send_setting(
+            command, UNIT_SETTING_TIMES, read_back_at=UNIT_SETTING_TIMES[-1]
+        )
 
     async def set_height_limit(self, limit: HeightLimit, height_cm: float) -> None:
         """Set the upper or lower height limit in cm, rounded to a whole unit."""
@@ -834,8 +852,7 @@ class DeskBLEDevice:
         ]
         await self._sequencer.run_setting(
             [
-                (0.0, COMMAND_HANDSHAKE),
-                (0.0, COMMAND_GET_STATUS),
+                *((0.0, request) for request in SETTINGS_REQUEST),
                 *(
                     (n * CONNECT_QUERY_SPACING, query)
                     for n, query in enumerate(queries, start=1)

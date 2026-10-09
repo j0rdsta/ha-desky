@@ -121,10 +121,6 @@ class Sequencer:
             for frame in frames:
                 await _uninterrupted(self._write_frame(frame))
 
-    async def pause(self, seconds: float) -> None:
-        """Wait on the sequencer's clock, without holding the write lock."""
-        await self._clock.sleep(seconds)
-
     async def run_setting(self, steps: Iterable[Step]) -> None:
         """Send a sequence and wait for it to finish.
 

@@ -114,8 +114,17 @@ VIBRATION_OFF = "f1f1b30100b47e"
             [(0.0, H), (0.2, "f1f1b50101b77e"), (0.4, "f1f1b50101b77e")],
         ),
         # Sensitivity and touch mode: the set once at 500 ms
-        ("set_sensitivity", (2,), [(0.0, H), (0.5, "f1f11d0102207e")]),
-        ("set_touch_mode", (1,), [(0.0, H), (0.5, "f1f11901011b7e")]),
+        # The read-back for sensitivity follows 500 ms after the set, as in the app
+        (
+            "set_sensitivity",
+            (2,),
+            [(0.0, H), (0.5, "f1f11d0102207e"), (1.0, H), (1.0, STATUS)],
+        ),
+        (
+            "set_touch_mode",
+            (1,),
+            [(0.0, H), (0.5, "f1f11901011b7e"), (0.5, H), (0.5, STATUS)],
+        ),
         # Colour and brightness: twice, 100 ms apart
         (
             "set_light_color",
@@ -136,6 +145,8 @@ VIBRATION_OFF = "f1f1b30100b47e"
                 (0.0, "f1f10e0101107e"),
                 (0.1, "f1f10e0101107e"),
                 (0.2, "f1f10e0101107e"),
+                (0.2, H),
+                (0.2, STATUS),
             ],
         ),
         # Clearing the limits: twice, 200 ms apart
@@ -175,19 +186,24 @@ async def test_settings_sent_together_both_complete(
     ]
 
 
-async def test_settings_read_back_half_a_second_after_sensitivity(
-    desk: DeskBLEDevice, frames: Frames
+@pytest.mark.parametrize(
+    ("method", "args"),
+    [("set_sensitivity", (3,)), ("set_touch_mode", (0,)), ("set_unit", ("cm",))],
+)
+async def test_setting_that_fails_is_not_read_back(
+    desk: DeskBLEDevice,
+    mock_bleak_client: MagicMock,
+    method: str,
+    args: tuple[Any, ...],
 ) -> None:
-    """As in the app, the settings are asked for 500 ms after the sensitivity set."""
-    await desk.set_sensitivity(3)
-    await desk.get_settings()
+    """A setting whose write fails does not ask for the settings afterwards."""
+    mock_bleak_client.write_gatt_char.side_effect = [None, Exception("busy")]
 
-    assert frames == [
-        (0.0, H),
-        (0.5, "f1f11d0103217e"),
-        (1.0, H),
-        (1.0, STATUS),
-    ]
+    with pytest.raises(DeskCommandError):
+        await getattr(desk, method)(*args)
+
+    # The handshake, then the setting that failed; no read-back
+    assert mock_bleak_client.write_gatt_char.await_count == 2
 
 
 # Height limits
