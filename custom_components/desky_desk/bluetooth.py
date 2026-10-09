@@ -1421,7 +1421,7 @@ class DeskBLEDevice:
             reversal = 0.0
         if reversal > HEIGHT_JITTER_CM:
             self._set_collision_detected(True)
-            _LOGGER.info(
+            _LOGGER.debug(
                 "Bounce-back detected! Commanded %s but reversed %.1f cm to %.1f cm",
                 movement.direction,
                 reversal,
@@ -1434,7 +1434,7 @@ class DeskBLEDevice:
         if self._collision_detected and self._collision_time:
             time_since_collision = now - self._collision_time
             if time_since_collision > 2.0:
-                _LOGGER.info(
+                _LOGGER.debug(
                     "Clearing collision state after %.1f seconds of successful movement",
                     time_since_collision,
                 )
@@ -1451,7 +1451,7 @@ class DeskBLEDevice:
         if duration > 1.0:  # Require at least 1 second of movement
             if self._is_collision_stop(movement, duration):
                 self._set_collision_detected(True)
-                _LOGGER.info(
+                _LOGGER.debug(
                     "Collision detected at %.1f cm after %.1f seconds",
                     self._height_cm,
                     duration,
@@ -1650,7 +1650,7 @@ class DeskBLEDevice:
         async def auto_clear():
             await asyncio.sleep(COLLISION_AUTO_CLEAR_SECONDS)
             if self._collision_detected:
-                _LOGGER.info(
+                _LOGGER.debug(
                     "Auto-clearing collision state after %.0f seconds",
                     COLLISION_AUTO_CLEAR_SECONDS,
                 )

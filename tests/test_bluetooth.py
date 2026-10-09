@@ -1350,6 +1350,55 @@ async def test_collision_auto_clear(mock_ble_device):
     assert device._collision_time is None
 
 
+@patch("time.time")
+async def test_collision_events_log_only_at_debug(mock_time, connected_device, caplog):
+    """Test collisions, bounce-backs and their clearing log nothing above debug.
+
+    The collision binary sensor already shows them, so they are not news for the log.
+    """
+    caplog.set_level("DEBUG", logger="custom_components.desky_desk.bluetooth")
+    device = connected_device
+
+    # A bounce-back while moving down
+    _replay(device, mock_time, [(0.0, 75.0)])
+    await device.move_down()
+    _replay(device, mock_time, [(0.2, 74.0), (0.4, 73.0), (0.6, 74.0)])
+    assert device.collision_detected is True
+
+    # Moving on for more than 2 seconds clears it
+    await device.move_up()
+    _replay(device, mock_time, [(3.0, 75.0), (3.2, 76.0)])
+    assert device.collision_detected is False
+    await device.stop()
+
+    # A movement that stops almost at once is a collision
+    _started_movement(
+        device, "continuous", "up", start_height=84.9, height=85.0, moved_until=1.5
+    )
+    _replay(device, mock_time, [(1.5, 85.0)] * 3)
+    assert device.collision_detected is True
+
+    # The collision clears itself after a while
+    with patch(
+        "custom_components.desky_desk.bluetooth.COLLISION_AUTO_CLEAR_SECONDS", 0.01
+    ):
+        device._set_collision_detected(True)
+        await asyncio.sleep(0.05)
+    assert device.collision_detected is False
+
+    # The lines are still there for bug reports, at debug
+    for message in (
+        "Bounce-back detected!",
+        "Clearing collision state",
+        "Collision detected at 85.0 cm",
+        "Auto-clearing collision state",
+    ):
+        assert message in caplog.text
+    assert [
+        record.getMessage() for record in caplog.records if record.levelname != "DEBUG"
+    ] == []
+
+
 async def test_collision_persists_on_new_movement(mock_ble_device, mock_bleak_client):
     """Test collision state persists when new movement starts."""
     device = DeskBLEDevice(mock_ble_device)

@@ -160,6 +160,8 @@ Useful lines:
 | `Status notification (0xF2 0xF2 0x01 0x03): … cm` | A status height frame, decoded |
 | `Display unit response: cm` or `in` | The unit the desk's display uses |
 | `Unknown notification format: …` | A frame the integration does not understand |
+| `Collision detected at … cm after … seconds` | A commanded movement stopped early |
+| `Bounce-back detected! …` | A commanded movement reversed |
 | `Could not reconnect to the desk at …, retrying in … seconds` | A failed reconnect attempt |
 
 When you [report an issue](https://github.com/j0rdsta/ha-desky/issues), include the relevant

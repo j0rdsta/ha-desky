@@ -279,6 +279,7 @@ Commands go out with the official Desky app's repeats and spacing, read from the
    - A command that has not moved the desk within `COMMAND_EXPIRY_SECONDS` (5 s) is dropped, checked on the next reading.
    - A movement ends, and all its state is forgotten and any frames still due for it are cancelled, through `_end_movement()`, on auto-stop (three readings without a change), `stop()`, a bounce-back, a new command or a disconnect.
    - A bounce-back is a reversal of more than `HEIGHT_JITTER_CM` from the furthest point reached in the commanded direction; it is reported as one collision and ends the movement. Presets have no direction, so they get no bounce check.
+   - Collisions, bounce-backs and their clearing log at debug. The collision binary sensor shows them.
    - Auto-stop judges a collision from the active part of the movement (first to last height change), not from when the stop is confirmed.
    - Both height frame types feed the same `_process_height()`, so movement behaviour does not depend on the frame type.
 7. **Manual Controls**: Move Up/Down buttons bypass any cover entity restrictions
