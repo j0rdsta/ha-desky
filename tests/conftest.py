@@ -7,6 +7,7 @@ from dataclasses import asdict
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from bleak import BleakClient
+from bleak.backends.device import BLEDevice
 from bleak_retry_connector.bleak_manager import get_global_bluez_manager_with_timeout
 from homeassistant.const import CONF_ADDRESS
 from homeassistant.core import HomeAssistant
@@ -197,6 +198,29 @@ def mock_desk(mock_bluetooth_callbacks: BluetoothCallbacks) -> Generator[MagicMo
         for key, value in asdict(desk_data()).items():
             setattr(desk, key, value)
         yield desk
+
+
+@pytest.fixture
+async def desk_client(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_bluetooth_callbacks: BluetoothCallbacks,
+    mock_establish_connection: MagicMock,
+    mock_bleak_client: MagicMock,
+) -> AsyncGenerator[MagicMock]:
+    """Set the integration up with the real desk code and return the Bleak client.
+
+    Only Bleak is mocked, so a frame passed to `deliver_frame()` takes the path
+    a notification from a real desk takes. The desk has reported nothing yet.
+    """
+    mock_config_entry.add_to_hass(hass)
+    with patch(
+        "homeassistant.components.bluetooth.async_ble_device_from_address",
+        return_value=BLEDevice("AA:BB:CC:DD:EE:FF", "Desky Desk", {}),
+    ):
+        assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+        yield mock_bleak_client
 
 
 @pytest.fixture

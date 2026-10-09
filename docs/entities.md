@@ -151,7 +151,8 @@ the desk has reported it.
 
 ### Lock
 
-Locks the desk's controls.
+Locks the desk's controls. The switch changes as soon as the command is sent. The desk's reply
+then confirms it, or switches it back.
 
 ### Collision sensitivity
 

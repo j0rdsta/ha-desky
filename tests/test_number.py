@@ -32,11 +32,12 @@ from custom_components.desky_desk.const import (
     DOMAIN,
     MAX_HEIGHT,
     MIN_HEIGHT,
+    VIBRATION_INTENSITY_RESPONSE_HEADER,
     HeightLimit,
 )
 from custom_components.desky_desk.number import DeskHeightLimitNumber
 
-from . import disconnect_desk, notify_desk, set_desk_state
+from . import deliver_frame, desk_response, disconnect_desk, notify_desk, set_desk_state
 
 HEIGHT = "number.desky_desk_height"
 UPPER_LIMIT = "number.desky_desk_upper_height_limit"
@@ -416,3 +417,18 @@ async def test_numbers_follow_connection(
     assert hass.states.get(UPPER_LIMIT).state == "120.0"
     assert hass.states.get(LOWER_LIMIT).state == "65.0"
     assert hass.states.get(VIBRATION_INTENSITY).state == "75"
+
+
+async def test_vibration_intensity_follows_the_desk_reply(
+    hass: HomeAssistant, desk_client: MagicMock
+) -> None:
+    """Test the vibration intensity changes as soon as the desk confirms it."""
+    assert hass.states.get(VIBRATION_INTENSITY).state == STATE_UNKNOWN
+
+    await _set_value(hass, VIBRATION_INTENSITY, 40)
+    await hass.async_block_till_done()
+    assert hass.states.get(VIBRATION_INTENSITY).state == STATE_UNKNOWN
+
+    deliver_frame(desk_client, desk_response(VIBRATION_INTENSITY_RESPONSE_HEADER, 40))
+    await hass.async_block_till_done()
+    assert hass.states.get(VIBRATION_INTENSITY).state == "40"

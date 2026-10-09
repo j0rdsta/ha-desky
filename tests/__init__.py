@@ -66,6 +66,22 @@ def notify_desk(desk: MagicMock, **changes: Any) -> None:
     callback(desk.height_cm, desk.collision_detected, desk.is_moving)
 
 
+def desk_response(header: bytes, *payload: int) -> bytearray:
+    """Build a desk response frame: header, payload, checksum and terminator."""
+    checksum = (sum(header[2:]) + sum(payload)) & 0xFF
+    return bytearray([*header, *payload, checksum, 0x7E])
+
+
+def deliver_frame(client: MagicMock, frame: bytearray) -> None:
+    """Pass a frame to the real desk code, as the desk does over Bluetooth.
+
+    For tests using `desk_client`, where the desk code has subscribed to the
+    mocked Bleak client's notifications.
+    """
+    handler = client.start_notify.call_args.args[1]
+    handler(None, frame)
+
+
 def disconnect_desk(desk: MagicMock) -> None:
     """Mark the mocked desk disconnected and run its disconnect callback."""
     desk.is_connected = False
