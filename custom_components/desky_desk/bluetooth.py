@@ -1319,6 +1319,7 @@ class DeskBLEDevice:
         self._unit_preference = None
         self._effective_unit = None
         self._touch_mode = None
+        self._sensitivity_level = None
 
     def _handle_disconnect(self, client: BleakClient) -> None:
         """Handle disconnection from the desk."""

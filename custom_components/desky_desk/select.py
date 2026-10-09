@@ -35,9 +35,9 @@ class DeskSelectEntityDescription(SelectEntityDescription):
 
 
 async def _set_sensitivity(device: DeskBLEDevice, option: str) -> None:
-    """Set the collision sensitivity and read it back."""
+    """Set the sensitivity; the desk does not confirm it, so read its settings back."""
     await device.set_sensitivity(SENSITIVITY_BY_OPTION[option])
-    await device.get_sensitivity()
+    await device.get_settings()
 
 
 async def _set_touch_mode(device: DeskBLEDevice, option: str) -> None:

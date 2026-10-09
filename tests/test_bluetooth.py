@@ -566,6 +566,7 @@ async def test_disconnect_resets_link_state_without_a_callback(
     await device.connect()
     device._unit_preference = "in"
     device._touch_mode = 1
+    device._handle_notification(None, bytearray.fromhex("f2f21d0102207e"))
     # The mocked client.disconnect() does not call the disconnect callback
 
     await device.disconnect()
@@ -574,6 +575,7 @@ async def test_disconnect_resets_link_state_without_a_callback(
     assert device._unit_preference is None
     assert device._effective_unit is None
     assert device._touch_mode is None
+    assert device.sensitivity_level is None
     assert device.collision_detected is False
 
 
@@ -2912,17 +2914,19 @@ def test_settings_block_after_connecting(mock_ble_device):
     assert device.sensitivity_level == 1
 
 
-def test_disconnect_forgets_unit_and_touch_mode(mock_ble_device, mock_bleak_client):
+def test_disconnect_forgets_settings(mock_ble_device, mock_bleak_client):
     """Settings are read again after reconnecting, so a disconnect clears them."""
     device = DeskBLEDevice(mock_ble_device)
     device._client = mock_bleak_client
     device._handle_notification(None, bytearray.fromhex("f2f20e0101107e"))
     device._handle_notification(None, bytearray.fromhex("f2f21901011b7e"))
+    device._handle_notification(None, bytearray.fromhex("f2f21d0102207e"))
 
     device._handle_disconnect(mock_bleak_client)
 
     assert device.unit_preference is None
     assert device.touch_mode is None
+    assert device.sensitivity_level is None
 
 
 @pytest.mark.parametrize(
