@@ -715,6 +715,32 @@ async def test_held_movement_ends_when_readings_stop(
     assert notified.call_args.args[2] is False  # not moving
 
 
+async def test_held_movement_is_released_when_a_reading_follows_the_watchdog(
+    held_desk: DeskBLEDevice, clock: FakeClock
+) -> None:
+    """A reading between the repeat ending and its callback still releases it."""
+    await held_desk.move_up()
+    for height in (81.0, 82.0, 83.0):
+        await clock.advance(0.2)
+        held_desk._handle_notification(None, _status_frame(height))
+    readings_stopped = held_desk._readings_stopped
+
+    def stopped_then_a_reading(movement: Any) -> bool:
+        if stopped := readings_stopped(movement):
+            # Handled after the repeat ends, before its done callback runs
+            asyncio.get_running_loop().call_soon(
+                held_desk._handle_notification, None, _status_frame(84.0)
+            )
+        return stopped
+
+    with patch.object(held_desk, "_readings_stopped", stopped_then_a_reading):
+        await clock.advance(5.0)
+
+    assert held_desk.height_cm == 84.0  # the reading came in time
+    assert held_desk._movement is None
+    assert held_desk._sequencer.idle
+
+
 async def test_held_movement_rides_out_bunched_readings(
     held_desk: DeskBLEDevice, frames: Frames, clock: FakeClock
 ) -> None:

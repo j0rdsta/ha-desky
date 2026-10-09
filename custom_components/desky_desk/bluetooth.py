@@ -770,24 +770,25 @@ class DeskBLEDevice:
         """Repeat a movement frame while held, until the movement ends or reached().
 
         The repeat also stops once the movement's height readings stop, and
-        the movement is then released when the repeat ends.
+        the movement is then released when the repeat ends. That is recorded
+        when the repeat stops: a reading can arrive before the repeat's done
+        callback runs.
         """
+        stalled = False
 
         def done() -> bool:
-            return self._readings_stopped(movement) or (
-                reached is not None and reached()
-            )
+            nonlocal stalled
+            stalled = self._readings_stopped(movement)
+            return stalled or (reached is not None and reached())
 
         task = self._sequencer.start_repeat(_hold_steps(frame, movement, done))
-        task.add_done_callback(lambda task: self._hold_ended(task, movement))
+        task.add_done_callback(lambda task: self._hold_ended(task, movement, stalled))
 
-    def _hold_ended(self, task: asyncio.Task[None], movement: _Movement) -> None:
+    def _hold_ended(
+        self, task: asyncio.Task[None], movement: _Movement, stalled: bool
+    ) -> None:
         """Release a held movement whose repeat ended as its readings stopped."""
-        if (
-            task.cancelled()
-            or self._movement is not movement
-            or not self._readings_stopped(movement)
-        ):
+        if task.cancelled() or self._movement is not movement or not stalled:
             return
         _LOGGER.info(
             "No height reading from the desk for %.1f seconds; releasing the held "
