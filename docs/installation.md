@@ -1,7 +1,7 @@
 # Installation
 
-The integration is distributed through [HACS](https://hacs.xyz/) as a custom repository. You can
-also copy it into your configuration directory by hand.
+The integration is in the [HACS](https://hacs.xyz/) default store. You can also copy it into your
+configuration directory by hand.
 
 Before you start, check the [requirements](index.md#requirements). If an
 [Upsy Desky](supported-devices.md#upsy-desky) is fitted to the desk, disconnect it first.
@@ -11,11 +11,12 @@ Home Assistant 2026.3 and later show the integration's icon, whichever way you i
 ## HACS (recommended)
 
 1. In Home Assistant, open **HACS**.
-2. Open the three dots menu in the top right corner and select **Custom repositories**.
-3. Enter `https://github.com/j0rdsta/ha-desky` as the repository, select **Integration** as the
-   type, then select **Add**.
-4. Search HACS for **Desky Standing Desk**, open it and select **Download**.
-5. Restart Home Assistant.
+2. Search for **Desky Standing Desk**, open it and select **Download**.
+3. Restart Home Assistant.
+
+This button opens the integration in HACS directly:
+
+[![Open your Home Assistant instance and open this repository in HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=j0rdsta&repository=ha-desky&category=integration)
 
 HACS tells you when a new release is available. Releases are listed on the
 [GitHub releases page](https://github.com/j0rdsta/ha-desky/releases), with a changelog.

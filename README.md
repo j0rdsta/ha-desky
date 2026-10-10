@@ -2,7 +2,7 @@
 
 [![Documentation](https://img.shields.io/badge/docs-j0rdsta.github.io%2Fha--desky-blue)](https://j0rdsta.github.io/ha-desky/)
 [![GitHub release](https://img.shields.io/github/v/release/j0rdsta/ha-desky)](https://github.com/j0rdsta/ha-desky/releases)
-[![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
+[![hacs_badge](https://img.shields.io/badge/HACS-Default-41BDF5.svg)](https://github.com/hacs/integration)
 [![Quality scale: Silver](https://img.shields.io/badge/quality%20scale-silver-C0C0C0)](https://github.com/j0rdsta/ha-desky/blob/main/custom_components/desky_desk/quality_scale.yaml)
 [![Test](https://github.com/j0rdsta/ha-desky/actions/workflows/test.yml/badge.svg)](https://github.com/j0rdsta/ha-desky/actions/workflows/test.yml)
 [![Lint](https://github.com/j0rdsta/ha-desky/actions/workflows/lint.yml/badge.svg)](https://github.com/j0rdsta/ha-desky/actions/workflows/lint.yml)
@@ -40,13 +40,10 @@ You need Home Assistant 2025.10 or newer, a Bluetooth adapter or an ESPHome Blue
 range of the desk, and a Desky desk with Bluetooth. The desk takes one connection at a time, so
 close the Desky app on your phone.
 
-1. Add this repository to HACS as a custom repository of type **Integration**:
+1. In HACS, search for **Desky Standing Desk** and select **Download**, or open it directly:
 
    [![Open your Home Assistant instance and open this repository in HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=j0rdsta&repository=ha-desky&category=integration)
-
-   Or in HACS, open the three dots menu, select **Custom repositories** and add
-   `https://github.com/j0rdsta/ha-desky`.
-2. Download **Desky Standing Desk** in HACS and restart Home Assistant.
+2. Restart Home Assistant.
 3. Power on the desk. Home Assistant discovers it under **Settings → Devices & services**; select
    **Add**. If it is not discovered, select **Add integration**, search for **Desky Standing
    Desk** and pick the desk or enter its Bluetooth address.
