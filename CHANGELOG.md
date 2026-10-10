@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.0.1](https://github.com/j0rdsta/ha-desky/compare/v2.0.0...v2.0.1) (2026-10-10)
+
+
+### Documentation
+
+* complete the automation examples ([#54](https://github.com/j0rdsta/ha-desky/issues/54)) ([a2f800e](https://github.com/j0rdsta/ha-desky/commit/a2f800e49e7a65678b4c1956e9e484227ccc573f))
+
 ## [2.0.0](https://github.com/j0rdsta/ha-desky/compare/v1.1.0...v2.0.0) (2026-10-09)
 
 
