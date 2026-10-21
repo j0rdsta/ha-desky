@@ -40,7 +40,8 @@ You need Home Assistant 2025.10 or newer, a Bluetooth adapter or an ESPHome Blue
 range of the desk, and a Desky desk with Bluetooth. The desk takes one connection at a time, so
 close the Desky app on your phone.
 
-1. In HACS, search for **Desky Standing Desk** and select **Download**, or open it directly:
+1. In HACS, search for **Desky Standing Desk**, open it and select **Download**. This button
+   opens it directly:
 
    [![Open your Home Assistant instance and open this repository in HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=j0rdsta&repository=ha-desky&category=integration)
 2. Restart Home Assistant.
