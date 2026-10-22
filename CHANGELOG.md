@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.0.1](https://github.com/j0rdsta/ha-desky/compare/v2.0.0...v2.0.1) (2026-10-22)
+
+
+### Documentation
+
+* complete the automation examples ([#54](https://github.com/j0rdsta/ha-desky/issues/54)) ([a2f800e](https://github.com/j0rdsta/ha-desky/commit/a2f800e49e7a65678b4c1956e9e484227ccc573f))
+* install from the HACS default store ([#37](https://github.com/j0rdsta/ha-desky/issues/37)) ([86917f2](https://github.com/j0rdsta/ha-desky/commit/86917f2a0b8ef386e15fd22ca8a623ee384a1084))
+
 ## [2.0.0](https://github.com/j0rdsta/ha-desky/compare/v1.1.0...v2.0.0) (2026-10-09)
 
 
