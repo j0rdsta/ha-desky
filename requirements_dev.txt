@@ -1,5 +1,5 @@
 # Linting, typing and test helpers shared by every Home Assistant version we test against.
-mypy==2.4.0
+mypy==2.4.1
 pre-commit==4.7.0
 pytest-timeout==2.4.0
 pytest-xdist==3.8.0
