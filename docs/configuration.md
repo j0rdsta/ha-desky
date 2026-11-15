@@ -11,8 +11,9 @@ your phone.
 
 ### When Home Assistant discovers the desk
 
-Home Assistant discovers desks whose Bluetooth name starts with `Desky`. A discovered desk shows
-up under **Settings → Devices & services** as a new device to set up, under its Bluetooth name.
+Home Assistant discovers desks that advertise the desk's Bluetooth service, or whose Bluetooth
+name starts with `Desky`. A discovered desk shows up under **Settings → Devices & services** as a
+new device to set up, under its Bluetooth name (or *Desky Desk* if it has not sent one yet).
 With more than one desk, each shows up separately.
 
 1. Select **Add** on the discovered desk.
@@ -39,8 +40,10 @@ desk goes away once it is added.
 
 ### Connection check
 
-However you add the desk, setup connects to it once before it finishes, then disconnects. If
-Home Assistant cannot see the desk, or the desk does not accept the connection, the form shows
+However you add the desk, setup connects to it once before it finishes, waits for the desk to
+report its height, then disconnects. Other devices can use the same Bluetooth service, so a device
+that connects but never reports a height is refused. If Home Assistant cannot see the desk, or the
+desk does not accept the connection or report its height, the form shows
 *Could not connect to the desk. Make sure it is powered on, in range and not connected to the
 Desky app.* See [Troubleshooting](troubleshooting.md#adding-the-desk-fails), then submit again.
 

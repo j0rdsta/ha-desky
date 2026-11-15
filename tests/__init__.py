@@ -91,23 +91,27 @@ def disconnect_desk(desk: MagicMock) -> None:
 
 
 def make_service_info(
-    address: str = "AA:BB:CC:DD:EE:FF", name: str = "Desky", device: Any = None
+    address: str = "AA:BB:CC:DD:EE:FF",
+    name: str = "Desky",
+    device: Any = None,
+    service_uuids: list[str] | None = None,
 ) -> BluetoothServiceInfoBleak:
     """Build what Home Assistant's Bluetooth stack reports for a desk, seen now."""
+    service_uuids = service_uuids or []
     return BluetoothServiceInfoBleak(
         name=name,
         address=address,
         rssi=-50,
         manufacturer_data={},
         service_data={},
-        service_uuids=[],
+        service_uuids=service_uuids,
         source=SOURCE_LOCAL,
         device=device if device is not None else BLEDevice(address, name, {}),
         advertisement=AdvertisementData(
             local_name=name,
             manufacturer_data={},
             service_data={},
-            service_uuids=[],
+            service_uuids=service_uuids,
             tx_power=None,
             rssi=-50,
             platform_data=(),

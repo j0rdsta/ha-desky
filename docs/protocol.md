@@ -21,6 +21,17 @@ observation and may not hold for every controller.
 | Write characteristic (commands) | `0000fe61-0000-1000-8000-00805f9b34fb`, write with and without response |
 | Notify characteristic (responses) | `0000fe62-0000-1000-8000-00805f9b34fb` |
 
+`0xFE60` is a Bluetooth SIG member UUID assigned to Lierda, the maker of the controller's BLE
+module, so other products built on the same module may use it too.
+
+## Advertisement
+
+Observed on the L-BTMEB95 desk through an ESPHome Bluetooth proxy, while nothing was connected to
+it. The advertising packet is `02 01 06 03 03 60 FE`: flags, then the `fe60` service UUID. It has
+no name and no manufacturer data. The name (`Desky…`) arrives only in the scan response, so a
+scanner that does not ask for one sees the service but no name. A connected desk stops
+advertising.
+
 ## Command frames
 
 Commands are written to `0xfe61`. Every frame starts with `F1 F1` and ends with `7E`:

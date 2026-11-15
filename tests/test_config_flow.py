@@ -20,7 +20,9 @@ from custom_components.desky_desk.const import (
     CONF_STANDING_THRESHOLD,
     DEFAULT_STANDING_THRESHOLD,
     DOMAIN,
+    SERVICE_UUID,
 )
+from custom_components.desky_desk.errors import DeskCommandError
 
 from . import make_service_info
 
@@ -42,14 +44,20 @@ def mock_flow_desk() -> Generator[MagicMock]:
 
 
 async def advertise(
-    hass: HomeAssistant, address: str = DESK_ADDRESS, name: str = "Desky"
+    hass: HomeAssistant,
+    address: str = DESK_ADDRESS,
+    name: str = "Desky",
+    service_uuids: list[str] | None = None,
 ) -> None:
     """Deliver a desk's advertisement to Home Assistant's Bluetooth stack.
 
-    A name starting with Desky matches the manifest, so Home Assistant opens a
-    discovery flow for it, as it does for a real desk in range.
+    A name starting with Desky, or the desk service, matches the manifest, so
+    Home Assistant opens a discovery flow for it, as it does for a real desk in
+    range.
     """
-    async_get_advertisement_callback(hass)(make_service_info(address, name))
+    async_get_advertisement_callback(hass)(
+        make_service_info(address, name, service_uuids=service_uuids)
+    )
     # Home Assistant starts discovery flows as background tasks
     await hass.async_block_till_done(wait_background_tasks=True)
 
@@ -147,6 +155,87 @@ async def test_probe_releases_the_link_when_the_handshake_fails(
     # The handshake is the first write, so it fails
     mock_bleak_client.write_gatt_char.side_effect = BleakError("write failed")
     # The real desk class, so the probe runs the real connect()
+    with patch("custom_components.desky_desk.config_flow.DeskBLEDevice", DeskBLEDevice):
+        result = await hass.config_entries.flow.async_configure(
+            flow["flow_id"], user_input={}
+        )
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {"base": "cannot_connect"}
+    mock_establish_connection.assert_awaited_once()
+    mock_bleak_client.disconnect.assert_awaited_once()
+
+
+@pytest.mark.usefixtures("enable_bluetooth", "mock_setup_entry")
+async def test_discovery_by_service_with_another_name(hass: HomeAssistant) -> None:
+    """Test a desk sold under another name is discovered by its service."""
+    await advertise(hass, DESK_ADDRESS, "BLE Device DDEEFF", [SERVICE_UUID])
+    (flow,) = discovery_flows(hass)
+    assert flow["context"]["title_placeholders"] == {"name": "BLE Device DDEEFF"}
+
+    result = await hass.config_entries.flow.async_configure(
+        flow["flow_id"], user_input={}
+    )
+    await hass.async_block_till_done()
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["title"] == "BLE Device DDEEFF"
+    assert result["result"].unique_id == DESK_ADDRESS
+    assert result["result"].state is ConfigEntryState.LOADED
+
+
+@pytest.mark.usefixtures("enable_bluetooth")
+async def test_discovery_by_service_before_the_name(hass: HomeAssistant) -> None:
+    """Test a desk seen before its scan response gets a name, not its address.
+
+    Home Assistant names a device that has not sent a name by its address.
+    """
+    await advertise(hass, DESK_ADDRESS, DESK_ADDRESS, [SERVICE_UUID])
+
+    (flow,) = discovery_flows(hass)
+    assert flow["context"]["title_placeholders"] == {"name": "Desky Desk"}
+
+
+@pytest.mark.usefixtures("enable_bluetooth")
+async def test_desk_matching_name_and_service_gets_one_card(
+    hass: HomeAssistant,
+) -> None:
+    """Test a desk that matches both the name and the service opens one flow."""
+    await advertise(hass, DESK_ADDRESS, "Desky", [SERVICE_UUID])
+
+    assert len(discovery_flows(hass)) == 1
+
+
+@pytest.mark.usefixtures("enable_bluetooth", "mock_setup_entry")
+async def test_probe_rejects_a_device_that_reports_no_height(
+    hass: HomeAssistant, mock_flow_desk: MagicMock
+) -> None:
+    """Test a device with the desk service that never reports a height is refused."""
+    await advertise(hass, DESK_ADDRESS, "BLE Device DDEEFF", [SERVICE_UUID])
+    (flow,) = discovery_flows(hass)
+
+    mock_flow_desk.await_height.side_effect = DeskCommandError("no height")
+    result = await hass.config_entries.flow.async_configure(
+        flow["flow_id"], user_input={}
+    )
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {"base": "cannot_connect"}
+    mock_flow_desk.disconnect.assert_awaited_once()
+    assert hass.config_entries.async_entries(DOMAIN) == []
+
+
+@pytest.mark.usefixtures("enable_bluetooth")
+async def test_probe_waits_for_a_height_from_the_real_desk_class(
+    hass: HomeAssistant,
+    mock_establish_connection: MagicMock,
+    mock_bleak_client: MagicMock,
+) -> None:
+    """Test the real probe refuses a device that connects but never answers."""
+    await advertise(hass, DESK_ADDRESS, "BLE Device DDEEFF", [SERVICE_UUID])
+    (flow,) = discovery_flows(hass)
+
+    # The mock client accepts every write but sends no notifications
     with patch("custom_components.desky_desk.config_flow.DeskBLEDevice", DeskBLEDevice):
         result = await hass.config_entries.flow.async_configure(
             flow["flow_id"], user_input={}
@@ -326,6 +415,19 @@ async def test_picker_lists_only_desks_not_set_up(
     assert result["title"] == "Desky B"
     assert result["result"].unique_id == OTHER_DESK_ADDRESS
     assert result["result"].state is ConfigEntryState.LOADED
+
+
+@pytest.mark.usefixtures("enable_bluetooth")
+async def test_picker_lists_desk_by_its_service(hass: HomeAssistant) -> None:
+    """Test the picker offers a desk with another name that has the desk service."""
+    await advertise(hass, OTHER_DESK_ADDRESS, "BLE Device DDEEFF", [SERVICE_UUID])
+
+    result = await start_user_flow(hass)
+
+    assert result["step_id"] == "pick_device"
+    assert result["data_schema"].schema[CONF_ADDRESS].container == {
+        OTHER_DESK_ADDRESS: f"BLE Device DDEEFF ({OTHER_DESK_ADDRESS})"
+    }
 
 
 @pytest.mark.usefixtures("enable_bluetooth")

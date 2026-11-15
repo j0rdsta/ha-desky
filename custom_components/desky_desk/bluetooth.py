@@ -755,7 +755,7 @@ class DeskBLEDevice:
         # gives way to this one
         self._motion_commands += 1
         issued = self._motion_commands
-        await self._await_height()
+        await self.await_height()
         if self._motion_commands != issued:
             _LOGGER.debug("A stop or a newer command came first; not moving to height")
             return
@@ -799,13 +799,16 @@ class DeskBLEDevice:
         if self._touch_mode == TOUCH_MODE_PRESS_AND_HOLD and self._movement is movement:
             self._hold(command, movement, lambda: self._reached(movement))
 
-    async def _await_height(self) -> None:
+    async def await_height(self) -> None:
         """Make sure the desk has reported a height, asking for one if not.
 
         The direction of a move to height, and when a held one has arrived,
         come from the current height. Before the first reading it is 0.0, so
         the desk is asked for its status and the reply waited for. A desk
         that does not answer fails the move rather than moving it blind.
+
+        Raises DeskCommandError if no height comes. The config flow uses it
+        to tell a desk from another device with the same Bluetooth service.
         """
         if height_known(self._height_cm):
             return
