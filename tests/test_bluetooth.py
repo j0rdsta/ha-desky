@@ -42,6 +42,7 @@ from custom_components.desky_desk.const import (
     MAX_HEIGHT,
     MIN_HEIGHT,
     NOTIFY_CHARACTERISTIC_UUID,
+    REMINDER_RESPONSE_HEADER,
     SENSITIVITY_RESPONSE_HEADER,
     STATUS_NOTIFICATION_HEADER,
     VIBRATION_RESPONSE_HEADER,
@@ -2124,6 +2125,9 @@ async def test_collision_detection_away_from_limits(
         ("set_lighting", (True,), ["f1f1b50101b77e"] * 2),
         ("set_vibration", (False,), ["f1f1b30100b47e"] * 2),
         ("set_lock_status", (True,), ["f1f1b20101b47e"] * 2),
+        # The reminder once; 0 turns it off
+        ("set_reminder", (45,), ["f1f1b1012ddf7e"]),
+        ("set_reminder", (0,), ["f1f1b10100b27e"]),
         # Sensitivity and touch mode ask for the settings block afterwards
         ("set_sensitivity", (2,), ["f1f11d0102207e", "handshake", "status"]),
         ("set_touch_mode", (1,), ["f1f11901011b7e", "handshake", "status"]),
@@ -2152,6 +2156,21 @@ async def test_new_device_commands(
             *(named.get(frame) or bytes.fromhex(frame) for frame in frames),
         ]
     ]
+
+
+@pytest.mark.parametrize("minutes", [-1, 91])
+async def test_invalid_reminder(mock_ble_device, mock_bleak_client, minutes):
+    """Test a reminder outside 0-90 minutes is refused before anything is sent.
+
+    The desk stores any byte, but the official app allows up to 90 minutes.
+    """
+    device = DeskBLEDevice(mock_ble_device)
+    device._client = mock_bleak_client
+
+    with pytest.raises(ValueError):
+        await device.set_reminder(minutes)
+
+    mock_bleak_client.write_gatt_char.assert_not_called()
 
 
 async def test_invalid_light_color(mock_ble_device, mock_bleak_client):
@@ -2205,6 +2224,7 @@ async def test_device_capability_queries(mock_ble_device, mock_bleak_client):
         (device.get_lighting_status, bytes([0xF1, 0xF1, 0xB5, 0x00, 0xB5, 0x7E])),
         (device.get_vibration_status, bytes([0xF1, 0xF1, 0xB3, 0x00, 0xB3, 0x7E])),
         (device.get_lock_status, bytes([0xF1, 0xF1, 0xB2, 0x00, 0xB2, 0x7E])),
+        (device.get_reminder, bytes([0xF1, 0xF1, 0xB1, 0x00, 0xB1, 0x7E])),
         (device.get_limits, bytes([0xF1, 0xF1, 0x0C, 0x00, 0x0C, 0x7E])),
     ]
 
@@ -2227,6 +2247,8 @@ async def test_device_capability_queries(mock_ble_device, mock_bleak_client):
         (VIBRATION_RESPONSE_HEADER, 0x01, "vibration_enabled", True),
         (LOCK_STATUS_RESPONSE_HEADER, 0x01, "lock_status", True),
         (LOCK_STATUS_RESPONSE_HEADER, 0x00, "lock_status", False),
+        (REMINDER_RESPONSE_HEADER, 0x1E, "reminder_minutes", 30),
+        (REMINDER_RESPONSE_HEADER, 0x00, "reminder_minutes", 0),
         (SENSITIVITY_RESPONSE_HEADER, 0x01, "sensitivity_level", 1),
     ],
 )
@@ -2250,6 +2272,7 @@ def test_parse_feature_responses(mock_ble_device, header, value, attribute, expe
         (LIGHTING_RESPONSE_HEADER, "lighting_enabled"),
         (VIBRATION_RESPONSE_HEADER, "vibration_enabled"),
         (LOCK_STATUS_RESPONSE_HEADER, "lock_status"),
+        (REMINDER_RESPONSE_HEADER, "reminder_minutes"),
         (SENSITIVITY_RESPONSE_HEADER, "sensitivity_level"),
     ],
 )
@@ -3218,12 +3241,16 @@ def test_disconnect_forgets_settings(mock_ble_device, mock_bleak_client):
     device._handle_notification(None, bytearray.fromhex("f2f20e0101107e"))
     device._handle_notification(None, bytearray.fromhex("f2f21901011b7e"))
     device._handle_notification(None, bytearray.fromhex("f2f21d0102207e"))
+    device._handle_notification(None, bytearray.fromhex("f2f2b1011ed07e"))
+    assert device.reminder_minutes == 30
 
     device._handle_disconnect(mock_bleak_client)
 
     assert device.unit_preference is None
     assert device.touch_mode is None
     assert device.sensitivity_level is None
+    # The official app can change the reminder only while the desk is disconnected
+    assert device.reminder_minutes is None
 
 
 @pytest.mark.parametrize(
@@ -3239,6 +3266,7 @@ def test_disconnect_forgets_settings(mock_ble_device, mock_bleak_client):
         ("set_lighting", (True,)),
         ("set_vibration", (False,)),
         ("set_lock_status", (True,)),
+        ("set_reminder", (60,)),
         ("set_sensitivity", (2,)),
         ("set_touch_mode", (1,)),
         ("set_unit", ("in",)),

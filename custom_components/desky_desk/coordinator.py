@@ -69,6 +69,7 @@ class DeskData:
     lighting_enabled: bool | None
     vibration_enabled: bool | None
     lock_status: bool
+    reminder_minutes: int | None
     sensitivity_level: int | None
     height_limit_upper: float | None
     height_limit_lower: float | None
@@ -204,6 +205,7 @@ class DeskUpdateCoordinator(DataUpdateCoordinator[DeskData]):
             lighting_enabled=device.lighting_enabled,
             vibration_enabled=device.vibration_enabled,
             lock_status=device.lock_status,
+            reminder_minutes=device.reminder_minutes,
             sensitivity_level=device.sensitivity_level,
             height_limit_upper=device.height_limit_upper,
             height_limit_lower=device.height_limit_lower,

@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncGenerator
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from homeassistant.components.number import (
     ATTR_MAX,
@@ -20,9 +21,10 @@ from homeassistant.const import (
     STATE_UNAVAILABLE,
     STATE_UNKNOWN,
     UnitOfLength,
+    UnitOfTime,
 )
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ServiceValidationError
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import entity_registry as er
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
@@ -31,9 +33,11 @@ from custom_components.desky_desk.const import (
     DOMAIN,
     LIMIT_RANGE_CM,
     MAX_HEIGHT,
+    MAX_REMINDER_MINUTES,
     MIN_HEIGHT,
     HeightLimit,
 )
+from custom_components.desky_desk.errors import DeskNotConnectedError
 from custom_components.desky_desk.number import DeskHeightLimitNumber
 
 from . import disconnect_desk, notify_desk, set_desk_state
@@ -42,6 +46,7 @@ HEIGHT = "number.desky_desk_height"
 UPPER_LIMIT = "number.desky_desk_upper_height_limit"
 LOWER_LIMIT = "number.desky_desk_lower_height_limit"
 NUMBERS = [HEIGHT, UPPER_LIMIT, LOWER_LIMIT]
+REMINDER = "number.desky_desk_sit_stand_reminder"
 
 
 async def _set_value(hass: HomeAssistant, entity_id: str, value: float) -> None:
@@ -418,3 +423,104 @@ async def test_numbers_follow_connection(
     assert hass.states.get(HEIGHT).state == "90.0"
     assert hass.states.get(UPPER_LIMIT).state == "120.0"
     assert hass.states.get(LOWER_LIMIT).state == "65.0"
+
+
+@pytest.fixture
+async def reminder_integration(
+    hass: HomeAssistant,
+    entity_registry: er.EntityRegistry,
+    mock_config_entry: MockConfigEntry,
+    mock_desk: MagicMock,
+) -> AsyncGenerator[MockConfigEntry]:
+    """Set up the integration with the sit/stand reminder enabled."""
+    mock_config_entry.add_to_hass(hass)
+    entity_registry.async_get_or_create(
+        NUMBER_DOMAIN,
+        DOMAIN,
+        f"{mock_config_entry.unique_id}_reminder",
+        suggested_object_id="desky_desk_sit_stand_reminder",
+        config_entry=mock_config_entry,
+    )
+    with patch(
+        "homeassistant.components.bluetooth.async_ble_device_from_address",
+        return_value=MagicMock(address="AA:BB:CC:DD:EE:FF"),
+    ):
+        assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+        yield mock_config_entry
+
+
+async def test_reminder_disabled_by_default(
+    hass: HomeAssistant,
+    entity_registry: er.EntityRegistry,
+    init_integration: MockConfigEntry,
+) -> None:
+    """Test the reminder is a config entity Home Assistant adds disabled."""
+    entry = entity_registry.async_get(REMINDER)
+    assert entry is not None
+    assert entry.disabled_by is er.RegistryEntryDisabler.INTEGRATION
+    assert entry.entity_category == "config"
+    assert hass.states.get(REMINDER) is None
+
+
+async def test_reminder_state(
+    hass: HomeAssistant, reminder_integration: MockConfigEntry
+) -> None:
+    """Test the reminder shows the interval the desk reported, 0-90 minutes."""
+    state = hass.states.get(REMINDER)
+    assert state is not None
+    assert state.state == "30"
+    assert state.attributes[ATTR_FRIENDLY_NAME] == "Desky Desk Sit/stand reminder"
+    assert state.attributes[ATTR_UNIT_OF_MEASUREMENT] == UnitOfTime.MINUTES
+    assert state.attributes[ATTR_MIN] == 0
+    assert state.attributes[ATTR_MAX] == MAX_REMINDER_MINUTES
+    assert state.attributes[ATTR_STEP] == 1
+
+
+async def test_reminder_unknown_until_reported(
+    hass: HomeAssistant, reminder_integration: MockConfigEntry
+) -> None:
+    """Test a reminder the desk has not reported shows as unknown."""
+    await set_desk_state(hass, reminder_integration, reminder_minutes=None)
+
+    assert hass.states.get(REMINDER).state == STATE_UNKNOWN
+
+
+@pytest.mark.parametrize(("value", "sent"), [(45, 45), (0, 0), (90, 90)])
+async def test_set_reminder(
+    hass: HomeAssistant,
+    reminder_integration: MockConfigEntry,
+    mock_desk: MagicMock,
+    value: float,
+    sent: int,
+) -> None:
+    """Test setting the reminder sends whole minutes; 0 turns it off."""
+    await _set_value(hass, REMINDER, value)
+
+    mock_desk.set_reminder.assert_awaited_once_with(sent)
+
+
+async def test_reminder_above_the_range_rejected(
+    hass: HomeAssistant,
+    reminder_integration: MockConfigEntry,
+    mock_desk: MagicMock,
+) -> None:
+    """Test a reminder above 90 minutes is refused before anything is sent."""
+    with pytest.raises(ServiceValidationError):
+        await _set_value(hass, REMINDER, MAX_REMINDER_MINUTES + 1)
+
+    mock_desk.set_reminder.assert_not_called()
+
+
+async def test_reminder_write_failure_raises(
+    hass: HomeAssistant,
+    reminder_integration: MockConfigEntry,
+    mock_desk: MagicMock,
+) -> None:
+    """Test a reminder that does not reach the desk raises a translated error."""
+    mock_desk.set_reminder.side_effect = DeskNotConnectedError("gone")
+
+    with pytest.raises(HomeAssistantError) as err:
+        await _set_value(hass, REMINDER, 30)
+
+    assert err.value.translation_key == "not_connected"

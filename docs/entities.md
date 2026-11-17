@@ -8,7 +8,8 @@ Version 2.0.0 removed the LED color and Vibration intensity display sensors, whi
 entities, and the Vibration intensity number, which the desk does not support. Setting up the desk
 deletes them.
 
-All entities are enabled by default, and unavailable while the desk is not connected.
+All entities except Sit/stand reminder are enabled by default, and all are unavailable while the
+desk is not connected.
 Entities have no attributes of their own. Each value has its own entity.
 
 Heights are in centimetres, whatever unit the desk's display shows. To see the Height display
@@ -39,6 +40,7 @@ Category is the section of the device page that lists the entity: **Controls**, 
 | Upper height limit | `number.desky_desk_upper_height_limit` | Number | cm | Configuration |
 | Lower height limit | `number.desky_desk_lower_height_limit` | Number | cm | Configuration |
 | Vibration | `switch.desky_desk_vibration` | Switch | | Configuration |
+| Sit/stand reminder | `number.desky_desk_sit_stand_reminder` | Number | min | Configuration |
 | Collision sensitivity | `select.desky_desk_collision_sensitivity` | Select | | Configuration |
 | Touch mode | `select.desky_desk_touch_mode` | Select | | Configuration |
 | Display unit | `select.desky_desk_display_unit` | Select | | Configuration |
@@ -151,6 +153,17 @@ limits from an automation, use the [actions](actions.md).
 ### Vibration
 
 Turns the desk's vibration on or off.
+
+### Sit/stand reminder
+
+The interval of the desk controller's built-in reminder to change position, in minutes from 0 to
+90. 0 turns it off. The setting is stored on the desk. The desk confirms the change and reports
+the interval when the integration connects, so the entity shows what the desk has stored. The official app offers 30, 60 and 90 minutes; any whole number of minutes up to
+90 can be set here.
+
+This entity is disabled by default. Enable it in the entity's settings. For a reminder on your
+phone, or one that follows the posture sensor, see the
+[sit/stand reminder blueprint](blueprints.md#sitstand-reminder).
 
 ### Lock
 

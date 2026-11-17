@@ -111,10 +111,14 @@ V1_ENTITIES = {
 
 # Entities added since v1.0.x
 NEW_ENTITIES = {
+    ("number", "reminder"),
     ("sensor", "posture"),
     ("sensor", "sitting_time_today"),
     ("sensor", "standing_time_today"),
 }
+
+# Entities Home Assistant adds disabled, so they have no state until enabled
+DISABLED_BY_DEFAULT = {("number", "reminder")}
 
 # Entities removed since v1.0.x; setup deletes their registry entries
 REMOVED_ENTITIES = {
@@ -264,7 +268,9 @@ async def test_no_entity_has_extra_state_attributes(
         for platform in async_get_platforms(hass, DOMAIN)
         for entity in platform.entities.values()
     ]
-    assert len(entities) == len(V1_ENTITIES - REMOVED_ENTITIES) + len(NEW_ENTITIES)
+    assert len(entities) == len(
+        ((V1_ENTITIES - REMOVED_ENTITIES) | NEW_ENTITIES) - DISABLED_BY_DEFAULT
+    )
     for entity in entities:
         assert entity.extra_state_attributes is None, entity.entity_id
 
@@ -281,6 +287,7 @@ async def test_availability_follows_connection(
         for entry in er.async_entries_for_config_entry(
             entity_registry, init_integration.entry_id
         )
+        if entry.disabled_by is None
     ]
 
     disconnect_desk(mock_desk)

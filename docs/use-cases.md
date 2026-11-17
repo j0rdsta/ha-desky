@@ -125,7 +125,9 @@ See [automating the desk](safety.md#automating-the-desk) before you put movement
 ## Standing reminders
 
 For a plain reminder, import the [sit/stand reminder blueprint](blueprints.md#sitstand-reminder).
-It goes off once the posture sensor has shown **Sitting** for a set time.
+It goes off once the posture sensor has shown **Sitting** for a set time. The desk also has a
+reminder of its own, which works without Home Assistant: set it with the
+[Sit/stand reminder](entities.md#sitstand-reminder) entity.
 
 To have the reminder offer to raise the desk, write the automation yourself. This example waits
 until the posture sensor has said **Sitting** for 45 minutes, asks on your phone, and only moves the
