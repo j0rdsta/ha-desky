@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.1.0](https://github.com/j0rdsta/ha-desky/compare/v2.0.1...v2.1.0) (2026-11-17)
+
+
+### Features
+
+* discover desks by their Bluetooth service ([#64](https://github.com/j0rdsta/ha-desky/issues/64)) ([fbcc864](https://github.com/j0rdsta/ha-desky/commit/fbcc8644ff5990e1fe89b702f5880ea80f0bf060))
+* set the desk's sit/stand reminder ([#67](https://github.com/j0rdsta/ha-desky/issues/67)) ([e4e507a](https://github.com/j0rdsta/ha-desky/commit/e4e507adf9745512ea40db8869bde71eda3280d8))
+
 ## [2.0.1](https://github.com/j0rdsta/ha-desky/compare/v2.0.0...v2.0.1) (2026-10-22)
 
 
