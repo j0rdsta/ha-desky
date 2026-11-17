@@ -3,15 +3,16 @@
 from __future__ import annotations
 
 from homeassistant.components.number import (
+    NumberDeviceClass,
     NumberEntity,
     NumberEntityDescription,
     NumberMode,
 )
-from homeassistant.const import EntityCategory, UnitOfLength
+from homeassistant.const import EntityCategory, UnitOfLength, UnitOfTime
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from .const import MAX_HEIGHT, MIN_HEIGHT, HeightLimit
+from .const import MAX_HEIGHT, MAX_REMINDER_MINUTES, MIN_HEIGHT, HeightLimit
 from .coordinator import DeskUpdateCoordinator, DeskyConfigEntry
 from .entity import DeskEntity, desk_command
 from .validation import checked_height_limit, validate_move_to_height
@@ -52,6 +53,7 @@ async def async_setup_entry(
         [
             DeskyHeightNumber(coordinator),
             *(DeskHeightLimitNumber(coordinator, limit) for limit in HeightLimit),
+            DeskReminderNumber(coordinator),
         ]
     )
 
@@ -120,3 +122,34 @@ class DeskHeightLimitNumber(DeskEntity, NumberEntity):
             self.coordinator.data, self._device, self._limit, value
         )
         await self._device.set_height_limit(self._limit, value)
+
+
+class DeskReminderNumber(DeskEntity, NumberEntity):
+    """Minutes between the desk's own sit/stand reminders, 0 for off.
+
+    The desk reminds you itself, so the reminder works without Home Assistant.
+    """
+
+    _attr_native_min_value = 0
+    _attr_native_max_value = MAX_REMINDER_MINUTES
+    _attr_native_step = 1
+    _attr_native_unit_of_measurement = UnitOfTime.MINUTES
+    _attr_device_class = NumberDeviceClass.DURATION
+    _attr_mode = NumberMode.BOX
+    _attr_entity_category = EntityCategory.CONFIG
+    _attr_entity_registry_enabled_default = False
+    _attr_translation_key = "reminder"
+
+    def __init__(self, coordinator: DeskUpdateCoordinator) -> None:
+        """Initialize the reminder entity."""
+        super().__init__(coordinator, "reminder")
+
+    @property
+    def native_value(self) -> int | None:
+        """Return the reminder interval the desk reported, in minutes."""
+        return self.coordinator.data.reminder_minutes
+
+    @desk_command
+    async def async_set_native_value(self, value: float) -> None:
+        """Set the interval; the desk answers with the one it stored."""
+        await self._device.set_reminder(round(value))

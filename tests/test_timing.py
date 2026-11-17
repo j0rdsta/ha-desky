@@ -22,6 +22,7 @@ from custom_components.desky_desk.const import (
     COMMAND_GET_LIGHTING,
     COMMAND_GET_LIMITS,
     COMMAND_GET_LOCK_STATUS,
+    COMMAND_GET_REMINDER,
     COMMAND_GET_STATUS,
     COMMAND_GET_VIBRATION,
     COMMAND_HANDSHAKE,
@@ -142,6 +143,9 @@ VIBRATION_OFF = "f1f1b30100b47e"
             (1,),
             [(0.0, H), (0.5, "f1f11901011b7e"), (1.0, H), (1.0, STATUS)],
         ),
+        # Reminder: the set once at 500 ms, which the desk answers itself
+        # (30 minutes = 0x1E; checksum = (0xB1 + 0x01 + 0x1E) & 0xFF = 0xD0)
+        ("set_reminder", (30,), [(0.0, H), (0.5, "f1f1b1011ed07e")]),
         # Colour and brightness: twice, 100 ms apart
         (
             "set_light_color",
@@ -996,7 +1000,8 @@ async def test_connect_spaces_the_queries(
         (0.6, COMMAND_GET_BRIGHTNESS.hex()),
         (0.8, COMMAND_GET_VIBRATION.hex()),
         (1.0, COMMAND_GET_LOCK_STATUS.hex()),
-        (1.2, COMMAND_GET_LIMITS.hex()),
+        (1.2, COMMAND_GET_REMINDER.hex()),
+        (1.4, COMMAND_GET_LIMITS.hex()),
     ]
 
 

@@ -25,6 +25,7 @@ from .const import (
     COMMAND_GET_LIGHTING,
     COMMAND_GET_LIMITS,
     COMMAND_GET_LOCK_STATUS,
+    COMMAND_GET_REMINDER,
     COMMAND_GET_STATUS,
     COMMAND_GET_VIBRATION,
     COMMAND_HANDSHAKE,
@@ -49,9 +50,11 @@ from .const import (
     LOCK_STATUS_RESPONSE_HEADER,
     MANUFACTURER_NAME_CHAR_UUID,
     MAX_HEIGHT,
+    MAX_REMINDER_MINUTES,
     MIN_HEIGHT,
     MODEL_NUMBER_CHAR_UUID,
     NOTIFY_CHARACTERISTIC_UUID,
+    REMINDER_RESPONSE_HEADER,
     SENSITIVITY_RESPONSE_HEADER,
     SERIAL_NUMBER_CHAR_UUID,
     SOFTWARE_REVISION_CHAR_UUID,
@@ -122,7 +125,7 @@ LIMIT_COMMANDS = {HeightLimit.UPPER: 0x21, HeightLimit.LOWER: 0x22}
 # Frame timing, copied from the official Desky app. Times are seconds after a
 # sequence starts, as the app schedules its writes.
 SWITCH_SETTING_TIMES = (0.2, 0.4)  # lock, vibration, lighting
-MODE_SETTING_TIMES = (0.5,)  # collision sensitivity, touch mode
+MODE_SETTING_TIMES = (0.5,)  # collision sensitivity, touch mode, reminder
 LIGHT_SETTING_TIMES = (0.0, 0.1)  # LED colour, brightness
 UNIT_SETTING_TIMES = (0.0, 0.1, 0.2)
 CLEAR_LIMITS_TIMES = (0.0, 0.2)
@@ -274,6 +277,7 @@ class DeskBLEDevice:
         self._lighting_enabled: bool | None = None
         self._vibration_enabled: bool | None = None
         self._lock_status: bool = False
+        self._reminder_minutes: int | None = None
         self._sensitivity_level: int | None = None
         self._limits = HeightLimits()
         # A limit is set as a sequence that clears both and sends both again,
@@ -356,6 +360,11 @@ class DeskBLEDevice:
     def lock_status(self) -> bool:
         """Return if desk controls are locked."""
         return self._lock_status
+
+    @property
+    def reminder_minutes(self) -> int | None:
+        """Return the minutes between sit/stand reminders, 0 for off."""
+        return self._reminder_minutes
 
     @property
     def sensitivity_level(self) -> int | None:
@@ -894,6 +903,10 @@ class DeskBLEDevice:
         """Request current lock status."""
         await self._send_command(COMMAND_GET_LOCK_STATUS)
 
+    async def get_reminder(self) -> None:
+        """Request the sit/stand reminder interval."""
+        await self._send_command(COMMAND_GET_REMINDER)
+
     async def get_limits(self) -> None:
         """Request current height limit settings."""
         await self._send_command(COMMAND_GET_LIMITS)
@@ -933,6 +946,18 @@ class DeskBLEDevice:
         # Shown at once; the desk confirms it in its next lock status report
         self._lock_status = locked
         self._notify_callbacks()
+
+    async def set_reminder(self, minutes: int) -> None:
+        """Set the minutes between sit/stand reminders (0 turns it off).
+
+        The desk answers with the interval it stored, which updates the value.
+        """
+        if not 0 <= minutes <= MAX_REMINDER_MINUTES:
+            raise ValueError(
+                f"Invalid reminder: {minutes} (must be 0-{MAX_REMINDER_MINUTES})"
+            )
+        command = self._create_command_with_byte_param(0xB1, minutes)
+        await self._send_setting(command, MODE_SETTING_TIMES)
 
     async def set_sensitivity(self, level: int) -> None:
         """Set collision sensitivity level (1=High, 2=Medium, 3=Low)."""
@@ -1104,6 +1129,7 @@ class DeskBLEDevice:
             COMMAND_GET_BRIGHTNESS,
             COMMAND_GET_VIBRATION,
             COMMAND_GET_LOCK_STATUS,
+            COMMAND_GET_REMINDER,
             COMMAND_GET_LIMITS,
         ]
         await self._sequencer.run_setting(
@@ -1310,6 +1336,11 @@ class DeskBLEDevice:
         elif len(data) >= 6 and bytes(data[:4]) == LOCK_STATUS_RESPONSE_HEADER:
             self._lock_status = data[4] != 0
             _LOGGER.debug("Lock status response: %s", self._lock_status)
+
+        # Check for sit/stand reminder response, to a query or a set
+        elif len(data) >= 6 and bytes(data[:4]) == REMINDER_RESPONSE_HEADER:
+            self._reminder_minutes = data[4]
+            _LOGGER.debug("Reminder response: %s min", self._reminder_minutes)
 
         # Check for sensitivity response
         elif len(data) >= 6 and bytes(data[:4]) == SENSITIVITY_RESPONSE_HEADER:
@@ -1754,6 +1785,8 @@ class DeskBLEDevice:
         self._touch_mode = None
         self._sensitivity_level = None
         self._limits = HeightLimits()
+        # The official app can change the reminder only while it holds the link
+        self._reminder_minutes = None
 
     def _handle_disconnect(self, client: BleakClient) -> None:
         """Handle disconnection from the desk."""

@@ -79,6 +79,9 @@
       },
       "height_limit_upper": {
         "name": "Upper height limit"
+      },
+      "reminder": {
+        "name": "Sit/stand reminder"
       }
     },
     "select": {

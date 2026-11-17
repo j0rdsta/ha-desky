@@ -33,6 +33,12 @@
       },
       "height_limit_upper": {
         "default": "mdi:arrow-collapse-up"
+      },
+      "reminder": {
+        "default": "mdi:bell-ring",
+        "range": {
+          "0": "mdi:bell-off"
+        }
       }
     },
     "select": {

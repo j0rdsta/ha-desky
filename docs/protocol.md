@@ -55,6 +55,7 @@ The checksum is the sum of the command, length and data bytes, `& 0xFF`.
 | Preset 4 | `F1 F1 28 00 28 7E` |
 | Get height limits | `F1 F1 0C 00 0C 7E` |
 | Clear height limits | `F1 F1 23 00 23 7E` |
+| Get sit/stand reminder | `F1 F1 B1 00 B1 7E` |
 | Get lock status | `F1 F1 B2 00 B2 7E` |
 | Get vibration | `F1 F1 B3 00 B3 7E` |
 | Get light colour | `F1 F1 B4 00 B4 7E` |
@@ -82,6 +83,7 @@ F1 F1 <command> 01 <value> <checksum> 7E
 | `0x0E` | Display unit | 0 cm, 1 inches |
 | `0x19` | Touch mode | 0 one press, 1 press and hold |
 | `0x1D` | Collision sensitivity | 1 high, 2 medium, 3 low |
+| `0xB1` | Sit/stand reminder | Minutes, 0 off. The app allows up to 90; the desk stores any value up to 255 |
 | `0xB2` | Lock | 0 unlocked, 1 locked |
 | `0xB3` | Vibration | 0 off, 1 on |
 | `0xB4` | Light colour | 1-7, see below |
@@ -119,7 +121,7 @@ frame of the command.
 | Command | Frames |
 | --- | --- |
 | Lock, vibration, lighting on or off | Handshake, then the setting at 200 ms and 400 ms |
-| Collision sensitivity, touch mode | Handshake, then the setting once at 500 ms |
+| Collision sensitivity, touch mode, sit/stand reminder | Handshake, then the setting once at 500 ms |
 | LED colour, brightness | Handshake, then the setting at 0 and 100 ms |
 | Display unit | Handshake, then the setting at 0, 100 and 200 ms |
 | Clear height limits | Handshake, then clear at 0 and 200 ms, then the limit query |
@@ -235,11 +237,25 @@ Setting responses start with `F2 F2 <command> <length>`:
 | `F2 F2 20 01` | Height limits set | `00` none, `01` upper only, `10` lower only, `11` both |
 | `F2 F2 21 02` | Upper limit | Two bytes, big-endian |
 | `F2 F2 22 02` | Lower limit | Two bytes, big-endian |
+| `F2 F2 B1 01` | Sit/stand reminder | Minutes, 0 off. Sent for the query and for every set |
 | `F2 F2 B2 01` | Lock | 0 unlocked, 1 locked |
 | `F2 F2 B3 01` | Vibration | 0 off, 1 on |
 | `F2 F2 B4 01` | Light colour | 1 white, 2 red, 3 green, 4 blue, 5 yellow, 6 party mode, 7 off. 0 also means off: the official app sets it to turn the LED off |
 | `F2 F2 B5 01` | Lighting | 0 off, 1 on |
 | `F2 F2 B6 01` | Brightness | 0-100 |
+
+### The sit/stand reminder
+
+The desk answers the reminder query (`F1 F1 B1 00 B1 7E`) with `F2 F2 B1 01 <minutes>`, and
+answers every set with the same frame, carrying the value it stored. The settings block does not
+include it. The official app never sends the query: it shows the value it saved itself, and it
+runs a phone notification timer of its own alongside the desk's reminder. The app limits the
+reminder to 90 minutes, but the desk was seen to store and report 91, 120 and 255 as well.
+
+On the L-BTMEB95 controller the reminder goes off once per set: after the interval the desk beeps
+for about 30 seconds and shows an icon until a button is pressed. Dismissing it or moving the desk
+did not start the countdown again, but setting the interval again did. The desk sends no frame
+when the reminder goes off.
 
 ### The settings block
 

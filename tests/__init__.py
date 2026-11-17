@@ -30,6 +30,7 @@ CONNECTED_DESK = DeskData(
     lighting_enabled=True,
     vibration_enabled=True,
     lock_status=False,
+    reminder_minutes=30,
     sensitivity_level=2,  # Medium
     height_limit_upper=120.0,
     height_limit_lower=65.0,

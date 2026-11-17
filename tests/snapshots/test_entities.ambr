@@ -189,6 +189,17 @@
       'translation_key': 'height_limit_lower',
       'unique_id': 'AA:BB:CC:DD:EE:FF_height_limit_lower',
     }),
+    'number.desky_desk_sit_stand_reminder': dict({
+      'attributes': None,
+      'disabled_by': 'integration',
+      'entity_category': 'config',
+      'original_device_class': 'duration',
+      'original_name': 'Sit/stand reminder',
+      'platform': 'desky_desk',
+      'state': None,
+      'translation_key': 'reminder',
+      'unique_id': 'AA:BB:CC:DD:EE:FF_reminder',
+    }),
     'number.desky_desk_upper_height_limit': dict({
       'attributes': dict({
         'friendly_name': 'Desky Desk Upper height limit',
