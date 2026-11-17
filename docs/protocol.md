@@ -252,6 +252,11 @@ include it. The official app never sends the query: it shows the value it saved 
 runs a phone notification timer of its own alongside the desk's reminder. The app limits the
 reminder to 90 minutes, but the desk was seen to store and report 91, 120 and 255 as well.
 
+On the L-BTMEB95 controller the reminder goes off once per set: after the interval the desk beeps
+for about 30 seconds and shows an icon until a button is pressed. Dismissing it or moving the desk
+did not start the countdown again, but setting the interval again did. The desk sends no frame
+when the reminder goes off.
+
 ### The settings block
 
 The desk has no query for the display unit or touch mode on their own. It sends a block of settings

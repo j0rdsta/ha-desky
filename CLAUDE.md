@@ -182,7 +182,7 @@ Additional device features send responses with specific headers:
    - Value: 0=Unlocked, 1=Locked
 
 4. **Sit/stand reminder Response** (0xF2 0xF2 0xB1 0x01):
-   - Value: minutes between the desk's reminders, 0=off. Sent for the query (`F1 F1 B1 00`) and for every set (`F1 F1 B1 01 NN`), with the value stored. Not in the settings block. The official app never queries it, keeps its own copy and runs a phone timer of its own; it allows up to 90 minutes (`MAX_REMINDER_MINUTES`), though the desk stores and reports any byte. A disconnect forgets it, since the app can change it only while HA is disconnected
+   - Value: minutes between the desk's reminders, 0=off. Sent for the query (`F1 F1 B1 00`) and for every set (`F1 F1 B1 01 NN`), with the value stored. Not in the settings block. The official app never queries it, keeps its own copy and runs a phone timer of its own; it allows up to 90 minutes (`MAX_REMINDER_MINUTES`), though the desk stores and reports any byte. A disconnect forgets it, since the app can change it only while HA is disconnected. Measured on the L-BTMEB95: it fires once per set (about 30 s of beeping, then an icon until a button press); dismissing it or moving the desk does not re-arm it, setting it again does; no frame is sent when it fires
 
 5. **Sensitivity Response** (0xF2 0xF2 0x1D 0x01):
    - Values: 1=High, 2=Medium, 3=Low

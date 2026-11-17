@@ -158,12 +158,36 @@ Turns the desk's vibration on or off.
 
 The interval of the desk controller's built-in reminder to change position, in minutes from 0 to
 90. 0 turns it off. The setting is stored on the desk. The desk confirms the change and reports
-the interval when the integration connects, so the entity shows what the desk has stored. The official app offers 30, 60 and 90 minutes; any whole number of minutes up to
-90 can be set here.
+the interval when the integration connects, so the entity shows what the desk has stored. The
+official app offers 30, 60 and 90 minutes; any whole number of minutes up to 90 can be set here.
+
+How the reminder behaved on an L-BTMEB95 controller:
+
+- Once the interval has passed, the desk beeps for about 30 seconds and shows a sit-to-stand icon.
+  The beeping stops by itself; the icon stays until you press a button on the hand controller.
+- It goes off once. Dismissing it or moving the desk did not start the countdown again; setting
+  the interval again did. While an earlier reminder's icon is still showing, the next one shows
+  the icon without beeping.
+- The desk tells Home Assistant nothing when the reminder goes off.
+
+So to be reminded every time you sit down, set the interval again whenever you do:
+
+```yaml
+alias: Restart the desk's sit/stand reminder
+triggers:
+  - trigger: state
+    entity_id: sensor.desky_desk_posture
+    to: sitting
+actions:
+  - action: number.set_value
+    target:
+      entity_id: number.desky_desk_sit_stand_reminder
+    data:
+      value: 45
+```
 
 This entity is disabled by default. Enable it in the entity's settings. For a reminder on your
-phone, or one that follows the posture sensor, see the
-[sit/stand reminder blueprint](blueprints.md#sitstand-reminder).
+phone, see the [sit/stand reminder blueprint](blueprints.md#sitstand-reminder).
 
 ### Lock
 
