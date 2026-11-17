@@ -6,6 +6,9 @@ from typing import Final
 DOMAIN: Final = "desky_desk"
 
 # BLE Service and Characteristic UUIDs
+# The desk service, advertised by the controller. 0xFE60 is the BLE module
+# maker's (Lierda) member UUID, so other products may advertise it too.
+SERVICE_UUID: Final = "0000fe60-0000-1000-8000-00805f9b34fb"
 WRITE_CHARACTERISTIC_UUID: Final = "0000fe61-0000-1000-8000-00805f9b34fb"
 NOTIFY_CHARACTERISTIC_UUID: Final = "0000fe62-0000-1000-8000-00805f9b34fb"
 

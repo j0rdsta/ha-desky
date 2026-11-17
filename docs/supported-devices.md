@@ -2,8 +2,9 @@
 
 ## Supported desks
 
-The integration works with Desky desks whose controller has Bluetooth built in. Such a desk
-advertises a Bluetooth name that starts with `Desky`, which is how Home Assistant discovers it.
+The integration works with Desky desks whose controller has Bluetooth built in. Home Assistant
+discovers such a desk by its Bluetooth service (`fe60`), or by a Bluetooth name that starts with
+`Desky`.
 
 Desky desks use more than one controller, and controllers differ in firmware. The integration
 handles the differences it knows about:
@@ -20,6 +21,18 @@ The integration has been developed against an L-BTMEB95 desk controller. If you 
 Desky controller and something does not work, [open an issue](https://github.com/j0rdsta/ha-desky/issues)
 with a debug log (see [Troubleshooting](troubleshooting.md#debug-logging)).
 
+### Other desks known to work
+
+Desks from other brands that use the same Bluetooth controller work too, and are discovered the
+same way, whatever name they advertise.
+
+| Desk | Control box | Hand controller | Bluetooth name |
+| --- | --- | --- | --- |
+| Stand Desk Essential | JCB36N2H | JCHT35K23S-2-01/V4-G/05-10H-2D0-O/C-1 | `BLE Device` and the end of its address |
+
+If another desk works for you, [open an issue](https://github.com/j0rdsta/ha-desky/issues) and
+it can be added here.
+
 ## Unsupported devices
 
 These are not supported:
@@ -28,9 +41,10 @@ These are not supported:
   cannot see or reach the desk.
 - **A desk with an Upsy Desky connected.** The Upsy Desky and this integration cannot control the
   desk at the same time. See [Upsy Desky](#upsy-desky).
-- **Desks from other brands.** They are not tested. A desk that uses the same Bluetooth controller
-  may work, but Home Assistant only discovers it if its Bluetooth name starts with `Desky`. A desk
-  that is not discovered can still be added by its Bluetooth address. If you try one,
+- **Desks with a different Bluetooth controller.** A desk from another brand works only if it
+  uses the same controller (see [Other desks known to work](#other-desks-known-to-work)). One that
+  does not advertise the `fe60` service is not discovered; it can still be added by its Bluetooth
+  address, and setup checks that it answers like a desk. If you try one,
   [open an issue](https://github.com/j0rdsta/ha-desky/issues) with the result.
 
 ## Upsy Desky

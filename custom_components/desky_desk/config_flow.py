@@ -34,7 +34,9 @@ from .const import (
     DOMAIN,
     MAX_HEIGHT,
     MIN_HEIGHT,
+    SERVICE_UUID,
 )
+from .errors import DeskError
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -108,9 +110,9 @@ class DeskyConfigFlow(ConfigFlow, domain=DOMAIN):
         # Offer the desks in range that are not set up yet
         configured = self._async_current_ids(include_ignore=False)
         self._discovered_devices = {
-            info.address: f"{info.name} ({info.address})"
+            info.address: f"{_desk_name(info)} ({info.address})"
             for info in async_discovered_service_info(self.hass)
-            if info.name.startswith("Desky") and info.address not in configured
+            if _looks_like_desk(info) and info.address not in configured
         }
 
         if self._discovered_devices:
@@ -205,17 +207,39 @@ class DeskyOptionsFlow(OptionsFlowWithReload):
 
 
 async def _async_can_connect(discovery_info: BluetoothServiceInfoBleak) -> bool:
-    """Return whether the desk accepts a connection, then disconnect again."""
+    """Return whether the desk connects and reports its height, then disconnect.
+
+    The desk's Bluetooth service belongs to its BLE module, so other devices
+    may have it too. Only a desk answers the status request with a height.
+    """
     device = DeskBLEDevice(discovery_info.device)
     try:
-        return await device.connect()
+        if not await device.connect():
+            return False
+        await device.await_height()
+    except DeskError as err:
+        _LOGGER.debug("%s did not report a height: %s", discovery_info.address, err)
+        return False
     finally:
         await device.disconnect()
+    return True
+
+
+def _looks_like_desk(info: BluetoothServiceInfoBleak) -> bool:
+    """Return whether an advertisement matches the manifest's matchers."""
+    return info.name.startswith("Desky") or SERVICE_UUID in info.service_uuids
 
 
 def _desk_name(discovery_info: BluetoothServiceInfoBleak) -> str:
-    """Return the name the desk advertises, or a generic one."""
-    return discovery_info.name or "Desky Desk"
+    """Return the name the desk advertises, or a generic one.
+
+    The desk's name comes in its scan response, so a desk discovered by its
+    service may not have one yet; Home Assistant then names it by its address.
+    """
+    name = discovery_info.name
+    if not name or name.upper() == discovery_info.address:
+        return "Desky Desk"
+    return name
 
 
 def _parse_address(text: str) -> str | None:

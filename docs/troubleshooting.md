@@ -6,9 +6,9 @@
 - Check that Home Assistant has a working Bluetooth adapter or proxy within range of the desk:
   **Settings → Devices & services → Bluetooth** lists them, and the advertisement monitor there
   shows the devices each one hears.
-- Look for a device named `Desky…`. Only names that start with `Desky` are discovered
-  automatically. If your desk has a different name, add it by its Bluetooth address instead (see
-  [Configuration](configuration.md#adding-the-desk-yourself)).
+- Look for the desk in the advertisement monitor. A desk is discovered if it advertises the
+  `0000fe60-…` service or its name starts with `Desky`. A desk that does neither can still be
+  added by its Bluetooth address (see [Configuration](configuration.md#adding-the-desk-yourself)).
 - The desk accepts one Bluetooth connection at a time. Close the Desky app on any phone or tablet.
 
 ## Adding the desk fails
